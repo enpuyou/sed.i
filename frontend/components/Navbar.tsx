@@ -38,7 +38,22 @@ function NavLink({
   );
 }
 
-export default function Navbar() {
+interface NavbarProps {
+  // Writing mode: replaces nav links with writing controls
+  writingMode?: boolean;
+  onWritingClose?: () => void;
+  onWritingFocus?: () => void;
+  onWritingExport?: () => void;
+  writingFocusActive?: boolean;
+}
+
+export default function Navbar({
+  writingMode = false,
+  onWritingClose,
+  onWritingFocus,
+  onWritingExport,
+  writingFocusActive = false,
+}: NavbarProps = {}) {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
@@ -114,23 +129,59 @@ export default function Navbar() {
             </div>
           </div>
 
-          {/* Right: Navigation Links & Theme Toggle (Desktop) */}
+          {/* Right: Writing controls OR Navigation Links */}
           <div className="hidden md:flex items-center justify-end gap-2 w-1/4">
-            <ThemeToggle />
-            <NavLink href="/dashboard" active={isQueueActive}>
-              Queue
-            </NavLink>
-            <NavLink href="/lists" active={isListsActive}>
-              Lists
-            </NavLink>
-            {SHOW_CRATES && (
-              <NavLink href="/crates" active={isCratesActive}>
-                Crates
-              </NavLink>
+            {writingMode ? (
+              <>
+                <ThemeToggle />
+                <button
+                  onClick={onWritingFocus}
+                  className={`compact-touch text-xs px-2 py-0.5 leading-none rounded-none border transition-colors ${
+                    writingFocusActive
+                      ? "bg-[var(--color-bg-secondary)] border-[var(--color-accent)]"
+                      : "bg-[var(--color-bg-secondary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
+                  }`}
+                  style={{ color: "var(--color-text-primary)" }}
+                  title="Toggle focus mode"
+                >
+                  Focus
+                </button>
+                <button
+                  onClick={onWritingExport}
+                  className="compact-touch text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:border-[var(--color-accent)] transition-colors"
+                  style={{ color: "var(--color-text-primary)" }}
+                  title="Export as Markdown"
+                >
+                  Export .md
+                </button>
+                <button
+                  onClick={onWritingClose}
+                  className="compact-touch text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:border-[var(--color-accent)] transition-colors"
+                  style={{ color: "var(--color-text-primary)" }}
+                  title="Close writing mode"
+                >
+                  ✕ Close
+                </button>
+              </>
+            ) : (
+              <>
+                <ThemeToggle />
+                <NavLink href="/dashboard" active={isQueueActive}>
+                  Queue
+                </NavLink>
+                <NavLink href="/lists" active={isListsActive}>
+                  Lists
+                </NavLink>
+                {SHOW_CRATES && (
+                  <NavLink href="/crates" active={isCratesActive}>
+                    Crates
+                  </NavLink>
+                )}
+                <NavLink href="/settings" active={isSettingsActive}>
+                  Settings
+                </NavLink>
+              </>
             )}
-            <NavLink href="/settings" active={isSettingsActive}>
-              Settings
-            </NavLink>
           </div>
 
           {/* Mobile: Mini Player, Theme Toggle and Menu Button */}

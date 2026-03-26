@@ -7,6 +7,7 @@ from app.core.deps import get_current_active_user
 from app.models.user import User
 from app.models.list import List, content_list_membership
 from app.models.content import ContentItem
+from app.models.highlight import Highlight
 from app.schemas.list import (
     ListCreate,
     ListUpdate,
@@ -16,6 +17,7 @@ from app.schemas.list import (
     RemoveContentFromList,
 )
 from app.schemas.content import ContentItemResponse
+from app.schemas.highlight import HighlightResponse
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -307,3 +309,44 @@ def delete_list(
     db.commit()
 
     return None
+
+
+@router.get("/{list_id}/highlights", response_model=list[HighlightResponse])
+def get_list_highlights(
+    list_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get all highlights across all content items in a list.
+    Used by the writing workspace source pane.
+    """
+    # Verify list exists and belongs to user
+    list_obj = (
+        db.query(List)
+        .filter(List.id == list_id, List.owner_id == current_user.id)
+        .first()
+    )
+    if not list_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="List not found"
+        )
+
+    # Get all highlights for content items in this list
+    highlights = (
+        db.query(Highlight)
+        .join(ContentItem, Highlight.content_item_id == ContentItem.id)
+        .join(
+            content_list_membership,
+            ContentItem.id == content_list_membership.c.content_item_id,
+        )
+        .filter(
+            content_list_membership.c.list_id == list_id,
+            Highlight.user_id == current_user.id,
+            ContentItem.deleted_at.is_(None),
+        )
+        .order_by(Highlight.created_at.desc())
+        .all()
+    )
+
+    return highlights

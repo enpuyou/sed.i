@@ -363,6 +363,42 @@ export const listsAPI = {
       body: JSON.stringify({ content_item_ids: contentItemIds }),
     });
   },
+
+  // Get all highlights for all content in a list (GET /lists/{list_id}/highlights)
+  getHighlights: async (listId: string) => {
+    return fetchWithAuth(`${API_BASE_URL}/lists/${listId}/highlights`);
+  },
+};
+
+// Drafts API — writing workspace
+export const draftsAPI = {
+  // Get draft for a list (GET /lists/{list_id}/draft)
+  get: async (listId: string) => {
+    return fetchWithAuth(`${API_BASE_URL}/lists/${listId}/draft`);
+  },
+
+  // Create draft (POST /lists/{list_id}/draft)
+  create: async (listId: string, data: { content?: string; title?: string; word_count?: number }) => {
+    return fetchWithAuth(`${API_BASE_URL}/lists/${listId}/draft`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Update draft — autosave target; auto-creates if missing (PATCH /lists/{list_id}/draft)
+  update: async (listId: string, data: { content?: string; title?: string; word_count?: number }) => {
+    return fetchWithAuth(`${API_BASE_URL}/lists/${listId}/draft`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Delete draft (DELETE /lists/{list_id}/draft)
+  delete: async (listId: string) => {
+    return fetchWithAuth(`${API_BASE_URL}/lists/${listId}/draft`, {
+      method: "DELETE",
+    });
+  },
 };
 
 // Search API - matches your /search endpoints (for future use)

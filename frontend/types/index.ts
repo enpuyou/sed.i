@@ -91,3 +91,26 @@ export interface List {
   updated_at: string;
   content_count?: number;
 }
+
+export interface Draft {
+  id: string;
+  list_id: string;
+  user_id: string;
+  title: string | null;
+  content: string;
+  word_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Highlight {
+  id: string;
+  content_item_id: string;
+  user_id: string;
+  text: string;
+  note: string | null;
+  start_offset: number;
+  end_offset: number;
+  color: string;
+  created_at: string;
+}
