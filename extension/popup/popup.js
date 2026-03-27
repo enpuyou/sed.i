@@ -10,9 +10,9 @@
  *   result → shows success/error after saving
  */
 
-const DEFAULT_API_BASE = 'https://content-queue-fast-api-production.up.railway.app';
+const DEFAULT_API_BASE = 'https://api.read-sedi.com';
 // The frontend app URL (separate from the API — hosted on Vercel)
-const DEFAULT_FRONTEND_BASE = 'https://read-sedi.vercel.app';
+const DEFAULT_FRONTEND_BASE = 'https://www.read-sedi.com';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 

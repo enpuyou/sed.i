@@ -378,7 +378,10 @@ export const draftsAPI = {
   },
 
   // Create draft (POST /lists/{list_id}/draft)
-  create: async (listId: string, data: { content?: string; title?: string; word_count?: number }) => {
+  create: async (
+    listId: string,
+    data: { content?: string; title?: string; word_count?: number },
+  ) => {
     return fetchWithAuth(`${API_BASE_URL}/lists/${listId}/draft`, {
       method: "POST",
       body: JSON.stringify(data),
@@ -386,7 +389,10 @@ export const draftsAPI = {
   },
 
   // Update draft — autosave target; auto-creates if missing (PATCH /lists/{list_id}/draft)
-  update: async (listId: string, data: { content?: string; title?: string; word_count?: number }) => {
+  update: async (
+    listId: string,
+    data: { content?: string; title?: string; word_count?: number },
+  ) => {
     return fetchWithAuth(`${API_BASE_URL}/lists/${listId}/draft`, {
       method: "PATCH",
       body: JSON.stringify(data),

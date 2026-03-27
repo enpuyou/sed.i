@@ -595,7 +595,6 @@ button:focus-visible {
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-
   *,
   *::before,
   *::after {
@@ -612,7 +611,6 @@ button:focus-visible {
 
 /* Mobile-first spacing adjustments */
 @media (max-width: 640px) {
-
   /* Touch-friendly targets on mobile — opt out with .compact-touch */
   button:not(.compact-touch),
   a:not(.compact-touch) {
@@ -692,7 +690,6 @@ button:focus-visible {
 
 /* Tablet optimizations */
 @media (min-width: 641px) and (max-width: 1024px) {
-
   /* Slightly smaller gap on tablet */
   .gap-8 {
     gap: 1.5rem;
@@ -701,7 +698,6 @@ button:focus-visible {
 
 /* Print styles for editorial elegance */
 @media print {
-
   /* Hide interactive elements */
   button,
   nav,
@@ -875,7 +871,6 @@ a {
 
 /* Retro typewriter animation */
 @keyframes blink {
-
   0%,
   100% {
     opacity: 1;
@@ -1264,9 +1259,9 @@ h4:hover .heading-anchor {
 }
 
 /* First header after article start - reduce top margin */
-#reader-content>h2:first-child,
-#reader-content>h3:first-child,
-#reader-content>h4:first-child {
+#reader-content > h2:first-child,
+#reader-content > h3:first-child,
+#reader-content > h4:first-child {
   margin-top: 0 !important;
 }
 
@@ -1314,9 +1309,9 @@ h4:hover .heading-anchor {
 }
 
 /* Tighter spacing when paragraph follows a header */
-#reader-content h2+p,
-#reader-content h3+p,
-#reader-content h4+p {
+#reader-content h2 + p,
+#reader-content h3 + p,
+#reader-content h4 + p {
   margin-top: 0 !important;
 }
 
@@ -1425,18 +1420,18 @@ h4:hover .heading-anchor {
 }
 
 /* Adaptive spacing - reduce gaps between related elements */
-#reader-content h2+h3,
-#reader-content h3+h4 {
+#reader-content h2 + h3,
+#reader-content h3 + h4 {
   margin-top: 0.5rem !important;
 }
 
 /* Lists after headers */
-#reader-content h2+ul,
-#reader-content h2+ol,
-#reader-content h3+ul,
-#reader-content h3+ol,
-#reader-content h4+ul,
-#reader-content h4+ol {
+#reader-content h2 + ul,
+#reader-content h2 + ol,
+#reader-content h3 + ul,
+#reader-content h3 + ol,
+#reader-content h4 + ul,
+#reader-content h4 + ol {
   margin-top: 0.5em !important;
 }
 
@@ -1573,16 +1568,20 @@ h4:hover .heading-anchor {
 
 /* Fade mask for marquee edges */
 .mask-linear-fade {
-  mask-image: linear-gradient(to right,
-      transparent 0%,
-      black 8%,
-      black 92%,
-      transparent 100%);
-  -webkit-mask-image: linear-gradient(to right,
-      transparent 0%,
-      black 8%,
-      black 92%,
-      transparent 100%);
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 8%,
+    black 92%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 8%,
+    black 92%,
+    transparent 100%
+  );
 }
 
 /* ========================================
@@ -1720,6 +1719,12 @@ h4:hover .heading-anchor {
   /* width set inline via splitPercent */
 }
 
+.writing-left-pane[data-narrow="true"] .content-item-thumbnail,
+.writing-left-pane[data-narrow="true"] .content-item-description,
+.writing-left-pane[data-narrow="true"] .content-item-tags {
+  display: none;
+}
+
 /* Scrollable area inside left pane */
 .writing-left-scroll {
   display: flex;
@@ -1736,7 +1741,7 @@ h4:hover .heading-anchor {
   cursor: pointer;
 }
 
-/* Draggable resize divider — invisible by default, appears on hover */
+/* Draggable resize divider — invisible, no visual line */
 .writing-resize-divider {
   width: 9px;
   flex-shrink: 0;
@@ -1746,24 +1751,7 @@ h4:hover .heading-anchor {
   z-index: 5;
 }
 
-.writing-resize-divider::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  left: 4px;
-  width: 1px;
-  background: var(--color-accent);
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-
-.writing-resize-divider:hover::after,
-.writing-resize-divider:active::after,
-.writing-resize-divider.divider-visible::after {
-  opacity: 0.35;
-}
-
-/* Right pane: editor — canvas board feel */
+/* Right pane: editor */
 .writing-right-pane {
   display: flex;
   flex-direction: column;
@@ -1771,18 +1759,22 @@ h4:hover .heading-anchor {
   min-width: 0;
   overflow: hidden;
   background: var(--color-bg-primary);
-  padding: 16px;
   animation: editor-slide-in 280ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Workspace floats inside right pane with equal breathing room */
+.writing-right-pane .writing-workspace-inline {
+  margin: 0 12px 12px 12px;
+  flex: 1;
+  min-height: 0;
 }
 
 @keyframes editor-slide-in {
   from {
     opacity: 0;
-    transform: translateX(16px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
   }
 }
 
@@ -1793,8 +1785,12 @@ h4:hover .heading-anchor {
   flex-direction: column;
   flex: 1;
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-text-muted);
   background: var(--color-bg-primary);
+}
+
+.dark .writing-workspace-inline {
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 /* ── STANDALONE writing workspace (kept for /write route) ── */
@@ -1935,6 +1931,7 @@ h4:hover .heading-anchor {
   flex-direction: column;
   height: 100%;
   position: relative;
+  padding-top: 1.25rem;
 }
 
 /* Vanishing chrome: elements with class vanishing-chrome fade when typing */
@@ -1950,8 +1947,6 @@ h4:hover .heading-anchor {
   transition: opacity 0.8s ease;
 }
 
-
-
 /* ── Scroll area with typewriter padding ── */
 
 .typewriter-scroll-container {
@@ -1962,7 +1957,7 @@ h4:hover .heading-anchor {
 }
 
 .writing-scroll-area {
-  padding: 3rem 0 50vh;
+  padding: 1.5rem 0 50vh;
 }
 
 /* ── Prose column — the actual writing column ── */
@@ -1980,7 +1975,8 @@ h4:hover .heading-anchor {
 /* ── Tiptap editor content typography ── */
 
 .writing-editor-inner {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family:
+    "Berkeley Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
   font-size: 16px;
   line-height: 1.75;
   color: var(--color-text-primary);
@@ -1995,7 +1991,8 @@ h4:hover .heading-anchor {
 }
 
 .writing-editor-inner h1 {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family:
+    "Berkeley Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
   font-size: 1.6em;
   font-weight: 600;
   margin-top: 2em;
@@ -2006,7 +2003,8 @@ h4:hover .heading-anchor {
 }
 
 .writing-editor-inner h2 {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family:
+    "Berkeley Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
   font-size: 1.25em;
   font-weight: 600;
   margin-top: 1.75em;
@@ -2016,7 +2014,8 @@ h4:hover .heading-anchor {
 }
 
 .writing-editor-inner h3 {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family:
+    "Berkeley Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
   font-size: 1.05em;
   font-weight: 600;
   margin-top: 1.5em;
@@ -2026,7 +2025,8 @@ h4:hover .heading-anchor {
 
 .writing-editor-inner p {
   margin-bottom: 1.3em;
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family:
+    "Berkeley Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
   line-height: 1.75;
 }
 
@@ -2039,19 +2039,94 @@ h4:hover .heading-anchor {
   opacity: 0.85;
 }
 
-.writing-editor-inner ul,
+.writing-editor-inner ul {
+  margin: 1.2em 0;
+  padding-left: 1.6em;
+  list-style-type: disc;
+}
+
 .writing-editor-inner ol {
   margin: 1.2em 0;
   padding-left: 1.6em;
+  list-style-type: decimal;
 }
 
 .writing-editor-inner li {
   margin-bottom: 0.4em;
   line-height: 1.7;
+  display: list-item;
+}
+
+/* ── TOC block — scoped via ProseMirror decoration classes ── */
+
+.writing-editor-inner h3.toc-heading {
+  font: inherit;
+  font-size: 0.87em !important;
+  font-weight: 400 !important;
+  color: var(--color-text-faint) !important;
+  margin-top: 2em;
+  margin-bottom: 0.25em;
+}
+
+/* TOC list — all levels */
+.writing-editor-inner ul.toc-list,
+.writing-editor-inner ul.toc-list ul {
+  list-style: none !important;
+  margin: 0 !important;
+}
+
+.writing-editor-inner ul.toc-list {
+  padding-left: 0 !important;
+  margin-bottom: 1.5em !important;
+}
+
+.writing-editor-inner ul.toc-list ul {
+  padding-left: 1.6em !important;
+}
+
+/* li: layout only — no font-size so nesting doesn't multiply */
+.writing-editor-inner ul.toc-list li {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* All text lives in the <p> Tiptap wraps inside each li */
+.writing-editor-inner ul.toc-list li p {
+  margin: 0 !important;
+  padding: 0.32em 0 !important;
+  font-family:
+    "Berkeley Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace !important;
+  font-size: 0.87em !important;
+  font-weight: 400 !important;
+  line-height: 1.3 !important;
+  color: var(--color-text-muted) !important;
+}
+
+.writing-editor-inner ul.toc-list li p:hover {
+  color: var(--color-text-primary) !important;
 }
 
 .writing-editor-inner strong {
   font-weight: 700;
+  line-height: inherit;
+}
+
+.writing-editor-inner em {
+  line-height: inherit;
+}
+
+.writing-editor-inner code {
+  line-height: inherit;
+}
+
+/* Normalize all inline elements so they never inflate the line box */
+.writing-editor-inner strong,
+.writing-editor-inner em,
+.writing-editor-inner code,
+.writing-editor-inner a {
+  vertical-align: baseline;
+  font-size: inherit;
 }
 
 .writing-editor-inner hr {
@@ -2069,6 +2144,36 @@ h4:hover .heading-anchor {
   height: 0;
   font-style: italic;
   font-size: 0.95em;
+}
+
+/* Slash-command hint — visual cue when typing a slash command */
+
+/* Stronger caret accent in slash mode */
+.writing-editor-wrapper[data-slash-mode="true"] .writing-editor-inner {
+  caret-color: var(--color-accent);
+}
+
+/* Inline hint label shown in the chrome bar next to word count */
+.slash-mode-hint {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  opacity: 0.75;
+  margin-left: 0.5rem;
+  animation: slash-hint-in 0.12s ease;
+}
+
+@keyframes slash-hint-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 0.75;
+    transform: translateX(0);
+  }
 }
 
 /* Focus mode dimming */
@@ -2139,6 +2244,160 @@ h4:hover .heading-anchor {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
+/* When status bar lives inside the chrome bar, drop its own padding/height */
+.editor-status-inline {
+  padding: 0;
+  height: auto;
+  flex: 1;
+}
+
+/* ── Editor bottom chrome bar (status + help + fullscreen) ── */
+
+.editor-chrome-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.75rem 0.5rem;
+  height: 32px;
+  flex-shrink: 0;
+  gap: 0.5rem;
+}
+
+.editor-chrome-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.editor-chrome-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  font-size: 15px;
+  font-family: ui-monospace, monospace;
+  color: var(--color-text-faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+}
+
+.editor-chrome-btn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+
+/* ── Editor help panel ── */
+
+.editor-help-panel {
+  position: fixed;
+  bottom: 40px;
+  right: 1rem;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  padding: 0.75rem 1rem;
+  display: flex;
+  gap: 1.5rem;
+  z-index: 250;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.dark .editor-help-panel {
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.editor-help-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.editor-help-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-faint);
+  margin-bottom: 0.2rem;
+}
+
+.editor-help-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.editor-help-row kbd {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  padding: 0 4px;
+  min-width: 3.5rem;
+  display: inline-block;
+}
+
+.editor-help-row span {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+/* ── Fullscreen editor: right pane becomes a fixed full-viewport overlay ── */
+/* animation: none ensures no transform/opacity stacking context that would
+   trap position:fixed children inside the animated subtree */
+
+.writing-right-pane--fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  z-index: 40;
+  background: var(--color-bg-primary);
+  display: flex;
+  flex-direction: column;
+  animation: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+  will-change: auto !important;
+}
+
+.writing-right-pane--fullscreen .writing-workspace-inline {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  margin: 0;
+}
+
+/* Top-right controls bar (Theme + Export) in fullscreen — aligns with player */
+.fullscreen-top-bar {
+  position: fixed;
+  top: 0.65rem;
+  right: 1rem;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* NowPlaying pinned top-left — vertically aligned with top-right bar */
+.writing-fullscreen-player {
+  position: fixed;
+  top: 0.65rem;
+  left: 1rem;
+  z-index: 60;
+}
+
+.writing-fullscreen-player:hover {
+  opacity: 1;
+}
+
 .writing-status-left,
 .writing-status-right {
   display: flex;
@@ -2177,7 +2436,6 @@ h4:hover .heading-anchor {
 }
 
 @keyframes dot-pulse {
-
   0%,
   100% {
     opacity: 1;
@@ -2585,57 +2843,48 @@ h4:hover .heading-anchor {
 /* ── Inline article view (left pane when writing) ── */
 
 .inline-article-view {
-  display: flex;
-  flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
-.inline-article-header {
+/* Edge strip overlays article — no extra space taken */
+.inline-article-edge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  flex-shrink: 0;
-  gap: 8px;
+  justify-content: center;
+  z-index: 10;
+  transition: background 0.15s ease;
 }
 
-.inline-article-back {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 2px 0;
-  transition: color 0.15s ease;
-  white-space: nowrap;
-  min-height: unset;
-  min-width: unset;
+.inline-article-edge::before {
+  content: "←";
+  font-size: 18px;
+  color: var(--color-text-primary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+  user-select: none;
 }
 
-.inline-article-back:hover {
-  color: var(--color-accent);
+.inline-article-edge:hover::before {
+  opacity: 1;
 }
 
-.inline-article-origin {
-  font-size: 10px;
-  color: var(--color-text-faint);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  text-decoration: none;
-  min-height: unset;
-  min-width: unset;
-}
-
-.inline-article-origin:hover {
-  color: var(--color-accent);
+.inline-article-edge:hover {
+  background: linear-gradient(to right, var(--color-bg-tertiary), transparent);
 }
 
 .inline-article-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 0 4rem;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
 }
 
 /* Centered prose column — mirrors Reader layout */

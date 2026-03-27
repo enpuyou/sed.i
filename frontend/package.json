@@ -33,6 +33,7 @@
     "@vercel/analytics": "^1.6.1",
     "axios": "^1.13.2",
     "date-fns": "^4.1.0",
+    "docx": "^9.6.1",
     "html-react-parser": "^5.2.12",
     "lucide-react": "^0.562.0",
     "next": "16.1.1",

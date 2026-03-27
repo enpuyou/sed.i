@@ -52,7 +52,7 @@ export default function ListBlockCard({
   return (
     <Link href={`/lists/${id}`}>
       <div
-        className="relative aspect-square max-w-xs mx-auto border border-[var(--color-border)] rounded-none bg-transparent hover:border-[var(--color-accent)] transition-all cursor-pointer overflow-hidden group"
+        className="relative aspect-square border border-[var(--color-border)] rounded-none bg-transparent hover:border-[var(--color-accent)] transition-all cursor-pointer overflow-hidden group"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >

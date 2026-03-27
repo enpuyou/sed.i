@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.api import auth, content, lists, search, analytics, highlights, vinyl, drafts
 from app.api.endpoints import public
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.mcp.oauth import router as mcp_oauth_router
 
 
 @asynccontextmanager
@@ -62,6 +63,12 @@ app.include_router(analytics.router)
 app.include_router(vinyl.router)
 app.include_router(drafts.router)
 app.include_router(public.router)
+app.include_router(mcp_oauth_router)
+
+# MCP HTTP transport — Streamable HTTP for claude.ai web access
+from app.mcp.http_server import build_mcp_asgi_app  # noqa: E402
+
+app.mount("/mcp", build_mcp_asgi_app())
 
 # Dev-only test routes (serves local PDFs from gitignored pdf/ directory)
 # Only mounted when DEBUG=true — never active in production

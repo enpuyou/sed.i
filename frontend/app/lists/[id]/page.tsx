@@ -12,7 +12,8 @@ import WritingWorkspace from "@/components/WritingWorkspace";
 import { ContentItem as ContentItemType } from "@/types";
 import { useLists } from "@/contexts/ListsContext";
 import Navbar from "@/components/Navbar";
-import HighlightRenderer from "@/components/HighlightRenderer";
+import ReaderArticle from "@/components/ReaderArticle";
+import NowPlaying from "@/components/NowPlaying";
 
 interface ListDetail {
   id: string;
@@ -24,73 +25,54 @@ interface ListDetail {
   updated_at: string;
 }
 
-function getDomain(url: string) {
-  try {
-    return new URL(url).hostname.replace("www.", "");
-  } catch {
-    return url;
-  }
-}
-
-// Inline article reader — uses the same HighlightRenderer as Reader for identical output
 function InlineArticleView({
   article,
   onBack,
+  onStatusChange,
 }: {
   article: ContentItemType;
   onBack: () => void;
+  onStatusChange: (
+    id: string,
+    updates: {
+      is_read?: boolean;
+      is_archived?: boolean;
+      read_position?: number;
+    },
+  ) => void;
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onBack();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onBack]);
+
   return (
     <div className="inline-article-view">
-      {/* Slim top bar */}
-      <div className="inline-article-header">
-        <button onClick={onBack} className="inline-article-back compact-touch">
-          ← back
-        </button>
-        <a
-          href={article.original_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-article-origin compact-touch"
-        >
-          {getDomain(article.original_url)} ↗
-        </a>
-      </div>
-
-      {/* Scrollable body */}
+      {/* Invisible left-edge hover zone — hover to reveal ← arrow, click to go back */}
+      <div
+        className="inline-article-edge"
+        onClick={onBack}
+        title="Back to sources"
+        role="button"
+        aria-label="Back to article list"
+      />
       <div className="inline-article-body">
-        <div className="inline-article-prose">
-          <h1 className="inline-article-title">
-            {article.title || getDomain(article.original_url)}
-          </h1>
-          {(article.author || article.published_date) && (
-            <p className="inline-article-meta">
-              {article.author && <span>{article.author}</span>}
-              {article.author && article.published_date && <span> · </span>}
-              {article.published_date && (
-                <span>
-                  {new Date(article.published_date).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </span>
-              )}
-            </p>
-          )}
-          {!article.full_text ? (
-            <p className="inline-article-empty">
-              Full text not available.{" "}
-              <a href={article.original_url} target="_blank" rel="noopener noreferrer">
-                Read original ↗
-              </a>
-            </p>
-          ) : (
-            <div className="text-[var(--color-text-secondary)] select-text w-full">
-              <HighlightRenderer html={article.full_text} highlights={[]} />
-            </div>
-          )}
-        </div>
+        <ReaderArticle
+          content={article}
+          embedded
+          onStatusChange={(updates) => {
+            if (
+              updates.is_read !== undefined ||
+              updates.is_archived !== undefined ||
+              updates.read_position !== undefined
+            ) {
+              onStatusChange(article.id, updates);
+            }
+          }}
+        />
       </div>
     </div>
   );
@@ -121,6 +103,7 @@ export default function ListDetailPage() {
   const [initialDraftContent, setInitialDraftContent] = useState("");
   const [draftLoading, setDraftLoading] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [editorFullscreen, setEditorFullscreen] = useState(false);
 
   // Inline article view (left pane in writing mode)
   const [selectedArticle, setSelectedArticle] =
@@ -129,12 +112,16 @@ export default function ListDetailPage() {
   // Resizable divider
   const [splitPercent, setSplitPercent] = useState(DEFAULT_SPLIT);
   const [dividerVisible, setDividerVisible] = useState(false);
-  const dividerHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dividerHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const isDraggingRef = useRef(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // Export handler ref — set by MarkdownEditor
-  const exportHandlerRef = useRef<(() => void) | null>(null);
+  const exportHandlerRef = useRef<
+    ((format?: "md" | "pdf" | "docx") => void | Promise<void>) | null
+  >(null);
 
   const fetchListAndContent = useCallback(
     async (silent = false) => {
@@ -197,7 +184,10 @@ export default function ListDetailPage() {
   const showDividerBriefly = useCallback(() => {
     setDividerVisible(true);
     if (dividerHideTimerRef.current) clearTimeout(dividerHideTimerRef.current);
-    dividerHideTimerRef.current = setTimeout(() => setDividerVisible(false), 1500);
+    dividerHideTimerRef.current = setTimeout(
+      () => setDividerVisible(false),
+      1500,
+    );
   }, []);
 
   // Divider drag
@@ -222,7 +212,10 @@ export default function ListDetailPage() {
       document.body.style.userSelect = "";
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      dividerHideTimerRef.current = setTimeout(() => setDividerVisible(false), 1500);
+      dividerHideTimerRef.current = setTimeout(
+        () => setDividerVisible(false),
+        1500,
+      );
     };
 
     window.addEventListener("mousemove", onMove);
@@ -319,238 +312,273 @@ export default function ListDetailPage() {
   }
 
   return (
-    <div className={`list-page-root${writingOpen ? " writing-mode" : ""}`}>
-      {/* Navbar transforms when writing is open */}
-      <Navbar
-        writingMode={writingOpen}
-        onWritingClose={handleCloseWrite}
-        onWritingFocus={() => setFocusMode((v) => !v)}
-        onWritingExport={() => exportHandlerRef.current?.()}
-        writingFocusActive={focusMode}
-      />
-
-      {writingOpen ? (
-        /* ── Split-pane writing layout ── */
-        <div className="writing-split-body" ref={bodyRef}>
-          {/* Left pane: sources */}
-          <div
-            className="writing-left-pane"
-            style={{ width: `${splitPercent}%` }}
-          >
-            {selectedArticle ? (
-              <InlineArticleView
-                article={selectedArticle}
-                onBack={() => setSelectedArticle(null)}
-              />
-            ) : (
-              <div className="writing-left-scroll">
-                <div className="max-w-2xl mx-auto w-full px-4 sm:px-6">
-                  {contents.length === 0 ? (
-                    <div className="py-8 text-center">
-                      <p className="text-xs text-[var(--color-text-faint)] italic">
-                        No articles in this list yet.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-[var(--color-border-subtle)]">
-                      {contents.map((article) => (
-                        <div
-                          key={article.id}
-                          onClickCapture={(e) => {
-                            const target = e.target as HTMLElement;
-                            if (
-                              target.closest("button") ||
-                              target.closest("input") ||
-                              target.tagName === "BUTTON" ||
-                              target.tagName === "INPUT"
-                            ) return;
-                            e.stopPropagation();
-                            e.preventDefault();
-                            setSelectedArticle(article);
-                          }}
-                          style={{ cursor: "pointer" }}
-                        >
-                          <ContentItem
-                            content={article}
-                            onStatusChange={handleStatusChange}
-                            onDelete={handleDelete}
-                            onRemoveFromList={() => handleRemoveFromList(article.id)}
-                            navigateTo="#"
-                            returnPath={`/lists/${listId}`}
-                            isRemoving={article.id === removingId}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Draggable divider */}
-          <div
-            className={`writing-resize-divider${dividerVisible ? " divider-visible" : ""}`}
-            onMouseDown={startDrag}
-            onMouseEnter={showDividerBriefly}
-            onDoubleClick={() => setSplitPercent(DEFAULT_SPLIT)}
-            title="Drag to resize · Double-click to reset"
-            role="separator"
-          />
-
-          {/* Right pane: editor */}
-          <div
-            className="writing-right-pane"
-            style={{ width: `${100 - splitPercent}%` }}
-          >
-            <WritingWorkspace
-              listId={listId}
-              listName={list.name}
-              initialContent={initialDraftContent}
-              inline
-              focusModeEnabled={focusMode}
-              onExit={handleCloseWrite}
-              onExportReady={(fn) => {
-                exportHandlerRef.current = fn;
-              }}
-            />
-          </div>
+    <>
+      {/* ── Fullscreen chrome: player + top bar, always fixed-positioned ── */}
+      {editorFullscreen && (
+        <div className="writing-fullscreen-player">
+          <NowPlaying />
         </div>
-      ) : (
-        /* ── Normal list view ── */
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Back button */}
-          <button
-            onClick={() => router.push("/lists")}
-            className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
-          >
-            ← Back
-          </button>
+      )}
 
-          {/* Title row */}
-          <div className="flex justify-between items-start pb-6 mt-4 border-b border-dashed border-[var(--color-border)]">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-2 flex-wrap">
-                <h1 className="font-serif text-4xl font-normal text-[var(--color-text-primary)] leading-tight">
-                  {list.name}
-                </h1>
-                <button
-                  onClick={() => setIsEditListModalOpen(true)}
-                  className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors px-2 py-1"
-                  title="Edit list"
-                >
-                  Edit
-                </button>
-                {list.is_shared && (
-                  <span className="text-[10px] uppercase tracking-widest px-2 py-1 border border-[var(--color-border)] text-[var(--color-text-muted)] mt-1">
-                    Shared
-                  </span>
-                )}
-              </div>
-              {list.description && (
-                <p className="font-serif text-lg text-[var(--color-text-secondary)] mt-2 leading-relaxed">
-                  {list.description}
-                </p>
+      {/* ── Normal / split-pane layout (also hosts the single WritingWorkspace instance) ── */}
+      <div className={`list-page-root${writingOpen ? " writing-mode" : ""}`}>
+        {!editorFullscreen && (
+          <Navbar
+            writingMode={writingOpen}
+            onWritingClose={handleCloseWrite}
+            onWritingFocus={() => setFocusMode((v) => !v)}
+            onWritingExport={(fmt) => exportHandlerRef.current?.(fmt)}
+            writingFocusActive={focusMode}
+          />
+        )}
+
+        {writingOpen ? (
+          /* ── Split-pane writing layout ── */
+          <div className="writing-split-body" ref={bodyRef}>
+            {/* Left pane: sources */}
+            <div
+              className="writing-left-pane"
+              style={{ width: `${splitPercent}%` }}
+              data-narrow={splitPercent < 38 ? "true" : "false"}
+            >
+              {selectedArticle ? (
+                <InlineArticleView
+                  article={selectedArticle}
+                  onBack={() => setSelectedArticle(null)}
+                  onStatusChange={handleStatusChange}
+                />
+              ) : (
+                <div className="writing-left-scroll">
+                  <div className="w-full max-w-2xl px-4 sm:px-6">
+                    {contents.length === 0 ? (
+                      <div className="py-8 text-center">
+                        <p className="text-xs text-[var(--color-text-faint)] italic">
+                          No articles in this list yet.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-[var(--color-border-subtle)]">
+                        {contents.map((article) => (
+                          <div
+                            key={article.id}
+                            onClickCapture={(e) => {
+                              const target = e.target as HTMLElement;
+                              if (
+                                target.closest("button") ||
+                                target.closest("input") ||
+                                target.tagName === "BUTTON" ||
+                                target.tagName === "INPUT"
+                              )
+                                return;
+                              e.stopPropagation();
+                              e.preventDefault();
+                              setSelectedArticle(article);
+                            }}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <ContentItem
+                              content={article}
+                              onStatusChange={handleStatusChange}
+                              onDelete={handleDelete}
+                              onRemoveFromList={() =>
+                                handleRemoveFromList(article.id)
+                              }
+                              navigateTo="#"
+                              returnPath={`/lists/${listId}`}
+                              isRemoving={article.id === removingId}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
-              <p className="text-xs uppercase tracking-widest text-[var(--color-text-muted)] mt-4">
+            </div>
+
+            {/* Draggable divider */}
+            <div
+              className={`writing-resize-divider${dividerVisible ? " divider-visible" : ""}`}
+              onMouseDown={startDrag}
+              onMouseEnter={showDividerBriefly}
+              onDoubleClick={() => setSplitPercent(DEFAULT_SPLIT)}
+              title="Drag to resize · Double-click to reset"
+              role="separator"
+            />
+
+            {/* Right pane: editor — becomes fullscreen overlay via CSS class */}
+            <div
+              className={`writing-right-pane${editorFullscreen ? " writing-right-pane--fullscreen" : ""}`}
+              style={
+                editorFullscreen
+                  ? undefined
+                  : { width: `${100 - splitPercent}%` }
+              }
+            >
+              <WritingWorkspace
+                listId={listId}
+                listName={list.name}
+                initialContent={initialDraftContent}
+                inline
+                focusModeEnabled={focusMode}
+                onExit={handleCloseWrite}
+                onExport={(fmt) => exportHandlerRef.current?.(fmt)}
+                onExportReady={(fn) => {
+                  exportHandlerRef.current = fn;
+                }}
+                onFullscreenChange={(fs) => setEditorFullscreen(fs)}
+              />
+            </div>
+          </div>
+        ) : (
+          /* ── Normal list view ── */
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {/* Breadcrumb */}
+            <button
+              onClick={() => router.push("/lists")}
+              className="font-mono text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:border-[var(--color-accent)] transition-colors mb-6"
+              style={{ color: "var(--color-text-primary)" }}
+            >
+              ← Lists
+            </button>
+
+            {/* Title with hover-reveal edit pencil */}
+            <div className="group/title relative mb-4">
+              <h1 className="font-serif text-4xl font-normal text-[var(--color-text-primary)] leading-tight pr-10">
+                {list.name}
+              </h1>
+              <button
+                onClick={() => setIsEditListModalOpen(true)}
+                className="absolute top-1 right-0 opacity-0 group-hover/title:opacity-40 hover:!opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)] p-2 -mr-2 -mt-1"
+                title="Edit list"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Description */}
+            {list.description && (
+              <p className="font-serif text-lg text-[var(--color-text-secondary)] leading-relaxed mb-6">
+                {list.description}
+              </p>
+            )}
+
+            {/* Action strip */}
+            <div className="flex items-center py-3 gap-3">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)] flex-shrink-0">
                 {contents.length} {contents.length === 1 ? "item" : "items"}{" "}
                 inside
-              </p>
+              </span>
+              {list.is_shared && (
+                <span className="font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 border border-[var(--color-border)] text-[var(--color-text-muted)]">
+                  Shared
+                </span>
+              )}
+              <span className="flex-1 font-mono text-[10px] text-[var(--color-border)] select-none overflow-hidden whitespace-nowrap">
+                {"·".repeat(40)}
+              </span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={handleOpenWrite}
+                  disabled={draftLoading}
+                  className="font-mono text-xs px-3 py-1 rounded-none border border-[var(--color-accent)] bg-transparent text-[var(--color-accent)] hover:border-[var(--color-accent-hover)] transition-colors whitespace-nowrap disabled:opacity-50"
+                >
+                  {draftLoading ? "Opening…" : hasDraft ? "Write →" : "Write"}
+                </button>
+                <button
+                  onClick={() => setIsAddContentModalOpen(true)}
+                  className="font-mono text-xs px-3 py-1 rounded-none border border-[var(--color-border)] bg-transparent text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors whitespace-nowrap"
+                >
+                  + Add
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-              <button
-                onClick={handleOpenWrite}
-                disabled={draftLoading}
-                className="text-xs px-2 py-1 rounded-none border border-[var(--color-accent)] bg-transparent text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white transition-colors whitespace-nowrap font-medium disabled:opacity-50"
-              >
-                {draftLoading
-                  ? "Opening…"
-                  : hasDraft
-                    ? "Continue Writing →"
-                    : "Write"}
-              </button>
-              <button
-                onClick={() => setIsAddContentModalOpen(true)}
-                className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors whitespace-nowrap"
-              >
-                + Add Content
-              </button>
-            </div>
+            {/* Empty state */}
+            {contents.length === 0 && (
+              <div className="text-center py-12 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] rounded-none mt-6">
+                <h3 className="font-serif text-xl font-normal text-[var(--color-text-primary)] mb-4">
+                  No content yet
+                </h3>
+                <button
+                  onClick={() => setIsAddContentModalOpen(true)}
+                  className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
+                >
+                  Add Your First Item
+                </button>
+              </div>
+            )}
+
+            {/* Content list */}
+            {contents.length > 0 && (
+              <>
+                {/* Mobile */}
+                <div className="sm:hidden grid gap-4 mt-4">
+                  {contents.map((content) => (
+                    <ContentCard
+                      key={content.id}
+                      content={content}
+                      onStatusChange={handleStatusChange}
+                      onDelete={handleDelete}
+                      onRemoveFromList={() => handleRemoveFromList(content.id)}
+                      returnPath={`/lists/${listId}`}
+                      isRemoving={content.id === removingId}
+                    />
+                  ))}
+                </div>
+                {/* Desktop */}
+                <div className="hidden sm:block divide-y divide-[var(--color-border-subtle)]">
+                  {contents.map((content) => (
+                    <ContentItem
+                      key={content.id}
+                      content={content}
+                      onStatusChange={handleStatusChange}
+                      onDelete={handleDelete}
+                      onRemoveFromList={() => handleRemoveFromList(content.id)}
+                      returnPath={`/lists/${listId}`}
+                      isRemoving={content.id === removingId}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
+        )}
 
-          {/* Empty state */}
-          {contents.length === 0 && (
-            <div className="text-center py-12 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] rounded-none mt-6">
-              <h3 className="font-serif text-xl font-normal text-[var(--color-text-primary)] mb-4">
-                No content yet
-              </h3>
-              <button
-                onClick={() => setIsAddContentModalOpen(true)}
-                className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
-              >
-                Add Your First Item
-              </button>
-            </div>
-          )}
-
-          {/* Content list */}
-          {contents.length > 0 && (
-            <>
-              {/* Mobile */}
-              <div className="sm:hidden grid gap-4 mt-4">
-                {contents.map((content) => (
-                  <ContentCard
-                    key={content.id}
-                    content={content}
-                    onStatusChange={handleStatusChange}
-                    onDelete={handleDelete}
-                    onRemoveFromList={() => handleRemoveFromList(content.id)}
-                    returnPath={`/lists/${listId}`}
-                    isRemoving={content.id === removingId}
-                  />
-                ))}
-              </div>
-              {/* Desktop */}
-              <div className="hidden sm:block divide-y divide-[var(--color-border-subtle)]">
-                {contents.map((content) => (
-                  <ContentItem
-                    key={content.id}
-                    content={content}
-                    onStatusChange={handleStatusChange}
-                    onDelete={handleDelete}
-                    onRemoveFromList={() => handleRemoveFromList(content.id)}
-                    returnPath={`/lists/${listId}`}
-                    isRemoving={content.id === removingId}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Modals */}
-      <AddContentToListModal
-        isOpen={isAddContentModalOpen}
-        listId={listId}
-        onClose={() => setIsAddContentModalOpen(false)}
-        onSuccess={() => fetchListAndContent(true)}
-        existingContentIds={contents.map((c) => c.id)}
-      />
-      {list && (
-        <ListModal
-          isOpen={isEditListModalOpen}
-          onClose={() => setIsEditListModalOpen(false)}
+        {/* Modals */}
+        <AddContentToListModal
+          isOpen={isAddContentModalOpen}
+          listId={listId}
+          onClose={() => setIsAddContentModalOpen(false)}
           onSuccess={() => fetchListAndContent(true)}
-          list={{
-            id: list.id,
-            name: list.name,
-            description: list.description,
-            is_shared: list.is_shared,
-          }}
+          existingContentIds={contents.map((c) => c.id)}
         />
-      )}
-    </div>
+        {list && (
+          <ListModal
+            isOpen={isEditListModalOpen}
+            onClose={() => setIsEditListModalOpen(false)}
+            onSuccess={() => fetchListAndContent(true)}
+            list={{
+              id: list.id,
+              name: list.name,
+              description: list.description,
+              is_shared: list.is_shared,
+            }}
+          />
+        )}
+      </div>
+    </>
   );
 }

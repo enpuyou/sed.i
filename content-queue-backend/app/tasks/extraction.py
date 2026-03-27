@@ -869,7 +869,7 @@ def xml_to_html(xml_content: str, original_html: bytes = None) -> str:
                         result.append(str(child))
                 elif child.name == "ref":
                     result.append(
-                        f'<a href="{child.get("target","#")}">{child.get_text(strip=False)}</a>'
+                        f'<a href="{child.get("target", "#")}">{child.get_text(strip=False)}</a>'
                     )
                 elif child.name == "hi":
                     rend = child.get("rend", "")
@@ -899,7 +899,7 @@ def xml_to_html(xml_content: str, original_html: bytes = None) -> str:
             if not hasattr(node, "name"):
                 return ""
             if node.name == "ref":
-                return f'<a href="{node.get("target","#")}">{node.get_text(strip=False)}</a>'
+                return f'<a href="{node.get("target", "#")}">{node.get_text(strip=False)}</a>'
             if node.name == "hi":
                 rend = node.get("rend", "")
                 t = node.get_text(strip=False)
