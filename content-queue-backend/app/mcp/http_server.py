@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
+import contextvars
 
 from jose import JWTError, jwt
 from mcp.server.fastmcp import FastMCP
@@ -101,11 +101,11 @@ def _get_user_from_request(request: Request):
 # request-scoped store keyed by thread id.
 # ---------------------------------------------------------------------------
 
-_request_user: threading.local = threading.local()
+_request_user_var: contextvars.ContextVar = contextvars.ContextVar("mcp_user")
 
 
 def _current_user():
-    user = getattr(_request_user, "user", None)
+    user = _request_user_var.get(None)
     if user is None:
         raise PermissionError("No authenticated user in context")
     return user
@@ -246,13 +246,14 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
         try:
             with get_db() as db:
                 user = _resolve_user_from_bearer(auth, db)
-            _request_user.user = user
-            response = await call_next(request)
-            return response
+            token = _request_user_var.set(user)
+            try:
+                response = await call_next(request)
+                return response
+            finally:
+                _request_user_var.reset(token)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=401)
-        finally:
-            _request_user.user = None
 
 
 def build_mcp_asgi_app():
