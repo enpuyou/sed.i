@@ -137,6 +137,24 @@ def _escape(value: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/.well-known/oauth-protected-resource")
+def oauth_protected_resource(request: Request) -> JSONResponse:
+    """
+    RFC 9728 OAuth 2.0 Protected Resource Metadata.
+    Required by MCP 2025-11-25 spec — clients fetch this first to discover
+    the authorization server URL before starting the OAuth flow.
+    """
+    base = (settings.API_BASE_URL or str(request.base_url)).rstrip("/")
+    return JSONResponse(
+        {
+            "resource": f"{base}/mcp",
+            "authorization_servers": [base],
+            "bearer_methods_supported": ["header"],
+            "scopes_supported": [],
+        }
+    )
+
+
 @router.get("/.well-known/oauth-authorization-server")
 def oauth_discovery(request: Request) -> JSONResponse:
     """

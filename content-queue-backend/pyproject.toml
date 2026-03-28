@@ -66,6 +66,11 @@ python = ">=3.11,<4.0"
 torch = {version = "==2.6.0", source = "pytorch-cpu"}
 torchvision = {version = "==0.21.0", source = "pytorch-cpu"}
 
+[tool.pytest.ini_options]
+# Disable xdist by default — tests share one DB and parallel TRUNCATEs conflict.
+# Run a single file fast with: pytest tests/test_foo.py
+addopts = "-p no:xdist"
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"

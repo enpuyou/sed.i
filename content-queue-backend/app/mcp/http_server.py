@@ -236,14 +236,29 @@ def add_to_list(list_id: str, item_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+_RESOURCE_METADATA_URL = (
+    f"{settings.API_BASE_URL}/.well-known/oauth-protected-resource"
+    if settings.API_BASE_URL
+    else None
+)
+
+
 class MCPAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Include resource_metadata in WWW-Authenticate so MCP clients
+        # (claude.ai, mcp-remote) can discover the OAuth server automatically.
+        resource_metadata_url = _RESOURCE_METADATA_URL or (
+            f"{request.base_url.scheme}://{request.base_url.netloc}"
+            "/.well-known/oauth-protected-resource"
+        )
+        www_auth = f'Bearer resource_metadata="{resource_metadata_url}"'
+
         auth = request.headers.get("Authorization", "")
         if not auth:
             return JSONResponse(
                 {"error": "Missing Authorization header"},
                 status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": www_auth},
             )
         try:
             with get_db() as db:
@@ -258,7 +273,7 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 {"error": "invalid_token", "error_description": str(exc)},
                 status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": www_auth},
             )
 
 
