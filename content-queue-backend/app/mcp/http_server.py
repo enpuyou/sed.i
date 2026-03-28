@@ -17,6 +17,7 @@ import contextvars
 
 from jose import JWTError, jwt
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -82,6 +83,10 @@ http_mcp = FastMCP(
         "Use these tools to explore the user's library, reading lists, highlights, and drafts. "
         "Always operate on the authenticated user's data only."
     ),
+    # Disable FastMCP's DNS rebinding protection — we run behind a Cloudflare Worker
+    # proxy so the Host header is Railway's internal hostname, not our public domain.
+    # Our own MCPAuthMiddleware handles authentication.
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 
