@@ -53,6 +53,8 @@ def _get_redis() -> redis.Redis:
 
 AUTH_CODE_TTL = 300  # 5 minutes
 CODE_PREFIX = "mcp:code:"
+REFRESH_TOKEN_TTL = 60 * 60 * 24 * 30  # 30 days
+REFRESH_PREFIX = "mcp:refresh:"
 
 
 def _normalize_redirects(client_id: str, redirects: object) -> set[str]:
@@ -153,7 +155,7 @@ def oauth_discovery(request: Request) -> JSONResponse:
             "token_endpoint": f"{base}/mcp/token",
             "registration_endpoint": f"{base}/mcp/register",
             "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none"],
         }
@@ -343,14 +345,18 @@ def authorize_post(
     responses={400: {"description": "Invalid OAuth token exchange request"}},
 )
 def token(
+    request: Request,
     grant_type: Annotated[str, Form(...)],
-    code: Annotated[str, Form(...)],
-    redirect_uri: Annotated[str, Form(...)],
     client_id: Annotated[str, Form(...)],
-    code_verifier: Annotated[str, Form(...)],
     db: Annotated[Session, Depends(get_db)],
+    # authorization_code params
+    code: Annotated[str | None, Form()] = None,
+    redirect_uri: Annotated[str | None, Form()] = None,
+    code_verifier: Annotated[str | None, Form()] = None,
+    # refresh_token params
+    refresh_token: Annotated[str | None, Form()] = None,
 ):
-    """Exchange an auth code + PKCE verifier for a sed.i JWT access token."""
+    """Exchange an auth code + PKCE verifier, or refresh token, for a sed.i JWT."""
 
     def _token_error(error: str, description: str) -> JSONResponse:
         """RFC 6749 §5.2 error response — mcp-remote requires this exact format."""
@@ -358,13 +364,62 @@ def token(
             {"error": error, "error_description": description}, status_code=400
         )
 
+    def _issue_tokens(email: str) -> JSONResponse:
+        """Issue access + refresh tokens for the given user email."""
+        user = (
+            db.query(User).filter(User.email == email, User.is_active.is_(True)).first()
+        )
+        if not user:
+            return _token_error("invalid_grant", "User not found")
+
+        access_token = create_access_token(
+            data={"sub": user.email},
+            expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        )
+        new_refresh_token = secrets.token_urlsafe(32)
+        r = _get_redis()
+        r.setex(
+            f"{REFRESH_PREFIX}{new_refresh_token}",
+            REFRESH_TOKEN_TTL,
+            json.dumps({"email": user.email, "client_id": client_id}),
+        )
+        return JSONResponse(
+            {
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                "refresh_token": new_refresh_token,
+            }
+        )
+
+    if grant_type == "refresh_token":
+        if not refresh_token:
+            return _token_error("invalid_request", "refresh_token is required")
+        r = _get_redis()
+        raw = r.get(f"{REFRESH_PREFIX}{refresh_token}")
+        if not raw:
+            return _token_error("invalid_grant", "Invalid or expired refresh token")
+        data = json.loads(raw)
+        if data.get("client_id") != client_id:
+            return _token_error("invalid_grant", "client_id mismatch")
+        # Rotate: delete old, issue new
+        r.delete(f"{REFRESH_PREFIX}{refresh_token}")
+        return _issue_tokens(data["email"])
+
+    if grant_type != "authorization_code":
+        return _token_error(
+            "unsupported_grant_type",
+            "Only authorization_code or refresh_token are supported",
+        )
+
+    if not code or not redirect_uri or not code_verifier:
+        return _token_error(
+            "invalid_request", "code, redirect_uri, and code_verifier are required"
+        )
+
     validation_error = _validate_client_and_redirect(client_id, redirect_uri)
     if validation_error:
         return _token_error("invalid_client", validation_error)
-    if grant_type != "authorization_code":
-        return _token_error(
-            "unsupported_grant_type", "Only authorization_code is supported"
-        )
 
     r = _get_redis()
     raw = r.get(f"{CODE_PREFIX}{code}")
@@ -373,11 +428,9 @@ def token(
 
     data = json.loads(raw)
 
-    # Validate redirect_uri matches
     if data["redirect_uri"] != redirect_uri:
         return _token_error("invalid_grant", "redirect_uri mismatch")
 
-    # Validate client_id matches
     if data.get("client_id") != client_id:
         return _token_error("invalid_grant", "client_id mismatch")
 
@@ -392,23 +445,4 @@ def token(
     # Code is single-use — delete it
     r.delete(f"{CODE_PREFIX}{code}")
 
-    user = (
-        db.query(User)
-        .filter(User.email == data["email"], User.is_active.is_(True))
-        .first()
-    )
-    if not user:
-        return _token_error("invalid_grant", "User not found")
-
-    access_token = create_access_token(
-        data={"sub": user.email},
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-    )
-
-    return JSONResponse(
-        {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        }
-    )
+    return _issue_tokens(data["email"])
