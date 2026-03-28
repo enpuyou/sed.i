@@ -351,32 +351,43 @@ def token(
     db: Annotated[Session, Depends(get_db)],
 ):
     """Exchange an auth code + PKCE verifier for a sed.i JWT access token."""
+
+    def _token_error(error: str, description: str) -> JSONResponse:
+        """RFC 6749 §5.2 error response — mcp-remote requires this exact format."""
+        return JSONResponse(
+            {"error": error, "error_description": description}, status_code=400
+        )
+
     validation_error = _validate_client_and_redirect(client_id, redirect_uri)
     if validation_error:
-        raise HTTPException(400, validation_error)
+        return _token_error("invalid_client", validation_error)
     if grant_type != "authorization_code":
-        raise HTTPException(400, "Unsupported grant_type")
+        return _token_error(
+            "unsupported_grant_type", "Only authorization_code is supported"
+        )
 
     r = _get_redis()
     raw = r.get(f"{CODE_PREFIX}{code}")
     if not raw:
-        raise HTTPException(400, "Invalid or expired authorization code")
+        return _token_error("invalid_grant", "Invalid or expired authorization code")
 
     data = json.loads(raw)
 
     # Validate redirect_uri matches
     if data["redirect_uri"] != redirect_uri:
-        raise HTTPException(400, "redirect_uri mismatch")
+        return _token_error("invalid_grant", "redirect_uri mismatch")
 
     # Validate client_id matches
     if data.get("client_id") != client_id:
-        raise HTTPException(400, "client_id mismatch")
+        return _token_error("invalid_grant", "client_id mismatch")
 
     # Validate PKCE S256
     digest = hashlib.sha256(code_verifier.encode()).digest()
     computed_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     if computed_challenge != data["code_challenge"]:
-        raise HTTPException(400, "code_verifier does not match code_challenge")
+        return _token_error(
+            "invalid_grant", "code_verifier does not match code_challenge"
+        )
 
     # Code is single-use — delete it
     r.delete(f"{CODE_PREFIX}{code}")
@@ -387,7 +398,7 @@ def token(
         .first()
     )
     if not user:
-        raise HTTPException(400, "User not found")
+        return _token_error("invalid_grant", "User not found")
 
     access_token = create_access_token(
         data={"sub": user.email},

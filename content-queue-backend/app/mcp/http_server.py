@@ -241,7 +241,9 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
         auth = request.headers.get("Authorization", "")
         if not auth:
             return JSONResponse(
-                {"error": "Missing Authorization header"}, status_code=401
+                {"error": "Missing Authorization header"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
             )
         try:
             with get_db() as db:
@@ -253,7 +255,11 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
             finally:
                 _request_user_var.reset(token)
         except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=401)
+            return JSONResponse(
+                {"error": "invalid_token", "error_description": str(exc)},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
 
 def build_mcp_asgi_app():
