@@ -53,7 +53,6 @@ def _get_redis() -> redis.Redis:
 
 AUTH_CODE_TTL = 300  # 5 minutes
 CODE_PREFIX = "mcp:code:"
-REFRESH_TOKEN_TTL = 60 * 60 * 24 * 30  # 30 days
 REFRESH_PREFIX = "mcp:refresh:"
 
 
@@ -340,12 +339,17 @@ def authorize_post(
 # ---------------------------------------------------------------------------
 
 
+def _refresh_token_redis_key(token: str) -> str:
+    """Store only the SHA-256 hash of the refresh token as the Redis key."""
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    return f"{REFRESH_PREFIX}{digest}"
+
+
 @router.post(
     "/mcp/token",
     responses={400: {"description": "Invalid OAuth token exchange request"}},
 )
 def token(
-    request: Request,
     grant_type: Annotated[str, Form(...)],
     client_id: Annotated[str, Form(...)],
     db: Annotated[Session, Depends(get_db)],
@@ -364,6 +368,8 @@ def token(
             {"error": error, "error_description": description}, status_code=400
         )
 
+    refresh_ttl = settings.MCP_REFRESH_TOKEN_EXPIRE_DAYS * 86400
+
     def _issue_tokens(email: str) -> JSONResponse:
         """Issue access + refresh tokens for the given user email."""
         user = (
@@ -378,9 +384,10 @@ def token(
         )
         new_refresh_token = secrets.token_urlsafe(32)
         r = _get_redis()
+        # Persist new token before caller deletes old one — prevents token loss on failure
         r.setex(
-            f"{REFRESH_PREFIX}{new_refresh_token}",
-            REFRESH_TOKEN_TTL,
+            _refresh_token_redis_key(new_refresh_token),
+            refresh_ttl,
             json.dumps({"email": user.email, "client_id": client_id}),
         )
         return JSONResponse(
@@ -396,15 +403,16 @@ def token(
         if not refresh_token:
             return _token_error("invalid_request", "refresh_token is required")
         r = _get_redis()
-        raw = r.get(f"{REFRESH_PREFIX}{refresh_token}")
+        raw = r.get(_refresh_token_redis_key(refresh_token))
         if not raw:
             return _token_error("invalid_grant", "Invalid or expired refresh token")
         data = json.loads(raw)
         if data.get("client_id") != client_id:
             return _token_error("invalid_grant", "client_id mismatch")
-        # Rotate: delete old, issue new
-        r.delete(f"{REFRESH_PREFIX}{refresh_token}")
-        return _issue_tokens(data["email"])
+        # Issue new tokens first, then delete old — prevents token loss on failure
+        response = _issue_tokens(data["email"])
+        r.delete(_refresh_token_redis_key(refresh_token))
+        return response
 
     if grant_type != "authorization_code":
         return _token_error(
