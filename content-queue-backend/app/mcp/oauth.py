@@ -15,10 +15,13 @@ Auth codes are stored in Redis with a 5-minute TTL.
 
 from __future__ import annotations
 
+import html
 import hashlib
 import base64
 import secrets
 import json
+import os
+from typing import Annotated
 from datetime import timedelta
 from urllib.parse import urlencode
 
@@ -50,6 +53,79 @@ def _get_redis() -> redis.Redis:
 
 AUTH_CODE_TTL = 300  # 5 minutes
 CODE_PREFIX = "mcp:code:"
+
+
+def _normalize_redirects(client_id: str, redirects: object) -> set[str]:
+    if not isinstance(redirects, list) or not redirects:
+        raise RuntimeError(
+            f"Invalid MCP_OAUTH_CLIENTS_JSON: client '{client_id}' must map to non-empty list"
+        )
+
+    allowed_redirects: set[str] = set()
+    for uri in redirects:
+        if not isinstance(uri, str) or not uri.strip():
+            raise RuntimeError(
+                f"Invalid MCP_OAUTH_CLIENTS_JSON: redirect for '{client_id}' must be non-empty string"
+            )
+        allowed_redirects.add(uri.strip())
+    return allowed_redirects
+
+
+def _validate_clients_payload(data: object) -> dict[str, set[str]]:
+    if not isinstance(data, dict):
+        raise RuntimeError("Invalid MCP_OAUTH_CLIENTS_JSON: expected object")
+
+    clients: dict[str, set[str]] = {}
+    for client_id, redirects in data.items():
+        if not isinstance(client_id, str) or not client_id.strip():
+            raise RuntimeError(
+                "Invalid MCP_OAUTH_CLIENTS_JSON: client_id must be non-empty string"
+            )
+        client_key = client_id.strip()
+        clients[client_key] = _normalize_redirects(client_key, redirects)
+    return clients
+
+
+def _load_registered_clients() -> dict[str, set[str]]:
+    """
+    Load OAuth client allowlist from MCP_OAUTH_CLIENTS_JSON env var.
+
+    Expected format:
+      {
+        "client_id_1": ["https://client.example/callback"],
+        "client_id_2": ["http://localhost:5173/callback"]
+      }
+    """
+    raw = os.getenv("MCP_OAUTH_CLIENTS_JSON", "").strip()
+    if not raw:
+        return {}
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "Invalid MCP_OAUTH_CLIENTS_JSON: must be valid JSON"
+        ) from exc
+    return _validate_clients_payload(data)
+
+
+_REGISTERED_CLIENTS = _load_registered_clients()
+
+
+def _validate_client_and_redirect(client_id: str, redirect_uri: str) -> str | None:
+    if client_id not in _REGISTERED_CLIENTS:
+        return "Unknown OAuth client_id"
+
+    allowed = _REGISTERED_CLIENTS[client_id]
+    if redirect_uri not in allowed:
+        return "redirect_uri is not allowed for this client_id"
+
+    return None
+
+
+def _escape(value: str) -> str:
+    return html.escape(value, quote=True)
+
 
 # ---------------------------------------------------------------------------
 # Discovery document
@@ -130,53 +206,69 @@ _LOGIN_HTML = """<!DOCTYPE html>
 </html>"""
 
 
-@router.get("/mcp/authorize", response_class=HTMLResponse)
+@router.get(
+    "/mcp/authorize",
+    response_class=HTMLResponse,
+    responses={400: {"description": "Invalid OAuth authorization request"}},
+)
 def authorize_get(
-    client_id: str = Query(...),
-    redirect_uri: str = Query(...),
-    response_type: str = Query(...),
-    code_challenge: str = Query(...),
-    code_challenge_method: str = Query("S256"),
-    state: str = Query(default=""),
+    client_id: Annotated[str, Query(...)],
+    redirect_uri: Annotated[str, Query(...)],
+    response_type: Annotated[str, Query(...)],
+    code_challenge: Annotated[str, Query(...)],
+    code_challenge_method: Annotated[str, Query()] = "S256",
+    state: Annotated[str, Query()] = "",
 ):
     """Show the login form."""
+    validation_error = _validate_client_and_redirect(client_id, redirect_uri)
+    if validation_error:
+        raise HTTPException(400, validation_error)
     if response_type != "code":
         raise HTTPException(400, "Only response_type=code is supported")
     if code_challenge_method != "S256":
         raise HTTPException(400, "Only code_challenge_method=S256 is supported")
 
     html = _LOGIN_HTML.format(
-        client_id=client_id,
-        redirect_uri=redirect_uri,
-        state=state,
-        code_challenge=code_challenge,
-        code_challenge_method=code_challenge_method,
+        client_id=_escape(client_id),
+        redirect_uri=_escape(redirect_uri),
+        state=_escape(state),
+        code_challenge=_escape(code_challenge),
+        code_challenge_method=_escape(code_challenge_method),
         error_block="",
     )
     return HTMLResponse(html)
 
 
-@router.post("/mcp/authorize", response_class=HTMLResponse)
+@router.post(
+    "/mcp/authorize",
+    response_class=HTMLResponse,
+    responses={400: {"description": "Invalid OAuth authorization request"}},
+)
 def authorize_post(
-    client_id: str = Form(...),
-    redirect_uri: str = Form(...),
-    state: str = Form(default=""),
-    code_challenge: str = Form(...),
-    code_challenge_method: str = Form("S256"),
-    email: str = Form(...),
-    password: str = Form(...),
-    db: Session = Depends(get_db),
+    client_id: Annotated[str, Form(...)],
+    redirect_uri: Annotated[str, Form(...)],
+    code_challenge: Annotated[str, Form(...)],
+    email: Annotated[str, Form(...)],
+    password: Annotated[str, Form(...)],
+    db: Annotated[Session, Depends(get_db)],
+    state: Annotated[str, Form()] = "",
+    code_challenge_method: Annotated[str, Form()] = "S256",
 ):
     """Validate credentials, store auth code in Redis, redirect to client."""
+    validation_error = _validate_client_and_redirect(client_id, redirect_uri)
+    if validation_error:
+        raise HTTPException(400, validation_error)
+    if code_challenge_method != "S256":
+        raise HTTPException(400, "Only code_challenge_method=S256 is supported")
 
     def _show_error(msg: str) -> HTMLResponse:
         html = _LOGIN_HTML.format(
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            state=state,
-            code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method,
-            error_block=f'<p class="error">{msg}</p>',
+            client_id=_escape(client_id),
+            redirect_uri=_escape(redirect_uri),
+            state=_escape(state),
+            code_challenge=_escape(code_challenge),
+            code_challenge_method=_escape(code_challenge_method),
+            error_block=f'<p class="error">{_escape(msg)}</p>',
         )
         return HTMLResponse(html, status_code=401)
 
@@ -195,6 +287,7 @@ def authorize_post(
                 "email": user.email,
                 "code_challenge": code_challenge,
                 "redirect_uri": redirect_uri,
+                "client_id": client_id,
             }
         ),
     )
@@ -210,16 +303,22 @@ def authorize_post(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/mcp/token")
+@router.post(
+    "/mcp/token",
+    responses={400: {"description": "Invalid OAuth token exchange request"}},
+)
 def token(
-    grant_type: str = Form(...),
-    code: str = Form(...),
-    redirect_uri: str = Form(...),
-    client_id: str = Form(...),
-    code_verifier: str = Form(...),
-    db: Session = Depends(get_db),
+    grant_type: Annotated[str, Form(...)],
+    code: Annotated[str, Form(...)],
+    redirect_uri: Annotated[str, Form(...)],
+    client_id: Annotated[str, Form(...)],
+    code_verifier: Annotated[str, Form(...)],
+    db: Annotated[Session, Depends(get_db)],
 ):
     """Exchange an auth code + PKCE verifier for a sed.i JWT access token."""
+    validation_error = _validate_client_and_redirect(client_id, redirect_uri)
+    if validation_error:
+        raise HTTPException(400, validation_error)
     if grant_type != "authorization_code":
         raise HTTPException(400, "Unsupported grant_type")
 
@@ -233,6 +332,10 @@ def token(
     # Validate redirect_uri matches
     if data["redirect_uri"] != redirect_uri:
         raise HTTPException(400, "redirect_uri mismatch")
+
+    # Validate client_id matches
+    if data.get("client_id") != client_id:
+        raise HTTPException(400, "client_id mismatch")
 
     # Validate PKCE S256
     digest = hashlib.sha256(code_verifier.encode()).digest()

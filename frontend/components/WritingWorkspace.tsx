@@ -8,7 +8,6 @@ interface WritingWorkspaceProps {
   listName: string;
   initialContent: string;
   inline?: boolean;
-  focusModeEnabled?: boolean;
   initialFullscreen?: boolean;
   onExit?: () => void;
   onExport?: (format: "md" | "pdf" | "docx") => void;
@@ -23,7 +22,6 @@ export default function WritingWorkspace({
   listName,
   initialContent,
   inline = false,
-  focusModeEnabled = false,
   initialFullscreen = false,
   onExit,
   onExport,
@@ -46,7 +44,6 @@ export default function WritingWorkspace({
         listId={listId}
         listName={listName}
         initialContent={initialContent}
-        focusModeEnabled={focusModeEnabled}
         initialFullscreen={initialFullscreen}
         onExport={onExport}
         onExportReady={onExportReady}

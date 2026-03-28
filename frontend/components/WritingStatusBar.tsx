@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 interface WritingStatusBarProps {
@@ -12,12 +10,6 @@ interface WritingStatusBarProps {
   slashMode?: boolean;
 }
 
-function getReadingTime(words: number): string {
-  const minutes = Math.ceil(words / 200);
-  if (minutes < 1) return "< 1 min";
-  return `${minutes} min read`;
-}
-
 export default function WritingStatusBar({
   wordCount,
   saveStatus,
@@ -25,15 +17,6 @@ export default function WritingStatusBar({
   className = "",
   slashMode = false,
 }: WritingStatusBarProps) {
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear timer on unmount
-  useEffect(() => {
-    return () => {
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-    };
-  }, []);
-
   const saveIndicator = () => {
     switch (saveStatus) {
       case "saving":

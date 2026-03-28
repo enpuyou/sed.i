@@ -338,6 +338,21 @@ and still calls `extract_metadata.delay()` for any missing fields + embedding.
 The embedding is serialized as `"[0.1, 0.2, ...]"` (PostgreSQL vector literal).
 
 **Similarity formula:** `1 - (embedding <=> CAST(:q AS vector)) / 2`
+
+### MCP OAuth + Transport
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/.well-known/oauth-authorization-server` | OAuth discovery metadata for MCP clients. |
+| GET | `/mcp/authorize` | OAuth authorize UI (PKCE). Validates `client_id` + exact `redirect_uri` allowlist match. |
+| POST | `/mcp/authorize` | Credential check + auth code issuance in Redis (`mcp:code:*`, 5-min TTL). |
+| POST | `/mcp/token` | Auth code + PKCE verifier exchange for sed.i JWT bearer token. |
+| POST | `/mcp` | Streamable HTTP MCP endpoint (mounted ASGI app), JWT bearer auth required. |
+
+**Security constraints:**
+- OAuth clients are loaded from `MCP_OAUTH_CLIENTS_JSON` and treated as strict allowlists (`client_id -> [redirect_uri...]`).
+- Unknown `client_id` or non-matching `redirect_uri` are rejected with `400`.
+- OAuth login HTML escapes reflected parameters (`client_id`, `redirect_uri`, `state`, `code_challenge`) to prevent reflected XSS.
 Maps cosine distance [0, 2] → similarity score [1, 0].
 
 ### Highlights — nested under `/content/{content_id}/highlights`
@@ -555,7 +570,7 @@ Optional `mood` filter:
 | `ListeningMode` | crates | Full-screen music player overlay. `z-[80]` > RecordDetail `z-50`. |
 | `VinylCard` | crates | Individual record card. |
 | `YouTubePlayer` | crates | Invisible div hosting YouTube IFrame API. Plays queue sequentially. |
-| `Navbar` | layout | Mini-player on mobile. `mounted` guard avoids SSR hydration mismatch. |
+| `Navbar` | layout | Mini-player on mobile. `mounted` guard avoids SSR hydration mismatch. Supports writing-mode controls (`Export`, `Close`) and fullscreen-aware auto-hide behavior (listens to editor scroll container instead of window). |
 | `ProfileSettings` | settings | Public profile toggles (is_public, is_queue_public, is_crates_public), username, full name. Inline "Saved." state replaces alert(). Preview link to `/{username}` shown when public. |
 
 ### React Contexts

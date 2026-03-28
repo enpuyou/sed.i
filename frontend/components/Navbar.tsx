@@ -42,9 +42,7 @@ interface NavbarProps {
   // Writing mode: replaces nav links with writing controls
   writingMode?: boolean;
   onWritingClose?: () => void;
-  onWritingFocus?: () => void;
   onWritingExport?: (format?: "md" | "pdf" | "docx") => void;
-  writingFocusActive?: boolean;
   // Fullscreen/distraction-free: transparent bg, hide logo+search, controls only
   fullscreenMode?: boolean;
 }
@@ -52,9 +50,7 @@ interface NavbarProps {
 export default function Navbar({
   writingMode = false,
   onWritingClose,
-  onWritingFocus,
   onWritingExport,
-  writingFocusActive = false,
   fullscreenMode = false,
 }: NavbarProps = {}) {
   const pathname = usePathname();

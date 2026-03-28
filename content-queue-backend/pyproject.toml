@@ -46,6 +46,7 @@ dependencies = [
     "ultralytics (>=8.0.0,<9.0.0)",
     "huggingface-hub (>=0.20.0,<1.0.0)",
     "posthog (>=3.0.0,<4.0.0)",
+    "mcp (>=1.13.1,<2.0.0)",
 ]
 
 [tool.poetry]

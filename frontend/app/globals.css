@@ -1968,7 +1968,7 @@ h4:hover .heading-anchor {
   padding: 0 2rem;
 }
 
-.focus-mode-on .writing-prose-column {
+.fullscreen-mode-on .writing-prose-column {
   max-width: 640px;
 }
 
@@ -1985,7 +1985,7 @@ h4:hover .heading-anchor {
   letter-spacing: 0.01em;
 }
 
-.focus-mode-on .writing-editor-inner {
+.fullscreen-mode-on .writing-editor-inner {
   font-size: 17px;
   line-height: 1.85;
 }

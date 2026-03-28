@@ -9,7 +9,6 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { TypewriterScrolling } from "@/components/editor/TypewriterScrolling";
-import { FocusMode, toggleFocusMode } from "@/components/editor/FocusMode";
 import WritingStatusBar from "@/components/WritingStatusBar";
 import ThemeToggle from "@/components/ThemeToggle";
 import { draftsAPI } from "@/lib/api";
@@ -134,7 +133,6 @@ interface MarkdownEditorProps {
   listId: string;
   listName: string;
   initialContent: string;
-  focusModeEnabled?: boolean;
   initialFullscreen?: boolean;
   onWordCountChange?: (count: number) => void;
   onInsertText?: (handler: (text: string) => void) => void;
@@ -171,7 +169,6 @@ export default function MarkdownEditor({
   listId,
   listName,
   initialContent,
-  focusModeEnabled = false,
   initialFullscreen = false,
   onWordCountChange,
   onInsertText,
@@ -193,6 +190,7 @@ export default function MarkdownEditor({
   const exportDropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestContentRef = useRef(initialContent);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -208,7 +206,13 @@ export default function MarkdownEditor({
         );
         await draftsAPI.update(listId, { content, title, word_count: words });
         setSaveStatus("saved");
-        setTimeout(() => setSaveStatus("idle"), 2500);
+        if (savedStatusTimerRef.current) {
+          clearTimeout(savedStatusTimerRef.current);
+        }
+        savedStatusTimerRef.current = setTimeout(() => {
+          setSaveStatus("idle");
+          savedStatusTimerRef.current = null;
+        }, 2500);
       } catch {
         setSaveStatus("error");
       }
@@ -225,7 +229,6 @@ export default function MarkdownEditor({
         placeholder: "Start writing…",
       }),
       TypewriterScrolling.configure({ enabled: true, offset: 0.4 }),
-      FocusMode.configure({ enabled: focusModeEnabled }),
       makeSlashCommandHint((active) => slashModeCallbackRef.current(active)),
       TocDecoration,
     ],
@@ -436,12 +439,6 @@ export default function MarkdownEditor({
     };
   }, [editor]);
 
-  // Focus mode sync from external prop
-  useEffect(() => {
-    if (!editor) return;
-    toggleFocusMode(editor, focusModeEnabled);
-  }, [editor, focusModeEnabled]);
-
   // Initial word count
   useEffect(() => {
     if (!editor) return;
@@ -480,6 +477,7 @@ export default function MarkdownEditor({
         doSave(latestContentRef.current);
       }
       if (writingTimerRef.current) clearTimeout(writingTimerRef.current);
+      if (savedStatusTimerRef.current) clearTimeout(savedStatusTimerRef.current);
     };
   }, [doSave]);
 
@@ -587,7 +585,7 @@ export default function MarkdownEditor({
 
   return (
     <div
-      className={`writing-editor-wrapper${isWriting ? " writing-active" : ""}${focusModeEnabled || isFullscreen ? " focus-mode-on" : ""}`}
+      className={`writing-editor-wrapper${isWriting ? " writing-active" : ""}${isFullscreen ? " fullscreen-mode-on" : ""}`}
     >
       {/* Top-right chrome: ThemeToggle + Export — only in fullscreen mode */}
       {isFullscreen && onExport && (

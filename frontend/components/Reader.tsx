@@ -1,4 +1,3 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -55,6 +54,10 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [showConnectionsPanel, setShowConnectionsPanel] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [articleEditUiState, setArticleEditUiState] = useState({
+    isEditing: false,
+    isSaving: false,
+  });
 
   // TOC state
   const [tocHeadings, setTocHeadings] = useState<
@@ -347,11 +350,44 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!SHOW_EDIT_ARTICLE || content.content_type !== "pdf") return;
+
+    const syncArticleState = () => {
+      const article = articleRef.current;
+      if (!article) return;
+      setArticleEditUiState((prev) => {
+        if (
+          prev.isEditing === article.isEditing &&
+          prev.isSaving === article.isSaving
+        ) {
+          return prev;
+        }
+        return {
+          isEditing: article.isEditing,
+          isSaving: article.isSaving,
+        };
+      });
+    };
+
+    syncArticleState();
+    const intervalId = setInterval(syncArticleState, 150);
+    return () => clearInterval(intervalId);
+  }, [content.content_type]);
+
   const themeClasses =
     "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]";
 
-  const scrollToHighlight = articleRef.current?.scrollToHighlight;
-  const refreshHighlights = articleRef.current?.refreshHighlights;
+  const handleHighlightClick = useCallback(
+    (highlight: ReaderArticleHandle["highlights"][number]) => {
+      articleRef.current?.scrollToHighlight(highlight);
+    },
+    [],
+  );
+
+  const handleRefreshHighlights = useCallback(() => {
+    void articleRef.current?.refreshHighlights();
+  }, []);
 
   return (
     <div
@@ -477,17 +513,17 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                         article.setIsEditing(true);
                       }
                     }}
-                    disabled={articleRef.current?.isSaving ?? false}
+                    disabled={articleEditUiState.isSaving}
                     className={`hidden sm:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-none border transition-colors ${
-                      articleRef.current?.isEditing
+                      articleEditUiState.isEditing
                         ? "bg-[var(--color-accent)] text-[var(--color-text-primary)] border-[var(--color-accent)]"
                         : "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
                     }`}
                     title="Toggle Edit Mode"
                   >
-                    {articleRef.current?.isSaving
+                    {articleEditUiState.isSaving
                       ? "Saving..."
-                      : articleRef.current?.isEditing
+                      : articleEditUiState.isEditing
                         ? "Save Changes"
                         : "Edit Article"}
                   </button>
@@ -513,9 +549,9 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
       >
         <HighlightsPanel
           highlights={highlights}
-          onHighlightClick={scrollToHighlight ?? (() => {})}
-          onHighlightDeleted={() => refreshHighlights?.()}
-          onHighlightUpdated={() => refreshHighlights?.()}
+          onHighlightClick={handleHighlightClick}
+          onHighlightDeleted={handleRefreshHighlights}
+          onHighlightUpdated={handleRefreshHighlights}
         />
       </div>
 

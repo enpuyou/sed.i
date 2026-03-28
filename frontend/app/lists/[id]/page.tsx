@@ -102,7 +102,6 @@ export default function ListDetailPage() {
   const [writingOpen, setWritingOpen] = useState(false);
   const [initialDraftContent, setInitialDraftContent] = useState("");
   const [draftLoading, setDraftLoading] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
   const [editorFullscreen, setEditorFullscreen] = useState(false);
 
   // Inline article view (left pane in writing mode)
@@ -116,6 +115,8 @@ export default function ListDetailPage() {
     null,
   );
   const isDraggingRef = useRef(false);
+  const dragMoveHandlerRef = useRef<((ev: MouseEvent) => void) | null>(null);
+  const dragUpHandlerRef = useRef<(() => void) | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   // Export handler ref — set by MarkdownEditor
@@ -173,7 +174,7 @@ export default function ListDetailPage() {
   const handleCloseWrite = useCallback(() => {
     setWritingOpen(false);
     setSelectedArticle(null);
-    setFocusMode(false);
+    setEditorFullscreen(false);
     setSplitPercent(DEFAULT_SPLIT);
     draftsAPI
       .get(listId)
@@ -190,37 +191,66 @@ export default function ListDetailPage() {
     );
   }, []);
 
-  // Divider drag
-  const startDrag = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isDraggingRef.current = true;
-    setDividerVisible(true);
-    if (dividerHideTimerRef.current) clearTimeout(dividerHideTimerRef.current);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+  const cleanupDrag = useCallback(() => {
+    isDraggingRef.current = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
 
-    const onMove = (ev: MouseEvent) => {
-      if (!isDraggingRef.current || !bodyRef.current) return;
-      const rect = bodyRef.current.getBoundingClientRect();
-      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-      setSplitPercent(Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, pct)));
-    };
+    if (dragMoveHandlerRef.current) {
+      window.removeEventListener("mousemove", dragMoveHandlerRef.current);
+      dragMoveHandlerRef.current = null;
+    }
 
-    const onUp = () => {
-      isDraggingRef.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      dividerHideTimerRef.current = setTimeout(
-        () => setDividerVisible(false),
-        1500,
-      );
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    if (dragUpHandlerRef.current) {
+      window.removeEventListener("mouseup", dragUpHandlerRef.current);
+      dragUpHandlerRef.current = null;
+    }
   }, []);
+
+  // Divider drag
+  const startDrag = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      cleanupDrag();
+
+      isDraggingRef.current = true;
+      setDividerVisible(true);
+      if (dividerHideTimerRef.current) clearTimeout(dividerHideTimerRef.current);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev: MouseEvent) => {
+        if (!isDraggingRef.current || !bodyRef.current) return;
+        const rect = bodyRef.current.getBoundingClientRect();
+        const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+        setSplitPercent(Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, pct)));
+      };
+
+      const onUp = () => {
+        cleanupDrag();
+        dividerHideTimerRef.current = setTimeout(
+          () => setDividerVisible(false),
+          1500,
+        );
+      };
+
+      dragMoveHandlerRef.current = onMove;
+      dragUpHandlerRef.current = onUp;
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [cleanupDrag],
+  );
+
+  useEffect(() => {
+    return () => {
+      cleanupDrag();
+      if (dividerHideTimerRef.current) {
+        clearTimeout(dividerHideTimerRef.current);
+      }
+      setDividerVisible(false);
+    };
+  }, [cleanupDrag]);
 
   const handleRemoveFromList = async (contentId: string) => {
     const previousContents = [...contents];
@@ -326,9 +356,7 @@ export default function ListDetailPage() {
           <Navbar
             writingMode={writingOpen}
             onWritingClose={handleCloseWrite}
-            onWritingFocus={() => setFocusMode((v) => !v)}
             onWritingExport={(fmt) => exportHandlerRef.current?.(fmt)}
-            writingFocusActive={focusMode}
           />
         )}
 
@@ -420,7 +448,6 @@ export default function ListDetailPage() {
                 listName={list.name}
                 initialContent={initialDraftContent}
                 inline
-                focusModeEnabled={focusMode}
                 onExit={handleCloseWrite}
                 onExport={(fmt) => exportHandlerRef.current?.(fmt)}
                 onExportReady={(fn) => {
