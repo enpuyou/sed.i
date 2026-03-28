@@ -162,7 +162,7 @@ export default function NowPlaying({
               </div>
 
               {/* HOVER: Transport controls — minimal geometric SVGs */}
-              <div className="absolute inset-0 flex items-center justify-start pl-2 opacity-0 group-hover/player:opacity-100 transition-opacity duration-200 pointer-events-none group-hover/player:pointer-events-auto bg-[var(--color-bg-primary)]">
+              <div className="absolute inset-0 flex items-center justify-start pl-2 opacity-0 group-hover/player:opacity-100 transition-opacity duration-200 pointer-events-none group-hover/player:pointer-events-auto">
                 <div className="flex items-center gap-3 select-none">
                   {/* Prev */}
                   <button

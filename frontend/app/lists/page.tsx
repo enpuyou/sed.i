@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { listsAPI } from "@/lib/api";
 import ListModal from "@/components/ListModal";
 import RetroLoader from "@/components/RetroLoader";
@@ -20,20 +21,29 @@ interface ListWithCount {
   content_count: number;
 }
 
+type ViewMode = "block" | "index";
+
 export default function ListsPage() {
   const { listCounts, setListCount } = useLists();
+  const router = useRouter();
 
   const [lists, setLists] = useState<ListWithCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("block");
 
-  const filteredLists = lists.filter(
-    (list) =>
-      list.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (list.description &&
-        list.description.toLowerCase().includes(searchQuery.toLowerCase())),
-  );
+  const filteredLists = lists
+    .filter(
+      (list) =>
+        list.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (list.description &&
+          list.description.toLowerCase().includes(searchQuery.toLowerCase())),
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+    );
 
   // Modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -77,7 +87,7 @@ export default function ListsPage() {
       <div className="min-h-screen bg-[var(--color-bg-primary)]">
         <Navbar />
 
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-12">
             <div className="text-[var(--color-text-muted)]">
               <RetroLoader text="Loading your lists" />
@@ -92,18 +102,16 @@ export default function ListsPage() {
     <div className="min-h-screen bg-[var(--color-bg-primary)]">
       <Navbar />
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="font-serif text-3xl font-normal text-[var(--color-text-primary)] mt-6">
-                My Collections
-              </h1>
-            </div>
+          <div className="flex justify-between items-end">
+            <h1 className="font-serif text-3xl font-normal text-[var(--color-text-primary)] mt-6">
+              My Collections
+            </h1>
             <button
               onClick={() => setIsCreateModalOpen(true)}
-              className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors whitespace-nowrap"
+              className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-transparent text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors whitespace-nowrap"
             >
               + Create List
             </button>
@@ -135,10 +143,11 @@ export default function ListsPage() {
           </div>
         )}
 
-        {/* Search */}
+        {/* Controls: search + view toggle (matches ContentList pattern) */}
         {lists.length > 0 && (
-          <div className="mb-6">
-            <div className="relative">
+          <div className="flex items-center gap-3 mb-6">
+            {/* Search */}
+            <div className="relative flex-1">
               <input
                 type="text"
                 placeholder="Search lists..."
@@ -160,29 +169,132 @@ export default function ListsPage() {
                 />
               </svg>
             </div>
+            {/* View toggle — same icons/style as ContentList */}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button
+                onClick={() => setViewMode("block")}
+                title="Block view"
+                className={`p-0.5 transition-colors ${viewMode === "block" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-faint)] hover:text-[var(--color-text-muted)]"}`}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <rect x="2" y="2" width="4" height="4" />
+                  <rect x="8" y="2" width="4" height="4" />
+                  <rect x="2" y="8" width="4" height="4" />
+                  <rect x="8" y="8" width="4" height="4" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setViewMode("index")}
+                title="Index view"
+                className={`p-0.5 transition-colors ${viewMode === "index" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-faint)] hover:text-[var(--color-text-muted)]"}`}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <line x1="2" y1="3" x2="12" y2="3" />
+                  <line x1="2" y1="7" x2="12" y2="7" />
+                  <line x1="2" y1="11" x2="12" y2="11" />
+                </svg>
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Lists as block grid layout - square blocks */}
+        {/* Lists grid / index */}
         {filteredLists.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredLists.map((list) => (
-              <ListBlockCard
-                key={list.id}
-                id={list.id}
-                name={list.name}
-                description={list.description}
-                contentCount={listCounts[list.id] ?? list.content_count}
-                isShared={list.is_shared}
-                onEdit={() => setEditingList(list)}
-                onDelete={() => handleDeleteList(list.id)}
-              />
-            ))}
-          </div>
+          viewMode === "block" ? (
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredLists.map((list) => (
+                <ListBlockCard
+                  key={list.id}
+                  id={list.id}
+                  name={list.name}
+                  description={list.description}
+                  contentCount={listCounts[list.id] ?? list.content_count}
+                  isShared={list.is_shared}
+                  onEdit={() => setEditingList(list)}
+                  onDelete={() => handleDeleteList(list.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            /* Index view — matches ContentList style: sticky header + rows */
+            <div>
+              {/* Header row */}
+              <div
+                className="py-1 border-b border-[var(--color-text-primary)] font-mono text-[11px] uppercase tracking-wider text-[var(--color-text-muted)] sticky top-0 bg-[var(--color-bg-primary)] z-10 mb-2 hidden sm:grid"
+                style={{ gridTemplateColumns: "1fr 5rem 7rem", gap: "0 1rem" }}
+              >
+                <span>Name</span>
+                <span>Items</span>
+                <span className="hidden sm:block">Updated</span>
+              </div>
+              {/* Rows */}
+              <div className="flex flex-col">
+                {filteredLists.map((list) => {
+                  const count = listCounts[list.id] ?? list.content_count;
+                  const updatedDate = new Date(
+                    list.updated_at,
+                  ).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
+                  return (
+                    <div
+                      key={list.id}
+                      onClick={() => router.push(`/lists/${list.id}`)}
+                      className="group grid py-2 border-b border-[var(--color-border-subtle)] cursor-pointer hover:bg-[var(--color-bg-secondary)] transition-colors items-center"
+                      style={{
+                        gridTemplateColumns: "1fr 5rem 7rem",
+                        gap: "0 1rem",
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-serif text-base text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors truncate">
+                            {list.name}
+                          </span>
+                          {list.is_shared && (
+                            <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-faint)] border border-[var(--color-border)] px-1 flex-shrink-0">
+                              shared
+                            </span>
+                          )}
+                        </div>
+                        {list.description && (
+                          <p className="font-mono text-xs text-[var(--color-text-faint)] truncate mt-0.5">
+                            {list.description}
+                          </p>
+                        )}
+                      </div>
+                      <span className="font-mono text-xs text-[var(--color-text-faint)]">
+                        {count}
+                      </span>
+                      <span className="font-mono text-xs text-[var(--color-text-faint)] hidden sm:block">
+                        {updatedDate}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )
         ) : (
           lists.length > 0 && (
             <div className="text-center py-12 text-[var(--color-text-muted)] border border-dashed border-[var(--color-border)]">
-              No lists match "{searchQuery}"
+              No lists match &ldquo;{searchQuery}&rdquo;
             </div>
           )
         )}

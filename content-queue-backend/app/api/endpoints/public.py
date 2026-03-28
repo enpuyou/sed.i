@@ -51,8 +51,8 @@ def get_public_content(
     # Base query: belongs to user, and item itself must be public, and not deleted/archived
     query = db.query(ContentItem).filter(
         ContentItem.user_id == user.id,
-        ContentItem.is_public,
-        not ContentItem.is_archived,
+        ContentItem.is_public == True,  # noqa: E712
+        ContentItem.is_archived == False,  # noqa: E712
         ContentItem.deleted_at.is_(None),
     )
 

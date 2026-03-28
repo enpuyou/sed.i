@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -38,10 +38,26 @@ function NavLink({
   );
 }
 
-export default function Navbar() {
+interface NavbarProps {
+  // Writing mode: replaces nav links with writing controls
+  writingMode?: boolean;
+  onWritingClose?: () => void;
+  onWritingExport?: (format?: "md" | "pdf" | "docx") => void;
+  // Fullscreen/distraction-free: transparent bg, hide logo+search, controls only
+  fullscreenMode?: boolean;
+}
+
+export default function Navbar({
+  writingMode = false,
+  onWritingClose,
+  onWritingExport,
+  fullscreenMode = false,
+}: NavbarProps = {}) {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
   const lastScrollY = useRef(0);
   const { current: playerCurrent, isPlaying, toggle } = usePlayer();
   const [mounted, setMounted] = useState(false);
@@ -57,80 +73,184 @@ export default function Navbar() {
     pathname === "/crates" || pathname.startsWith("/crates/");
 
   // Scroll-based visibility
+  // In fullscreen mode, listen on the editor's scroll container (not window)
   useEffect(() => {
     const SCROLL_THRESHOLD = 10;
 
-    const handleScroll = () => {
-      const scrollY = window.scrollY;
+    const getScrollTarget = () =>
+      fullscreenMode
+        ? (document.querySelector(
+            ".typewriter-scroll-container",
+          ) as HTMLElement | null)
+        : null;
+
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      const scrollY = target ? target.scrollTop : window.scrollY;
       const deltaY = scrollY - lastScrollY.current;
 
       if (Math.abs(deltaY) > SCROLL_THRESHOLD) {
-        if (deltaY > 0 && scrollY > 100) {
+        if (deltaY > 0 && scrollY > 60) {
           setIsVisible(false);
-        } else if (deltaY < 0 || scrollY < 50) {
+        } else if (deltaY < 0 || scrollY < 30) {
           setIsVisible(true);
         }
         lastScrollY.current = scrollY;
       }
     };
 
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+    const handleWindowScroll = () => {
+      const scrollY = window.scrollY;
+      const deltaY = scrollY - lastScrollY.current;
+      if (Math.abs(deltaY) > SCROLL_THRESHOLD) {
+        if (deltaY > 0 && scrollY > 100) setIsVisible(false);
+        else if (deltaY < 0 || scrollY < 50) setIsVisible(true);
+        lastScrollY.current = scrollY;
+      }
+    };
+
+    if (fullscreenMode) {
+      // Defer to let the DOM render the scroll container
+      const timer = setTimeout(() => {
+        const container = getScrollTarget();
+        if (container) {
+          container.addEventListener("scroll", handleScroll, { passive: true });
+        }
+      }, 100);
+      return () => {
+        clearTimeout(timer);
+        const container = getScrollTarget();
+        if (container) container.removeEventListener("scroll", handleScroll);
+      };
+    } else {
+      window.addEventListener("scroll", handleWindowScroll, { passive: true });
+      return () => window.removeEventListener("scroll", handleWindowScroll);
+    }
+  }, [fullscreenMode]);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [exportOpen]);
+
+  const handleExport = useCallback(
+    (format: "md" | "pdf" | "docx") => {
+      setExportOpen(false);
+      onWritingExport?.(format);
+    },
+    [onWritingExport],
+  );
 
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
 
   return (
     <nav
-      className={`sticky top-0 z-50 w-full transition-transform duration-300 ${isVisible ? "translate-y-0" : "-translate-y-full"}`}
+      className={`sticky top-0 z-50 w-full transition-transform duration-300 ${isVisible ? "translate-y-0" : "-translate-y-full"} ${fullscreenMode ? "bg-transparent border-b border-transparent" : ""}`}
     >
-      <div className="px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between w-full h-14">
-          {/* Left: Logo & Player */}
-          <div className="flex items-center gap-4 w-1/4">
-            <Link
-              href="/dashboard"
-              className="text-xl font-normal whitespace-nowrap flex items-center gap-2 shrink-0 no-underline hover:opacity-100"
-              style={{
-                fontFamily: "var(--font-logo)",
-                color: "var(--color-text-primary)",
-              }}
-            >
-              <SediLogo
-                size={20}
-                className="text-[var(--color-text-primary)]"
-              />
-              sed.i
-            </Link>
-            <div className="hidden md:block">
-              <NowPlaying />
+      <div className={fullscreenMode ? "px-3" : "px-4 sm:px-6 lg:px-8"}>
+        <div
+          className={`flex items-center justify-between w-full ${fullscreenMode ? "h-8" : "h-14"}`}
+        >
+          {/* Left: Logo & Player — hidden in fullscreen mode */}
+          {!fullscreenMode && (
+            <div className="flex items-center gap-4 w-1/4">
+              <Link
+                href="/dashboard"
+                className="text-xl font-normal whitespace-nowrap flex items-center gap-2 shrink-0 no-underline hover:opacity-100"
+                style={{
+                  fontFamily: "var(--font-logo)",
+                  color: "var(--color-text-primary)",
+                }}
+              >
+                <SediLogo
+                  size={20}
+                  className="text-[var(--color-text-primary)]"
+                />
+                sed.i
+              </Link>
+              <div className="hidden md:block">
+                <NowPlaying />
+              </div>
             </div>
-          </div>
+          )}
+          {/* Fullscreen: spacer to push controls right */}
+          {fullscreenMode && <div className="flex-1" />}
 
-          {/* Center: Search */}
-          <div className="hidden md:flex flex-1 justify-center max-w-lg mx-4">
-            <div className="w-full">
-              <SearchBar />
+          {/* Center: Search — hidden in fullscreen mode */}
+          {!fullscreenMode && (
+            <div className="hidden md:flex flex-1 justify-center max-w-lg mx-4">
+              <div className="w-full">
+                <SearchBar />
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Right: Navigation Links & Theme Toggle (Desktop) */}
+          {/* Right: Writing controls OR Navigation Links */}
           <div className="hidden md:flex items-center justify-end gap-2 w-1/4">
-            <ThemeToggle />
-            <NavLink href="/dashboard" active={isQueueActive}>
-              Queue
-            </NavLink>
-            <NavLink href="/lists" active={isListsActive}>
-              Lists
-            </NavLink>
-            {SHOW_CRATES && (
-              <NavLink href="/crates" active={isCratesActive}>
-                Crates
-              </NavLink>
+            {writingMode ? (
+              <>
+                <ThemeToggle />
+                {/* Export dropdown */}
+                <div ref={exportRef} className="relative flex items-center">
+                  <button
+                    onClick={() => setExportOpen((v) => !v)}
+                    className="compact-touch text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:border-[var(--color-accent)] transition-colors"
+                    style={{ color: "var(--color-text-primary)" }}
+                    title="Export"
+                  >
+                    Export ▾
+                  </button>
+                  {exportOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--color-bg-primary)] border border-[var(--color-border)] min-w-[110px]">
+                      {(["md", "pdf", "docx"] as const).map((fmt) => (
+                        <button
+                          key={fmt}
+                          onClick={() => handleExport(fmt)}
+                          className="block w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-accent)] transition-colors"
+                          style={{ color: "var(--color-text-primary)" }}
+                        >
+                          .{fmt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {!fullscreenMode && (
+                  <button
+                    onClick={onWritingClose}
+                    className="compact-touch text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:border-[var(--color-accent)] transition-colors"
+                    style={{ color: "var(--color-text-primary)" }}
+                    title="Close writing mode"
+                  >
+                    ✕ Close
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <ThemeToggle />
+                <NavLink href="/dashboard" active={isQueueActive}>
+                  Queue
+                </NavLink>
+                <NavLink href="/lists" active={isListsActive}>
+                  Lists
+                </NavLink>
+                {SHOW_CRATES && (
+                  <NavLink href="/crates" active={isCratesActive}>
+                    Crates
+                  </NavLink>
+                )}
+                <NavLink href="/settings" active={isSettingsActive}>
+                  Settings
+                </NavLink>
+              </>
             )}
-            <NavLink href="/settings" active={isSettingsActive}>
-              Settings
-            </NavLink>
           </div>
 
           {/* Mobile: Mini Player, Theme Toggle and Menu Button */}

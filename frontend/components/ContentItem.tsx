@@ -335,11 +335,15 @@ export default function ContentItem({
             href={navigateTo || `/content/${content.id}`}
             className="block mb-2"
             onClick={() => {
-              if (!navigateTo)
+              if (!navigateTo) {
                 sessionStorage.setItem(
                   "contentListScrollPos",
                   window.scrollY.toString(),
                 );
+                if (returnPath) {
+                  sessionStorage.setItem("readerReturnPath", returnPath);
+                }
+              }
             }}
           >
             <h3 className="font-serif text-2xl font-normal text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors leading-tight">
@@ -361,7 +365,7 @@ export default function ContentItem({
 
           {/* Description */}
           {content.description ? (
-            <p className="text-sm text-[var(--color-text-muted)] line-clamp-2 mb-2">
+            <p className="content-item-description text-sm text-[var(--color-text-muted)] line-clamp-2 mb-2">
               {content.description}
             </p>
           ) : isProcessing ? null : hasFailed ? (
@@ -387,7 +391,7 @@ export default function ContentItem({
             if (allTags.length === 0 && !isEditingTags) return null;
 
             return (
-              <div className="mb-3 flex items-center gap-2 flex-wrap">
+              <div className="content-item-tags mb-3 flex items-center gap-2 flex-wrap">
                 {allTags.map((tag, index) => (
                   <span
                     key={index}
@@ -627,7 +631,7 @@ export default function ContentItem({
 
         {/* Right side: Thumbnail (if available) - right-aligned, smaller */}
         {content.thumbnail_url && (
-          <div className="flex-shrink-0 hidden sm:block pl-6">
+          <div className="content-item-thumbnail flex-shrink-0 hidden sm:block pl-6">
             <div
               className="w-24 h-24 bg-[var(--color-bg-secondary)]"
               style={{

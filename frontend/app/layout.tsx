@@ -4,6 +4,7 @@ import {
   Libre_Caslon_Text,
   EB_Garamond,
   Merriweather,
+  Source_Serif_4,
 } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -40,6 +41,14 @@ const merriweather = Merriweather({
   weight: ["300", "400", "700", "900"],
 });
 
+const sourceSerif4 = Source_Serif_4({
+  subsets: ["latin"],
+  variable: "--font-writing",
+  weight: ["300", "400", "600", "700"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "sed.i",
   description: "Your personal reading queue with AI-powered recommendations",
@@ -53,7 +62,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${libreCaslon.variable} ${ebGaramond.variable} ${merriweather.variable}`}
+      className={`${inter.variable} ${libreCaslon.variable} ${ebGaramond.variable} ${merriweather.variable} ${sourceSerif4.variable}`}
       suppressHydrationWarning
     >
       <head>
