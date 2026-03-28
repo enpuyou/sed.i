@@ -15,6 +15,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
+import app.models  # noqa: F401 — ensures all models register with Base before create_all
 from app.main import app
 from app.core.database import Base, get_db
 from app.models.user import User

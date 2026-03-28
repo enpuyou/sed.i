@@ -42,7 +42,7 @@ repos:
     hooks:
       - id: pytest-backend
         name: Run backend tests
-        entry: bash -c 'cd content-queue-backend && poetry run pytest tests/ -q --tb=line'
+        entry: bash -c 'cd content-queue-backend && poetry run pytest tests/ --tb=line -p no:xdist
         language: system
         pass_filenames: false
         files: ^content-queue-backend/.*\.py$
