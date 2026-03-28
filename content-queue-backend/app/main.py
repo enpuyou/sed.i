@@ -85,9 +85,9 @@ app.add_middleware(RateLimitMiddleware)
 # Authorization header.
 @app.middleware("http")
 async def _mcp_trailing_slash(request, call_next):
-    if request.url.path == "/mcp":
-        request.scope["path"] = "/mcp/mcp"
-        request.scope["raw_path"] = b"/mcp/mcp"
+    if request.url.path == "/mcp-transport":
+        request.scope["path"] = "/mcp-transport/mcp"
+        request.scope["raw_path"] = b"/mcp-transport/mcp"
     return await call_next(request)
 
 
@@ -105,7 +105,7 @@ app.include_router(mcp_oauth_router)
 
 from starlette.routing import Mount  # noqa: E402
 
-app.router.routes.append(Mount("/mcp", app=_mcp_proxy))
+app.router.routes.append(Mount("/mcp-transport", app=_mcp_proxy))
 
 # Dev-only test routes (serves local PDFs from gitignored pdf/ directory)
 # Only mounted when DEBUG=true — never active in production
