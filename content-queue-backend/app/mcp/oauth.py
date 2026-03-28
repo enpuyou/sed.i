@@ -113,6 +113,10 @@ _REGISTERED_CLIENTS = _load_registered_clients()
 
 
 def _validate_client_and_redirect(client_id: str, redirect_uri: str) -> str | None:
+    # If no static allowlist is configured, accept all dynamically registered clients.
+    if not _REGISTERED_CLIENTS:
+        return None
+
     if client_id not in _REGISTERED_CLIENTS:
         return "Unknown OAuth client_id"
 
@@ -137,6 +141,7 @@ def oauth_discovery(request: Request) -> JSONResponse:
     """
     RFC 8414 OAuth 2.0 Authorization Server Metadata.
     MCP clients fetch this to discover authorize/token endpoints.
+    Advertises dynamic client registration so mcp-remote can self-register.
     """
     # Prefer explicit API_BASE_URL (set in Railway) over request.base_url,
     # which resolves to the internal Railway host behind the reverse proxy.
@@ -146,11 +151,41 @@ def oauth_discovery(request: Request) -> JSONResponse:
             "issuer": base,
             "authorization_endpoint": f"{base}/mcp/authorize",
             "token_endpoint": f"{base}/mcp/token",
+            "registration_endpoint": f"{base}/mcp/register",
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code"],
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none"],
         }
+    )
+
+
+@router.post("/mcp/register")
+async def dynamic_client_registration(request: Request) -> JSONResponse:
+    """
+    RFC 7591 Dynamic Client Registration.
+    mcp-remote requires this endpoint to exist — it self-registers before
+    starting the OAuth flow. We accept any client and echo back a client_id
+    derived from the request (no client secret needed, PKCE-only flow).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    # Use provided client_id or generate one from redirect URIs
+    redirect_uris = body.get("redirect_uris", [])
+    client_id = body.get("client_id") or secrets.token_urlsafe(16)
+
+    return JSONResponse(
+        {
+            "client_id": client_id,
+            "redirect_uris": redirect_uris,
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+        },
+        status_code=201,
     )
 
 
