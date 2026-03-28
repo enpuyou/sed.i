@@ -147,7 +147,7 @@ def oauth_protected_resource(request: Request) -> JSONResponse:
     base = (settings.API_BASE_URL or str(request.base_url)).rstrip("/")
     return JSONResponse(
         {
-            "resource": f"{base}/mcp",
+            "resource": f"{base}/mcp-transport",
             "authorization_servers": [base],
             "bearer_methods_supported": ["header"],
             "scopes_supported": [],
@@ -168,9 +168,9 @@ def oauth_discovery(request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "issuer": base,
-            "authorization_endpoint": f"{base}/mcp/authorize",
-            "token_endpoint": f"{base}/mcp/token",
-            "registration_endpoint": f"{base}/mcp/register",
+            "authorization_endpoint": f"{base}/mcp-transport/authorize",
+            "token_endpoint": f"{base}/mcp-transport/token",
+            "registration_endpoint": f"{base}/mcp-transport/register",
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"],
@@ -179,7 +179,7 @@ def oauth_discovery(request: Request) -> JSONResponse:
     )
 
 
-@router.post("/mcp/register")
+@router.post("/mcp-transport/register")
 async def dynamic_client_registration(request: Request) -> JSONResponse:
     """
     RFC 7591 Dynamic Client Registration.
@@ -261,7 +261,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
 
 
 @router.get(
-    "/mcp/authorize",
+    "/mcp-transport/authorize",
     response_class=HTMLResponse,
     responses={400: {"description": "Invalid OAuth authorization request"}},
 )
@@ -294,7 +294,7 @@ def authorize_get(
 
 
 @router.post(
-    "/mcp/authorize",
+    "/mcp-transport/authorize",
     response_class=HTMLResponse,
     responses={400: {"description": "Invalid OAuth authorization request"}},
 )
@@ -364,7 +364,7 @@ def _refresh_token_redis_key(token: str) -> str:
 
 
 @router.post(
-    "/mcp/token",
+    "/mcp-transport/token",
     responses={400: {"description": "Invalid OAuth token exchange request"}},
 )
 def token(
