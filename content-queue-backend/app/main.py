@@ -68,7 +68,9 @@ app.include_router(mcp_oauth_router)
 # MCP HTTP transport — Streamable HTTP for claude.ai web access
 from app.mcp.http_server import build_mcp_asgi_app  # noqa: E402
 
-app.mount("/mcp", build_mcp_asgi_app())
+_mcp_asgi = build_mcp_asgi_app()
+app.mount("/mcp", _mcp_asgi)
+app.mount("/mcp/", _mcp_asgi)
 
 # Dev-only test routes (serves local PDFs from gitignored pdf/ directory)
 # Only mounted when DEBUG=true — never active in production
