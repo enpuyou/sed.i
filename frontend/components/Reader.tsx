@@ -423,7 +423,7 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                 sessionStorage.removeItem("readerReturnPath");
                 router.push(returnPath);
               }}
-              className="compact-touch text-xs px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors whitespace-nowrap flex-shrink-0 flex items-center"
+              className="compact-touch text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors whitespace-nowrap flex-shrink-0 flex items-center"
             >
               ← Back
             </button>
@@ -463,7 +463,7 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                 {/* Focus Mode button */}
                 <button
                   onClick={() => setFocusMode(!focusMode)}
-                  className={`hidden sm:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-none border transition-colors ${
+                  className={`hidden sm:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-none border transition-colors ${
                     focusMode
                       ? "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-accent)]"
                       : "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
@@ -476,7 +476,7 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                 {/* Highlights button */}
                 <button
                   onClick={() => setShowHighlightsPanel(!showHighlightsPanel)}
-                  className={`hidden xl:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-none border transition-colors ${
+                  className={`hidden xl:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-none border transition-colors ${
                     showHighlightsPanel
                       ? "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-accent)]"
                       : "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
@@ -490,7 +490,7 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                 {/* Connections button */}
                 <button
                   onClick={() => setShowConnectionsPanel(!showConnectionsPanel)}
-                  className={`hidden xl:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-none border transition-colors ${
+                  className={`hidden xl:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-none border transition-colors ${
                     showConnectionsPanel
                       ? "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-accent)]"
                       : "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
@@ -514,7 +514,7 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                       }
                     }}
                     disabled={articleEditUiState.isSaving}
-                    className={`hidden sm:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-none border transition-colors ${
+                    className={`hidden sm:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-none border transition-colors ${
                       articleEditUiState.isEditing
                         ? "bg-[var(--color-accent)] text-[var(--color-text-primary)] border-[var(--color-accent)]"
                         : "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
