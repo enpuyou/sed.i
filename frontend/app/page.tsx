@@ -209,7 +209,7 @@ export default function Home() {
 
           <p
             className="mt-4 text-base text-[var(--color-text-secondary)] max-w-xs mx-auto leading-relaxed"
-            style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontWeight: "var(--feature-desc-weight)", letterSpacing: "-0.01em" } as React.CSSProperties}
+            style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontWeight: "var(--feature-desc-weight)", letterSpacing: "var(--feature-desc-spacing)" } as React.CSSProperties}
           >
             A personal queue for reading, listening, and thinking.
           </p>

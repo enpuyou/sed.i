@@ -71,7 +71,7 @@ export default function FeatureShowcase({ features }: FeatureShowcaseProps) {
               <p
                 key={`desc-${activeIndex}`}
                 className="mt-4 text-base text-[var(--color-text-secondary)] leading-relaxed max-w-xs animate-text-swap"
-                style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontWeight: "var(--feature-desc-weight)", letterSpacing: "-0.01em" } as React.CSSProperties}
+                style={{ fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif", fontWeight: "var(--feature-desc-weight)", letterSpacing: "var(--feature-desc-spacing)" } as React.CSSProperties}
               >
                 {active.description}
               </p>
