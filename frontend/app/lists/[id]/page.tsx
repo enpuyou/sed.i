@@ -111,6 +111,16 @@ export default function ListDetailPage() {
   // Resizable divider
   const [splitPercent, setSplitPercent] = useState(DEFAULT_SPLIT);
   const [dividerVisible, setDividerVisible] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   const dividerHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -366,7 +376,7 @@ export default function ListDetailPage() {
             {/* Left pane: sources */}
             <div
               className="writing-left-pane"
-              style={{ width: `${splitPercent}%` }}
+              style={isMobile ? undefined : { width: `${splitPercent}%` }}
               data-narrow={splitPercent < 38 ? "true" : "false"}
             >
               {selectedArticle ? (
@@ -438,7 +448,7 @@ export default function ListDetailPage() {
             <div
               className={`writing-right-pane${editorFullscreen ? " writing-right-pane--fullscreen" : ""}`}
               style={
-                editorFullscreen
+                editorFullscreen || isMobile
                   ? undefined
                   : { width: `${100 - splitPercent}%` }
               }
@@ -497,7 +507,7 @@ export default function ListDetailPage() {
 
             {/* Description */}
             {list.description && (
-              <p className="font-serif text-lg text-[var(--color-text-secondary)] leading-relaxed mb-6">
+              <p className="text-sm text-[var(--color-text-secondary)] leading-snug mb-6">
                 {list.description}
               </p>
             )}

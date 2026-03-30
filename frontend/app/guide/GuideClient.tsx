@@ -15,6 +15,7 @@ const sections = [
   { id: "extension", title: "Chrome Extension" },
   { id: "search", title: "Search" },
   { id: "ai", title: "AI-Facilitated Features" },
+  { id: "claude-integration", title: "Claude Integration" },
   { id: "public-profiles", title: "Public Profiles" },
   { id: "shortcuts", title: "Keyboard Shortcuts" },
 ];
@@ -39,7 +40,7 @@ function SectionHeader({
   return (
     <div id={id} className="scroll-mt-24">
       <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-faint)]">
-        0{num}
+        {String(num).padStart(2, "0")}
       </span>
       <h2
         className="mt-2 font-serif text-3xl sm:text-4xl font-normal text-[var(--color-text-primary)]"
@@ -298,6 +299,12 @@ export default function GuideClient() {
                 Mark a list as shared to make it accessible to others via a
                 public link.
               </Feature>
+              <Feature label="Writing draft">
+                Each list has a writing workspace — a full-screen markdown
+                editor for composing an essay or post based on the articles
+                you&apos;ve collected. Open it from the list page. Your draft
+                auto-saves as you type and persists across sessions.
+              </Feature>
             </div>
           </section>
 
@@ -349,14 +356,6 @@ export default function GuideClient() {
                 Articles are automatically tagged with relevant topics using AI
                 analysis of the content.
               </Feature>
-              <Feature label="Mood filter">
-                Select a mood (focused, curious, relaxed, etc.) and get articles
-                matched to how you feel like reading right now.
-              </Feature>
-              <Feature label="Pick for Me">
-                Can&apos;t decide what to read? Let the AI choose based on your
-                reading patterns and the current time of day.
-              </Feature>
               <Feature label="Connections">
                 Discover links between your highlights across different
                 articles. The connections panel shows semantically related
@@ -365,10 +364,60 @@ export default function GuideClient() {
             </div>
           </section>
 
-          {/* 08 Public Profiles */}
+          {/* 08 Claude Integration */}
           <section>
             <SectionHeader
               num={8}
+              id="claude-integration"
+              title="Claude Integration"
+            />
+            <div className="mt-6 space-y-1 border-t border-[var(--color-border-subtle)] pt-4">
+              <Feature label="MCP endpoint">
+                sed.i connects to Claude via the Model Context Protocol. The
+                endpoint is{" "}
+                <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
+                  https://api.read-sedi.com/mcp-transport/mcp
+                </code>
+                . Both Claude Desktop and claude.ai web are supported.
+              </Feature>
+              <Feature label="Claude Desktop">
+                Edit{" "}
+                <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
+                  ~/Library/Application Support/Claude/claude_desktop_config.json
+                </code>{" "}
+                and add sed.i as an MCP server with{" "}
+                <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
+                  &quot;type&quot;: &quot;http&quot;
+                </code>{" "}
+                and the endpoint URL above. Restart Claude Desktop — it will
+                open a browser window to authorize with your sed.i account.
+              </Feature>
+              <Feature label="claude.ai web">
+                Go to Settings → Integrations → Add custom integration. Paste
+                the endpoint URL and click Connect. An authorization window will
+                appear — log in with your sed.i account to complete the
+                connection.
+              </Feature>
+              <Feature label="What you can ask">
+                Once connected, try: &ldquo;Summarize my &lsquo;[list
+                name]&rsquo; list and tell me what my draft is missing&rdquo; —
+                or &ldquo;Search my library for articles about [topic]&rdquo; —
+                or &ldquo;What have I been highlighting about [topic]?&rdquo; —
+                or &ldquo;Which of my lists has the most unread articles?&rdquo;
+              </Feature>
+              <Feature label="Write tools">
+                Claude can do more than read. Ask it to save a URL to your
+                library, create a new list, or update your draft for a list.
+                Every action goes through the same account you authorized, so
+                changes show up in sed.i immediately.
+              </Feature>
+            </div>
+          </section>
+
+          {/* 09 Public Profiles */}
+          <section>
+            <SectionHeader
+              num={9}
               id="public-profiles"
               title="Public Profiles"
             />
@@ -384,9 +433,9 @@ export default function GuideClient() {
             </div>
           </section>
 
-          {/* 09 Keyboard Shortcuts */}
+          {/* 10 Keyboard Shortcuts */}
           <section>
-            <SectionHeader num={9} id="shortcuts" title="Keyboard Shortcuts" />
+            <SectionHeader num={10} id="shortcuts" title="Keyboard Shortcuts" />
             <div className="mt-6 border-t border-[var(--color-border-subtle)] pt-4">
               {/* Reader */}
               <h3 className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-faint)] mb-3">

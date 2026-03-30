@@ -55,6 +55,8 @@
   --color-progress-bar: #f97316;
   /* Orange-500 */
   --progress-height: 4px;
+
+  --feature-desc-weight: 400;
 }
 
 /* Dark Mode */
@@ -97,6 +99,8 @@
   --color-progress-bar: #6b73e8;
   /* Purple-500 */
   --progress-height: 3px;
+
+  --feature-desc-weight: 300;
 }
 
 /* Sepia Mode */
@@ -160,6 +164,8 @@
 
   --color-progress-bar: #6b73e8;
   --progress-height: 3px;
+
+  --feature-desc-weight: 300;
 }
 
 /* Text Selection Styling */
@@ -1661,6 +1667,45 @@ h4:hover .heading-anchor {
   opacity: 0;
 }
 
+/* ========================================
+   FEATURE SHOWCASE ANIMATIONS
+   ======================================== */
+
+/* Text swap: fades in when React re-renders with new key */
+@keyframes text-swap {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-text-swap {
+  animation: text-swap 0.35s ease-out forwards;
+}
+
+/* Demo card: CSS scroll-driven reveal as it enters the viewport.
+   Falls back to always-visible on browsers without scroll-driven support. */
+.demo-card-reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  will-change: transform, opacity;
+  animation: demo-card-in linear both;
+  animation-timeline: view();
+  animation-range: entry 5% cover 40%;
+}
+
+@keyframes demo-card-in {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Fallback: if browser doesn't support scroll-driven animations, just show the cards */
+@supports not (animation-timeline: view()) {
+  .demo-card-reveal {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+}
+
 /* Heading Anchors */
 .heading-anchor {
   text-decoration: none;
@@ -1707,6 +1752,28 @@ h4:hover .heading-anchor {
   flex-direction: row;
   height: calc(100vh - 56px); /* full height below navbar */
   overflow: hidden;
+}
+
+/* Mobile: full-screen editor — hide left pane and divider */
+@media (max-width: 767px) {
+  .writing-left-pane,
+  .writing-resize-divider {
+    display: none !important;
+  }
+
+  .writing-right-pane {
+    width: 100% !important;
+  }
+
+  /* Slightly smaller editor text on mobile */
+  .writing-editor-inner {
+    font-size: 15px !important;
+  }
+
+  /* Hide ? and zoom buttons on mobile */
+  .editor-chrome-actions {
+    display: none !important;
+  }
 }
 
 /* Left pane: sources */

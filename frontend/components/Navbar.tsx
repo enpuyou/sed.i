@@ -111,16 +111,16 @@ export default function Navbar({
 
     if (fullscreenMode) {
       // Defer to let the DOM render the scroll container
+      let attachedContainer: HTMLElement | null = null;
       const timer = setTimeout(() => {
-        const container = getScrollTarget();
-        if (container) {
-          container.addEventListener("scroll", handleScroll, { passive: true });
+        attachedContainer = getScrollTarget();
+        if (attachedContainer) {
+          attachedContainer.addEventListener("scroll", handleScroll, { passive: true });
         }
       }, 100);
       return () => {
         clearTimeout(timer);
-        const container = getScrollTarget();
-        if (container) container.removeEventListener("scroll", handleScroll);
+        if (attachedContainer) attachedContainer.removeEventListener("scroll", handleScroll);
       };
     } else {
       window.addEventListener("scroll", handleWindowScroll, { passive: true });
@@ -253,66 +253,75 @@ export default function Navbar({
             )}
           </div>
 
-          {/* Mobile: Mini Player, Theme Toggle and Menu Button */}
+          {/* Mobile: writing mode → just Close; otherwise mini player + menu */}
           <div className="flex md:hidden items-center gap-2">
-            {/* Mini player — album art + play/pause (mounted guard prevents hydration mismatch) */}
-            {mounted && playerCurrent && (
+            {writingMode ? (
               <button
-                onClick={toggle}
-                className="compact-touch relative w-6 h-6 flex-shrink-0 overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]"
-                title={isPlaying ? "Pause" : "Play"}
+                onClick={onWritingClose}
+                className="compact-touch text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:border-[var(--color-accent)] transition-colors"
+                style={{ color: "var(--color-text-primary)" }}
               >
-                {mounted && playerCurrent && playerCurrent.cover_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={playerCurrent.cover_url}
-                    alt=""
-                    className={`w-full h-full object-cover ${isPlaying ? "" : "opacity-50"}`}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <span className="font-mono text-[8px] text-[var(--color-text-faint)]">
-                      {mounted && isPlaying ? "||" : "▶"}
-                    </span>
-                  </div>
-                )}
-                {!isPlaying &&
-                  mounted &&
-                  playerCurrent &&
-                  playerCurrent.cover_url && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 10 10"
-                        fill="var(--color-text-primary)"
-                      >
-                        <polygon points="3,1 3,9 9,5" />
-                      </svg>
-                    </div>
-                  )}
+                Close
               </button>
+            ) : (
+              <>
+                {/* Mini player — album art + play/pause */}
+                {mounted && playerCurrent && (
+                  <button
+                    onClick={toggle}
+                    className="compact-touch relative w-6 h-6 flex-shrink-0 overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]"
+                    title={isPlaying ? "Pause" : "Play"}
+                  >
+                    {playerCurrent.cover_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={playerCurrent.cover_url}
+                        alt=""
+                        className={`w-full h-full object-cover ${isPlaying ? "" : "opacity-50"}`}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <span className="font-mono text-[8px] text-[var(--color-text-faint)]">
+                          {isPlaying ? "||" : "▶"}
+                        </span>
+                      </div>
+                    )}
+                    {!isPlaying && playerCurrent.cover_url && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 10 10"
+                          fill="var(--color-text-primary)"
+                        >
+                          <polygon points="3,1 3,9 9,5" />
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+                )}
+                <ThemeToggle />
+                <button
+                  onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                  className="compact-touch text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors p-1"
+                  aria-label="Toggle mobile menu"
+                >
+                  <svg
+                    className="h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 6h16M4 12h16M4 18h16"
+                    />
+                  </svg>
+                </button>
+              </>
             )}
-            <ThemeToggle />
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="compact-touch text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors p-1"
-              aria-label="Toggle mobile menu"
-            >
-              <svg
-                className="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            </button>
           </div>
         </div>
       </div>
