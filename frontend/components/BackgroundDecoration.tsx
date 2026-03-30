@@ -66,9 +66,11 @@ export default function BackgroundDecoration() {
         // Y: 15% to 85%
         y = Math.random() * 70 + 15;
 
-        // 1. Avoid absolute center (text area)
-        // Center is roughly 50,50. Avoid 35-65 in both X and Y.
-        const inCenter = x > 35 && x < 65 && y > 35 && y < 65;
+        // Avoid hero center and the left text column rectangle.
+        // Text column sits at roughly x: 15-42%, y: 20-80% of viewport.
+        const inHeroCenter = x > 35 && x < 65 && y > 35 && y < 65;
+        const inTextBlock = x > 15 && x < 42 && y > 20 && y < 80;
+        const inCenter = inHeroCenter || inTextBlock;
 
         // 2. Avoid overlap with existing
         // roughly 20% distance threshold
@@ -76,7 +78,7 @@ export default function BackgroundDecoration() {
           const dx = p.x - x;
           const dy = p.y - y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          return dist < 25; // Minimum distance %
+          return dist < 18; // Minimum distance %
         });
 
         if (!inCenter && !tooClose) {
