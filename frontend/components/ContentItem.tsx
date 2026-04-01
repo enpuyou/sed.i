@@ -8,6 +8,7 @@ import { ContentItem as ContentItemType } from "@/types";
 import StatusIndicator from "./StatusIndicator";
 import MobileActionsMenu from "./MobileActionsMenu";
 import RetroLoader from "./RetroLoader";
+import InlineError from "./InlineError";
 import { useAuth } from "@/contexts/AuthContext";
 import { contentAPI } from "@/lib/api";
 
@@ -74,6 +75,7 @@ export default function ContentItem({
   const [tagInput, setTagInput] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -142,6 +144,7 @@ export default function ContentItem({
     newAutoTags?: string[],
   ) => {
     try {
+      setTagError(null);
       // Optimistic update
       const optimisticContent = {
         ...content,
@@ -171,6 +174,7 @@ export default function ContentItem({
       if (onUpdate) {
         onUpdate(content);
       }
+      setTagError("Couldn't save tags.");
     }
   };
 
@@ -249,6 +253,7 @@ export default function ContentItem({
             : "hover:bg-[var(--color-bg-secondary)]"
         }
         ${isArchiving ? "bg-[var(--color-bg-tertiary)]" : ""}
+        ${isProcessing ? "opacity-70" : ""}
       `}
     >
       {/* Retro Archiving Overlay */}
@@ -388,106 +393,116 @@ export default function ContentItem({
               new Set([...(content.tags || []), ...(content.auto_tags || [])]),
             );
 
-            if (allTags.length === 0 && !isEditingTags) return null;
+            if (allTags.length === 0 && !isEditingTags && !tagError)
+              return null;
 
             return (
-              <div className="content-item-tags mb-3 flex items-center gap-2 flex-wrap">
-                {allTags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="text-xs text-[var(--color-text-muted)] border-b border-[var(--color-border)] pb-0.5 flex items-center gap-1 cursor-default"
-                  >
-                    {tag}
-                    {isEditingTags && (
-                      <button
-                        onClick={() => handleRemoveTag(tag)}
-                        className="text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] ml-1 cursor-pointer"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                ))}
-
-                {/* Tag Input - only show when editing */}
-                {isEditingTags && (
-                  <div className="flex items-center gap-1">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={tagInput}
-                        onChange={(e) => {
-                          setTagInput(e.target.value);
-                          setShowSuggestions(true);
-                        }}
-                        onFocus={() => setShowSuggestions(true)}
-                        onBlur={() =>
-                          setTimeout(() => setShowSuggestions(false), 200)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            handleAddTag();
-                            setShowSuggestions(false);
-                          }
-                        }}
-                        placeholder="Add tag..."
-                        className="px-2 py-0.5 text-xs border border-[var(--color-border)] bg-transparent focus:outline-none focus:!ring-0"
-                        autoFocus
-                      />
-                      {showSuggestions && tagInput.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-bg-primary)] border border-[var(--color-border)] shadow-sm z-10">
-                          {availableTags
-                            .filter(
-                              (tag) =>
-                                tag
-                                  .toLowerCase()
-                                  .includes(tagInput.toLowerCase()) &&
-                                !allTags.includes(tag),
-                            )
-                            .slice(0, 5)
-                            .map((tag) => (
-                              <button
-                                key={tag}
-                                onClick={() => {
-                                  const newTags = [
-                                    ...(content.tags || []),
-                                    tag,
-                                  ];
-                                  handleUpdateTags(newTags);
-                                  setTagInput("");
-                                  setShowSuggestions(false);
-                                }}
-                                className="w-full text-left px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] last:border-b-0"
-                              >
-                                {tag}
-                              </button>
-                            ))}
-                        </div>
+              <>
+                <div className="content-item-tags mb-3 flex items-center gap-2 flex-wrap">
+                  {allTags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="text-xs text-[var(--color-text-muted)] border-b border-[var(--color-border)] pb-0.5 flex items-center gap-1 cursor-default"
+                    >
+                      {tag}
+                      {isEditingTags && (
+                        <button
+                          onClick={() => handleRemoveTag(tag)}
+                          className="text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] ml-1 cursor-pointer"
+                        >
+                          ×
+                        </button>
                       )}
+                    </span>
+                  ))}
+
+                  {/* Tag Input - only show when editing */}
+                  {isEditingTags && (
+                    <div className="flex items-center gap-1">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={tagInput}
+                          onChange={(e) => {
+                            setTagInput(e.target.value);
+                            setShowSuggestions(true);
+                          }}
+                          onFocus={() => setShowSuggestions(true)}
+                          onBlur={() =>
+                            setTimeout(() => setShowSuggestions(false), 200)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddTag();
+                              setShowSuggestions(false);
+                            }
+                          }}
+                          placeholder="Add tag..."
+                          className="px-2 py-0.5 text-xs border border-[var(--color-border)] bg-transparent focus:outline-none focus:!ring-0"
+                          autoFocus
+                        />
+                        {showSuggestions && tagInput.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-bg-primary)] border border-[var(--color-border)] shadow-sm z-10">
+                            {availableTags
+                              .filter(
+                                (tag) =>
+                                  tag
+                                    .toLowerCase()
+                                    .includes(tagInput.toLowerCase()) &&
+                                  !allTags.includes(tag),
+                              )
+                              .slice(0, 5)
+                              .map((tag) => (
+                                <button
+                                  key={tag}
+                                  onClick={() => {
+                                    const newTags = [
+                                      ...(content.tags || []),
+                                      tag,
+                                    ];
+                                    handleUpdateTags(newTags);
+                                    setTagInput("");
+                                    setShowSuggestions(false);
+                                  }}
+                                  className="w-full text-left px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] last:border-b-0"
+                                >
+                                  {tag}
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          handleAddTag();
+                          setShowSuggestions(false);
+                        }}
+                        className="text-xs px-2 py-0.5 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        Add
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsEditingTags(false);
+                          setTagInput("");
+                          setShowSuggestions(false);
+                        }}
+                        className="text-xs px-2 py-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                      >
+                        Done
+                      </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        handleAddTag();
-                        setShowSuggestions(false);
-                      }}
-                      className="text-xs px-2 py-0.5 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsEditingTags(false);
-                        setTagInput("");
-                        setShowSuggestions(false);
-                      }}
-                      className="text-xs px-2 py-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                    >
-                      Done
-                    </button>
-                  </div>
+                  )}
+                </div>
+                {tagError && (
+                  <InlineError
+                    message={tagError}
+                    onDismiss={() => setTagError(null)}
+                    className="mt-1 py-1"
+                  />
                 )}
-              </div>
+              </>
             );
           })()}
 

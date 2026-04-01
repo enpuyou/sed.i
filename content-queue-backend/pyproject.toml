@@ -41,8 +41,12 @@ dependencies = [
     "pymupdf-layout (==1.27.1)",
     "onnxruntime (==1.23.2)",
     "numpy (>=2.0.0,<3.0.0)",
-    "torch (==2.6.0)",
-    "torchvision (==0.21.0)",
+    "torch (==2.6.0) ; sys_platform == \"linux\"",
+    "torch (==2.6.0) ; sys_platform == \"darwin\" and platform_machine == \"arm64\"",
+    "torch (==2.2.2) ; sys_platform == \"darwin\" and platform_machine == \"x86_64\"",
+    "torchvision (==0.21.0) ; sys_platform == \"linux\"",
+    "torchvision (==0.21.0) ; sys_platform == \"darwin\" and platform_machine == \"arm64\"",
+    "torchvision (==0.17.2) ; sys_platform == \"darwin\" and platform_machine == \"x86_64\"",
     "ultralytics (>=8.0.0,<9.0.0)",
     "huggingface-hub (>=0.20.0,<1.0.0)",
     "posthog (>=3.0.0,<4.0.0)",
@@ -63,8 +67,16 @@ priority = "explicit"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-torch = {version = "==2.6.0", source = "pytorch-cpu"}
-torchvision = {version = "==0.21.0", source = "pytorch-cpu"}
+torch = [
+    {version = "==2.6.0", source = "pytorch-cpu", markers = "sys_platform == 'linux'"},
+    {version = "==2.6.0", markers = "sys_platform == 'darwin' and platform_machine == 'arm64'"},
+    {version = "==2.2.2", markers = "sys_platform == 'darwin' and platform_machine == 'x86_64'"},
+]
+torchvision = [
+    {version = "==0.21.0", source = "pytorch-cpu", markers = "sys_platform == 'linux'"},
+    {version = "==0.21.0", markers = "sys_platform == 'darwin' and platform_machine == 'arm64'"},
+    {version = "==0.17.2", markers = "sys_platform == 'darwin' and platform_machine == 'x86_64'"},
+]
 
 [tool.pytest.ini_options]
 # Disable xdist by default — tests share one DB and parallel TRUNCATEs conflict.

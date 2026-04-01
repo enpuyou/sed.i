@@ -313,6 +313,10 @@ docker-compose restart redis
 
 ## Deployment
 
+Canonical deployment and operations workflow:
+
+- `docs/engineering-workflow.md`
+
 ### Backend (Railway)
 
 1. Connect your GitHub repository
@@ -326,7 +330,7 @@ docker-compose restart redis
 2. Set NEXT_PUBLIC_API_URL to your Railway backend URL
 3. Deploy automatically on push to main
 
-See DEPLOYMENT.md for detailed deployment instructions.
+See `docs/engineering-workflow.md` for the full development → CI → deploy workflow.
 
 ## Environment Variables
 

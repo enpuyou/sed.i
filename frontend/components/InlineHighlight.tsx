@@ -209,6 +209,7 @@ export default function InlineHighlight({
         {/* Connection Indicator - Bottom left of highlight start */}
         {SHOW_HIGHLIGHT_CONNECTIONS &&
           hasConnections &&
+          onShowConnections &&
           !isOpen &&
           showIndicators && (
             <span

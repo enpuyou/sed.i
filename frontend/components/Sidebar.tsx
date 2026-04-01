@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { listsAPI } from "@/lib/api";
 import { useLists } from "@/contexts/ListsContext";
+import InlineError from "./InlineError";
 
 /**
  * Sidebar Navigation Component
@@ -28,10 +29,13 @@ export default function Sidebar() {
   const searchParams = useSearchParams();
   const [lists, setLists] = useState<ListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const { listCounts, setListCount } = useLists();
 
   const fetchLists = useCallback(async () => {
     try {
+      setLoading(true);
+      setFetchError(false);
       const data = await listsAPI.getAll();
       setLists(data);
       data.forEach((list: ListItem) => {
@@ -39,6 +43,7 @@ export default function Sidebar() {
       });
     } catch (err) {
       console.error("Failed to fetch lists:", err);
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -142,8 +147,19 @@ export default function Sidebar() {
             </div>
           )}
 
+          {/* Lists Error State */}
+          {!loading && fetchError && (
+            <div className="px-4">
+              <InlineError
+                message="Couldn't load lists."
+                onRetry={fetchLists}
+                className="py-1.5"
+              />
+            </div>
+          )}
+
           {/* Lists Navigation */}
-          {!loading && lists.length === 0 && (
+          {!loading && !fetchError && lists.length === 0 && (
             <div className="px-4 py-2 text-sm text-[var(--color-text-muted)]">
               No lists yet.{" "}
               <Link
@@ -155,7 +171,7 @@ export default function Sidebar() {
             </div>
           )}
 
-          {!loading && lists.length > 0 && (
+          {!loading && !fetchError && lists.length > 0 && (
             <nav className="space-y-1">
               {lists.map((list) => (
                 <Link

@@ -164,7 +164,7 @@ export default function ContentCard({
   return (
     <div
       onClick={handleCardClick}
-      className="block p-4 border border-[var(--color-border)] transition-colors hover:border-[var(--color-accent)] cursor-pointer bg-[var(--color-bg-primary)] relative"
+      className={`block p-4 border border-[var(--color-border)] transition-colors hover:border-[var(--color-accent)] cursor-pointer bg-[var(--color-bg-primary)] relative${isProcessing ? " opacity-70" : ""}`}
     >
       {/* Retro Removing Overlay */}
       {isRemoving && (

@@ -1,10 +1,12 @@
+import os
+import time
+import asyncio
+from collections import defaultdict, deque
+from typing import Dict, Deque
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-import time
-from collections import defaultdict, deque
-from typing import Dict, Deque
-import asyncio
 
 
 class RateLimiter:
@@ -65,17 +67,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             allowed_hour = await rate_limiter.is_allowed(f"{user_id}:hour", 50, 3600)
 
             if not (allowed_minute and allowed_hour):
-                limit_type = "per minute" if not allowed_minute else "per hour"
+                retry_after = 60 if not allowed_minute else 3600
+                allowed_origins = os.getenv(
+                    "ALLOWED_ORIGINS", "http://localhost:3000"
+                ).split(",")
+                origin = request.headers.get("origin", "")
+                cors_origin = (
+                    origin if origin in allowed_origins else allowed_origins[0]
+                )
                 return JSONResponse(
                     status_code=429,
                     content={
-                        "error": "rate_limit_exceeded",
-                        "message": f"Too many requests {limit_type}. Please try again later.",
-                        "detail": "Rate limit: 10/minute, 50/hour",
+                        "detail": "Too many requests. Please try again later.",
                     },
                     headers={
-                        "Access-Control-Allow-Origin": "http://localhost:3000",
+                        "Access-Control-Allow-Origin": cors_origin,
                         "Access-Control-Allow-Credentials": "true",
+                        "Retry-After": str(retry_after),
                     },
                 )
 

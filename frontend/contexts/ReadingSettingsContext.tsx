@@ -17,6 +17,8 @@ export interface ReadingSettings {
   lineHeight: "compact" | "comfortable" | "spacious";
   letterSpacing: "tight" | "normal" | "wide";
   bionicReading: boolean;
+  showConnections: boolean;
+  showCrates: boolean;
 }
 
 const DEFAULTS: ReadingSettings = {
@@ -27,6 +29,8 @@ const DEFAULTS: ReadingSettings = {
   lineHeight: "comfortable",
   letterSpacing: "normal",
   bionicReading: false,
+  showConnections: true,
+  showCrates: true,
 };
 
 const STORAGE_KEY = "sedi-reading-settings";

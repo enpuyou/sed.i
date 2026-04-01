@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { contentAPI } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import InlineError from "./InlineError";
 
 export default function PickForMe() {
   const [loading, setLoading] = useState(false);
@@ -34,15 +35,11 @@ export default function PickForMe() {
   return (
     <>
       {error && (
-        <div className="mb-2 text-xs text-red-500 px-2 py-1 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded">
-          {error}
-          <button
-            onClick={() => setError(null)}
-            className="ml-2 text-red-600 dark:text-red-400 hover:underline"
-          >
-            ✕
-          </button>
-        </div>
+        <InlineError
+          message={error}
+          onDismiss={() => setError(null)}
+          className="mb-2 py-1"
+        />
       )}
       <button
         onClick={handlePickForMe}

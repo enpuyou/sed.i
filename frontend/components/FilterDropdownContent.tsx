@@ -101,7 +101,7 @@ export function FilterDropdownContent({
           <div className="p-3">
             <input
               type="text"
-              placeholder="FILTER..."
+              placeholder="Filter..."
               value={tagSearch}
               onChange={(e) => setTagSearch(e.target.value)}
               className="w-full bg-transparent border-b border-[var(--color-border)] py-1 text-xs font-mono text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:!ring-0 focus:border-[var(--color-accent)] transition-colors lowercase tracking-wide"
@@ -124,11 +124,11 @@ export function FilterDropdownContent({
 
               {availableTags.length === 0 ? (
                 <div className="w-full text-center py-8 text-xs text-[var(--color-text-muted)] font-mono">
-                  NO TAGS FOUND
+                  No tags found
                 </div>
               ) : filteredTags.length === 0 ? (
                 <div className="w-full text-center py-8 text-xs text-[var(--color-text-muted)] font-mono">
-                  NO MATCHES
+                  No matches
                 </div>
               ) : (
                 filteredTags.map((t) => {

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { VinylRecord } from "@/types";
 import { vinylAPI } from "@/lib/api";
 import { usePlayer, QueueTrack } from "@/contexts/PlayerContext";
+import InlineError from "./InlineError";
 
 interface RecordDetailProps {
   record: VinylRecord | null;
@@ -31,6 +32,7 @@ export default function RecordDetail({
   const { addToQueue, addMultipleToQueue, play, queue, currentIndex } =
     usePlayer();
   const [justQueued, setJustQueued] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Animate in/out + lock body scroll
   useEffect(() => {
@@ -52,6 +54,7 @@ export default function RecordDetail({
     setEditingStyles(false);
     setAddingVideo(false);
     setConfirmDelete(false);
+    setActionError(null);
   }, [record?.id]);
 
   // Keyboard: Escape to close
@@ -125,10 +128,11 @@ export default function RecordDetail({
       return;
     }
     try {
+      setActionError(null);
       await vinylAPI.delete(record.id);
       onDelete(record.id);
     } catch {
-      // silent
+      setActionError("Couldn't delete record. Try again.");
     }
     setConfirmDelete(false);
   };
@@ -136,18 +140,20 @@ export default function RecordDetail({
   const handleStatusToggle = async () => {
     const newStatus = record.status === "wantlist" ? "collection" : "wantlist";
     try {
+      setActionError(null);
       const updated = await vinylAPI.update(record.id, {
         status: newStatus,
       });
       onUpdate(updated);
     } catch {
-      // silent
+      setActionError("Couldn't update status. Try again.");
     }
   };
 
   const handleCoverUpdate = async () => {
     if (!coverInput.trim()) return;
     try {
+      setActionError(null);
       const updated = await vinylAPI.update(record.id, {
         cover_url: coverInput.trim(),
       });
@@ -155,7 +161,7 @@ export default function RecordDetail({
       setEditingCover(false);
       setCoverInput("");
     } catch {
-      // silent
+      setActionError("Couldn't update cover. Try again.");
     }
   };
 
@@ -165,13 +171,14 @@ export default function RecordDetail({
       .map((s) => s.trim())
       .filter(Boolean);
     try {
+      setActionError(null);
       const updated = await vinylAPI.update(record.id, {
         styles: parts,
       });
       onUpdate(updated);
       setEditingStyles(false);
     } catch {
-      // silent
+      setActionError("Couldn't update styles. Try again.");
     }
   };
 
@@ -189,6 +196,7 @@ export default function RecordDetail({
       return;
     }
     try {
+      setActionError(null);
       const updated = await vinylAPI.update(record.id, {
         videos: [...existingVideos, newVideo],
       });
@@ -196,7 +204,7 @@ export default function RecordDetail({
       setAddingVideo(false);
       setVideoInput("");
     } catch {
-      // silent
+      setActionError("Couldn't add video. Try again.");
     }
   };
 
@@ -209,10 +217,11 @@ export default function RecordDetail({
         duration: v.duration ?? undefined,
       }));
     try {
+      setActionError(null);
       const updated = await vinylAPI.update(record.id, { videos: filtered });
       onUpdate(updated);
     } catch {
-      // silent
+      setActionError("Couldn't remove video. Try again.");
     }
   };
 
@@ -666,6 +675,15 @@ export default function RecordDetail({
 
             {/* Spacer */}
             <div className="flex-1 min-h-4" />
+
+            {/* Action Error */}
+            {actionError && (
+              <InlineError
+                message={actionError}
+                onDismiss={() => setActionError(null)}
+                className="mt-3 py-1.5"
+              />
+            )}
 
             {/* Actions */}
             <div className="flex items-center gap-2 pt-3 mt-4 border-t border-[var(--color-border)]">

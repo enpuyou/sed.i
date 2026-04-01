@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { contentAPI } from "@/lib/api";
 import { ContentItem } from "@/types";
 import ContentCard from "./ContentCard";
+import InlineError from "./InlineError";
+import EmptyState from "./EmptyState";
 
 interface RecommendedSectionProps {
   mood?: string;
@@ -62,26 +64,21 @@ export default function RecommendedSection({ mood }: RecommendedSectionProps) {
 
   if (error) {
     return (
-      <div className="text-center py-8 text-red-500">
-        <p>{error}</p>
-        <button
-          onClick={fetchRecommended}
-          className="mt-4 px-4 py-2 rounded text-sm border border-[var(--color-border)] hover:bg-[var(--color-bg-secondary)]"
-        >
-          Try again
-        </button>
-      </div>
+      <InlineError
+        message={error}
+        onRetry={fetchRecommended}
+        className="py-4"
+      />
     );
   }
 
   if (items.length === 0) {
     return (
-      <div className="text-center py-8 text-[var(--color-text-muted)]">
-        <p>
-          No recommendations yet. Read some articles to get personalized
-          suggestions.
-        </p>
-      </div>
+      <EmptyState
+        message="No recommendations yet."
+        description="Read some articles to get personalized suggestions."
+        className="py-8"
+      />
     );
   }
 

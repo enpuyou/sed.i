@@ -45,12 +45,15 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
       // Rate limit exceeded
       const errorData = await response.json().catch(() => ({}));
       throw new Error(
-        errorData.message || "Too many requests. Please slow down.",
+        errorData.detail || "Too many requests. Please slow down.",
       );
     }
 
-    const errorText = await response.text();
-    throw new Error(`API error: ${response.status} - ${errorText}`);
+    // Parse {detail} from backend (consistent shape)
+    const errorData = await response.json().catch(() => null);
+    const detail =
+      errorData?.detail || (typeof errorData === "string" ? errorData : null);
+    throw new Error(detail || `Request failed (${response.status}).`);
   }
 
   return response.status === 204 ? null : response.json();
@@ -234,29 +237,9 @@ export const contentAPI = {
 
   // Delete a content item (DELETE /content/{item_id})
   delete: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/content/${id}`, {
+    return fetchWithAuth(`${API_BASE_URL}/content/${id}`, {
       method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${getAuthToken()}`,
-      },
     });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("token");
-          window.location.href = "/login";
-        }
-      }
-      throw new Error(`Delete failed: ${response.status}`);
-    }
-
-    // DELETE often returns 204 No Content, so don't try to parse JSON
-    if (response.status === 204) {
-      return null;
-    }
-
-    return response.json();
   },
 
   // Trigger summarization (POST /content/{item_id}/summary)
@@ -481,28 +464,9 @@ export const highlightsAPI = {
 
   // Delete a highlight (DELETE /highlights/{highlight_id})
   delete: async (highlightId: string) => {
-    const response = await fetch(`${API_BASE_URL}/highlights/${highlightId}`, {
+    return fetchWithAuth(`${API_BASE_URL}/highlights/${highlightId}`, {
       method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${getAuthToken()}`,
-      },
     });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("token");
-          window.location.href = "/login";
-        }
-      }
-      throw new Error(`Delete failed: ${response.status}`);
-    }
-
-    if (response.status === 204) {
-      return null;
-    }
-
-    return response.json();
   },
 };
 
@@ -561,28 +525,9 @@ export const vinylAPI = {
 
   // Soft delete (DELETE /vinyl/{id})
   delete: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/vinyl/${id}`, {
+    return fetchWithAuth(`${API_BASE_URL}/vinyl/${id}`, {
       method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${getAuthToken()}`,
-      },
     });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("token");
-          window.location.href = "/login";
-        }
-      }
-      throw new Error(`Delete failed: ${response.status}`);
-    }
-
-    if (response.status === 204) {
-      return null;
-    }
-
-    return response.json();
   },
 };
 

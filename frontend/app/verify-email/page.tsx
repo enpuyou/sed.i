@@ -7,6 +7,7 @@ import { authAPI } from "@/lib/api";
 import ThemeToggle from "@/components/ThemeToggle";
 import SediLogo from "@/components/SediLogo";
 import NowPlaying from "@/components/NowPlaying";
+import InlineError from "@/components/InlineError";
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
@@ -75,7 +76,7 @@ function VerifyEmailContent() {
 
       {status === "error" && (
         <div className="space-y-6">
-          <p className="font-mono text-[11px] text-red-500">{message}</p>
+          <InlineError message={message} className="py-1" />
           <Link
             href="/login"
             className="block font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-faint)] hover:text-[var(--color-text-primary)] transition-colors"

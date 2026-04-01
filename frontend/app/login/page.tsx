@@ -7,6 +7,7 @@ import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import SediLogo from "@/components/SediLogo";
 import NowPlaying from "@/components/NowPlaying";
+import InlineError from "@/components/InlineError";
 
 function LoginForm() {
   const [email, setEmail] = useState("");
@@ -27,11 +28,7 @@ function LoginForm() {
       await login(email, password);
       router.push("/dashboard");
     } catch (err: unknown) {
-      const error = err as {
-        response?: { data?: { detail?: string } };
-        message?: string;
-      };
-      setError(error.response?.data?.detail || error.message || "Login failed");
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setIsLoading(false);
     }
@@ -60,9 +57,11 @@ function LoginForm() {
         )}
 
         {error && (
-          <p className="font-mono text-[11px] text-center text-red-500">
-            {error}
-          </p>
+          <InlineError
+            message={error}
+            onDismiss={() => setError("")}
+            className="py-1"
+          />
         )}
 
         <input

@@ -6,6 +6,7 @@ import { authAPI } from "@/lib/api";
 import ThemeToggle from "@/components/ThemeToggle";
 import SediLogo from "@/components/SediLogo";
 import NowPlaying from "@/components/NowPlaying";
+import InlineError from "@/components/InlineError";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -84,9 +85,11 @@ export default function ForgotPasswordPage() {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <p className="font-mono text-[11px] text-center text-red-500">
-                {error}
-              </p>
+              <InlineError
+                message={error}
+                onDismiss={() => setError("")}
+                className="py-1"
+              />
             )}
 
             <input

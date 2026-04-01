@@ -60,7 +60,7 @@ export default function PublicProfileClient({
         if (e.response?.status === 404) setError("Profile not found.");
         else if (e.response?.status === 403)
           setError("This profile is private.");
-        else setError("Failed to load profile.");
+        else setError("Couldn't load profile.");
       } finally {
         setLoading(false);
       }

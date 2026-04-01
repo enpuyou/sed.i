@@ -8,6 +8,7 @@ import {
   useRef,
   Fragment,
 } from "react";
+import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import AddRecordForm from "@/components/AddRecordForm";
 import VinylCard from "@/components/VinylCard";
@@ -17,11 +18,14 @@ import KeyboardShortcuts from "@/components/KeyboardShortcuts";
 import ListeningMode from "@/components/ListeningMode";
 import { vinylAPI } from "@/lib/api";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useReadingSettings } from "@/contexts/ReadingSettingsContext";
 import { VinylRecord } from "@/types";
+import EmptyState from "@/components/EmptyState";
 
 type StatusFilter = "all" | "collection" | "wantlist" | "library";
 
 export default function CratesClient() {
+  const { settings } = useReadingSettings();
   const [records, setRecords] = useState<VinylRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>("all");
@@ -224,6 +228,31 @@ export default function CratesClient() {
     { value: "library", label: "Library" },
   ];
 
+  if (!settings.showCrates) {
+    return (
+      <div className="min-h-screen bg-[var(--color-bg-primary)]">
+        <Navbar />
+        <main className="max-w-3xl mx-auto px-6 py-16">
+          <div className="border border-[var(--color-border)] p-8 text-center space-y-4">
+            <h1 className="font-serif text-2xl text-[var(--color-text-primary)]">
+              Crates disabled
+            </h1>
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              Enable Crates + audio player in Settings → Feature Visibility.
+            </p>
+            <Link
+              href="/settings"
+              className="inline-block text-xs px-3 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] hover:border-[var(--color-accent)] transition-colors no-underline"
+              style={{ color: "var(--color-text-primary)" }}
+            >
+              Open settings
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--color-bg-primary)]">
       <Navbar />
@@ -425,17 +454,16 @@ export default function CratesClient() {
               <RetroLoader text="Loading records" />
             </div>
           ) : records.length === 0 ? (
-            <div className="text-center py-16">
-              <p className="font-mono text-sm text-[var(--color-text-muted)]">
-                No records yet. Paste a Discogs URL above to start digging.
-              </p>
-            </div>
+            <EmptyState
+              message="No records yet."
+              description="Paste a Discogs URL above to start digging."
+              className="py-16"
+            />
           ) : sortedRecords.length === 0 ? (
-            <div className="text-center py-16">
-              <p className="font-mono text-sm text-[var(--color-text-muted)]">
-                No records match &ldquo;{search}&rdquo;
-              </p>
-            </div>
+            <EmptyState
+              message={`No records match \u201c${search}\u201d`}
+              className="py-16"
+            />
           ) : groupedByLetter ? (
             /* Alphabet-divided grid (artist sort) */
             groupedByLetter.map((group) => (

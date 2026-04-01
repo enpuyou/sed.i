@@ -119,6 +119,7 @@ export default function ContentIndexItem({
       className={`group py-1 sm:py-2 px-0 transition-colors relative font-serif text-[13px] index-row-grid
         ${isSelected ? "bg-[var(--color-bg-secondary)]" : ""}
         ${isRemoving ? "opacity-50 pointer-events-none" : ""}
+        ${isProcessing ? "opacity-70" : ""}
       `}
       style={{
         display: "grid",

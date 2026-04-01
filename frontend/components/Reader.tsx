@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { ContentItem } from "@/types";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useReadingSettings } from "@/contexts/ReadingSettingsContext";
-import { useTTS } from "@/hooks/useTTS";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import NowPlaying from "./NowPlaying";
 import HighlightsPanel from "./HighlightsPanel";
@@ -32,7 +31,6 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
 
   const { settings, updateSetting } = useReadingSettings();
   const router = useRouter();
-  const { pause, resume, isPlaying } = useTTS();
 
   // Ref to access refreshHighlights/scrollToHighlight from ReaderArticle
   const articleRef = useRef<ReaderArticleHandle>(null);
@@ -77,6 +75,7 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
     esc: () => router.push("/dashboard"),
     h: () => setShowHighlightsPanel((prev) => !prev),
     c: (e) => {
+      if (!settings.showConnections) return;
       if (!e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         if (window.innerWidth >= 1280) {
@@ -90,7 +89,6 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
         setFocusMode((prev) => !prev);
       }
     },
-    t: () => (isPlaying ? pause() : resume()),
     "?": () => setShowShortcuts((v) => !v),
   });
 
@@ -105,7 +103,9 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
 
         if (isLeftHalf) {
           if (e.deltaX < 0) {
-            setShowConnectionsPanel(true);
+            if (settings.showConnections) {
+              setShowConnectionsPanel(true);
+            }
             if (showHighlightsPanel) setShowHighlightsPanel(false);
           } else if (e.deltaX > 0 && showConnectionsPanel) {
             setShowConnectionsPanel(false);
@@ -125,7 +125,13 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
 
     window.addEventListener("wheel", handleWheel, { passive: true });
     return () => window.removeEventListener("wheel", handleWheel);
-  }, [showHighlightsPanel, showConnectionsPanel]);
+  }, [showHighlightsPanel, showConnectionsPanel, settings.showConnections]);
+
+  useEffect(() => {
+    if (!settings.showConnections && showConnectionsPanel) {
+      setShowConnectionsPanel(false);
+    }
+  }, [settings.showConnections, showConnectionsPanel]);
 
   // Scroll listener: navbar auto-hide + readProgress
   useEffect(() => {
@@ -487,18 +493,21 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                   {highlights.length > 0 && `(${highlights.length})`}
                 </button>
 
-                {/* Connections button */}
-                <button
-                  onClick={() => setShowConnectionsPanel(!showConnectionsPanel)}
-                  className={`hidden xl:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-none border transition-colors ${
-                    showConnectionsPanel
-                      ? "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-accent)]"
-                      : "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
-                  }`}
-                  title={`${showConnectionsPanel ? "Hide" : "Show"} Connections`}
-                >
-                  {showConnectionsPanel ? "Hide" : "Show"} Connections
-                </button>
+                {settings.showConnections && (
+                  <button
+                    onClick={() =>
+                      setShowConnectionsPanel(!showConnectionsPanel)
+                    }
+                    className={`hidden xl:inline-block text-xs px-1.5 py-0.5 sm:px-2 sm:py-0.5 rounded-none border transition-colors ${
+                      showConnectionsPanel
+                        ? "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-accent)]"
+                        : "bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border-[var(--color-border)] hover:border-[var(--color-accent)]"
+                    }`}
+                    title={`${showConnectionsPanel ? "Hide" : "Show"} Connections`}
+                  >
+                    {showConnectionsPanel ? "Hide" : "Show"} Connections
+                  </button>
+                )}
 
                 {/* Edit Mode button - PDF Only, behind feature flag */}
                 {SHOW_EDIT_ARTICLE && content.content_type === "pdf" && (
@@ -535,9 +544,11 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
       </div>
 
       {/* Player - Fixed Bottom Left */}
-      <div className="hidden md:block fixed bottom-4 left-4 z-40">
-        <NowPlaying direction="up" />
-      </div>
+      {settings.showCrates && (
+        <div className="hidden md:block fixed bottom-4 left-4 z-40">
+          <NowPlaying direction="up" />
+        </div>
+      )}
 
       {/* Highlights Panel Sidebar */}
       <div
@@ -556,102 +567,105 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
       </div>
 
       {/* Connections Panel Sidebar */}
-      <div
-        className={`hidden xl:flex fixed left-4 top-32 w-80 h-[calc(100vh-16rem)] z-20 overflow-hidden flex-col transition-all duration-300 ease-in-out transform ${
-          showConnectionsPanel
-            ? "translate-x-0 opacity-100 pointer-events-auto"
-            : "-translate-x-[120%] opacity-0 pointer-events-none"
-        }`}
-      >
-        <ConnectionsPanel
-          contentId={content.id}
-          isOpen={showConnectionsPanel}
-          onClose={() => setShowConnectionsPanel(false)}
-          onNavigateToArticle={(id) => router.push(`/content/${id}`)}
-        />
-      </div>
+      {settings.showConnections && (
+        <div
+          className={`hidden xl:flex fixed left-4 top-32 w-80 h-[calc(100vh-16rem)] z-20 overflow-hidden flex-col transition-all duration-300 ease-in-out transform ${
+            showConnectionsPanel
+              ? "translate-x-0 opacity-100 pointer-events-auto"
+              : "-translate-x-[120%] opacity-0 pointer-events-none"
+          }`}
+        >
+          <ConnectionsPanel
+            contentId={content.id}
+            isOpen={showConnectionsPanel}
+            onClose={() => setShowConnectionsPanel(false)}
+            onNavigateToArticle={(id) => router.push(`/content/${id}`)}
+          />
+        </div>
+      )}
 
       {/* Table of Contents - Desktop Left Sidebar */}
-      {tocHeadings.length > 0 && !showConnectionsPanel && (
-        <div
-          ref={tocNavRef}
-          onScroll={handleTocScrollInteraction}
-          className="hidden xl:block fixed left-8 top-32 w-64 h-[calc(100vh-16rem)] overflow-y-auto pr-4 z-30 opacity-0 animate-fade-in [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
-          style={{ animationDelay: "0.5s", animationFillMode: "forwards" }}
-        >
-          <nav className="flex flex-col gap-1.5 mt-4 font-mono tracking-tighter">
-            {tocHeadings.map((heading) => {
-              const isActive = activeId === heading.id;
+      {tocHeadings.length > 0 &&
+        (!settings.showConnections || !showConnectionsPanel) && (
+          <div
+            ref={tocNavRef}
+            onScroll={handleTocScrollInteraction}
+            className="hidden xl:block fixed left-8 top-32 w-64 h-[calc(100vh-16rem)] overflow-y-auto pr-4 z-30 opacity-0 animate-fade-in [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
+            style={{ animationDelay: "0.5s", animationFillMode: "forwards" }}
+          >
+            <nav className="flex flex-col gap-1.5 mt-4 font-mono tracking-tighter">
+              {tocHeadings.map((heading) => {
+                const isActive = activeId === heading.id;
 
-              // In idle mode: only show active header
-              const shouldShow = !isIdle || isActive;
+                // In idle mode: only show active header
+                const shouldShow = !isIdle || isActive;
 
-              // Color logic
-              const linkColor =
-                isActive && !isIdle ? "var(--color-accent)" : "#6b7280";
-              const linkWeight = isActive ? 500 : 400;
+                // Color logic
+                const linkColor =
+                  isActive && !isIdle ? "var(--color-accent)" : "#6b7280";
+                const linkWeight = isActive ? 500 : 400;
 
-              // Opacity logic
-              const opacityClass = !shouldShow
-                ? "opacity-0 pointer-events-none"
-                : isActive
-                  ? "opacity-100"
-                  : "opacity-80 hover:opacity-100";
+                // Opacity logic
+                const opacityClass = !shouldShow
+                  ? "opacity-0 pointer-events-none"
+                  : isActive
+                    ? "opacity-100"
+                    : "opacity-80 hover:opacity-100";
 
-              const transformClass = isActive ? "translate-x-1" : "";
+                const transformClass = isActive ? "translate-x-1" : "";
 
-              // In idle mode, allow wrapping for active; otherwise truncate
-              const textClass =
-                isIdle && isActive
-                  ? "whitespace-normal break-words"
-                  : "truncate";
+                // In idle mode, allow wrapping for active; otherwise truncate
+                const textClass =
+                  isIdle && isActive
+                    ? "whitespace-normal break-words"
+                    : "truncate";
 
-              return (
-                <a
-                  key={heading.id}
-                  href={`#${heading.id}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    const el = document.getElementById(heading.id);
-                    if (el) {
-                      isManualScrolling.current = true;
-                      const top =
-                        el.getBoundingClientRect().top + window.scrollY;
-                      const offset = window.innerHeight * 0.3;
-                      window.scrollTo({
-                        top: top - offset,
-                        behavior: "smooth",
-                      });
-                      setActiveId(heading.id);
-                      setTimeout(() => {
-                        isManualScrolling.current = false;
-                      }, 1000);
-
-                      // Flash the first paragraph after the heading
-                      const nextEl = el.nextElementSibling;
-                      if (nextEl && nextEl.tagName === "P") {
-                        const pElement = nextEl as HTMLElement;
-                        const accentColor = getComputedStyle(
-                          document.documentElement,
-                        )
-                          .getPropertyValue("--color-accent")
-                          .trim();
-                        pElement.style.color = accentColor;
+                return (
+                  <a
+                    key={heading.id}
+                    href={`#${heading.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      const el = document.getElementById(heading.id);
+                      if (el) {
+                        isManualScrolling.current = true;
+                        const top =
+                          el.getBoundingClientRect().top + window.scrollY;
+                        const offset = window.innerHeight * 0.3;
+                        window.scrollTo({
+                          top: top - offset,
+                          behavior: "smooth",
+                        });
+                        setActiveId(heading.id);
                         setTimeout(() => {
-                          pElement.style.color = "";
-                        }, 800);
+                          isManualScrolling.current = false;
+                        }, 1000);
+
+                        // Flash the first paragraph after the heading
+                        const nextEl = el.nextElementSibling;
+                        if (nextEl && nextEl.tagName === "P") {
+                          const pElement = nextEl as HTMLElement;
+                          const accentColor = getComputedStyle(
+                            document.documentElement,
+                          )
+                            .getPropertyValue("--color-accent")
+                            .trim();
+                          pElement.style.color = accentColor;
+                          setTimeout(() => {
+                            pElement.style.color = "";
+                          }, 800);
+                        }
                       }
-                    }
-                  }}
-                  style={{
-                    color: linkColor,
-                    fontWeight: linkWeight,
-                    paddingLeft: `${Math.max(0, heading.level - 2) * 12}px`,
-                    fontSize: heading.level === 2 ? "0.9rem" : "0.85rem",
-                    lineHeight: isIdle && isActive ? "1.4" : "1.2",
-                    transition: "all 500ms ease, opacity 500ms ease",
-                  }}
-                  className={`
+                    }}
+                    style={{
+                      color: linkColor,
+                      fontWeight: linkWeight,
+                      paddingLeft: `${Math.max(0, heading.level - 2) * 12}px`,
+                      fontSize: heading.level === 2 ? "0.9rem" : "0.85rem",
+                      lineHeight: isIdle && isActive ? "1.4" : "1.2",
+                      transition: "all 500ms ease, opacity 500ms ease",
+                    }}
+                    className={`
                     toc-link
                     py-0.5 block
                     ${textClass}
@@ -659,15 +673,15 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
                     ${transformClass}
                     ${opacityClass}
                   `}
-                  title={heading.text}
-                >
-                  {heading.text}
-                </a>
-              );
-            })}
-          </nav>
-        </div>
-      )}
+                    title={heading.text}
+                  >
+                    {heading.text}
+                  </a>
+                );
+              })}
+            </nav>
+          </div>
+        )}
 
       {/* Article body */}
       <ReaderArticle
@@ -676,7 +690,11 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
         onStatusChange={onStatusChange}
         focusModeEnabled={focusMode}
         onHighlightsChange={setHighlights}
-        onShowConnections={() => setShowConnectionsPanel(true)}
+        onShowConnections={
+          settings.showConnections
+            ? () => setShowConnectionsPanel(true)
+            : undefined
+        }
       />
 
       <KeyboardShortcuts
@@ -686,7 +704,9 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
           { key: "Esc", desc: "Back to queue" },
           { key: "h", desc: "Toggle highlights panel" },
           { key: "f", desc: "Focus mode" },
-          { key: "c", desc: "Connections panel (desktop)" },
+          ...(settings.showConnections
+            ? [{ key: "c", desc: "Connections panel (desktop)" }]
+            : []),
           { key: "?", desc: "Show this help" },
         ]}
       />

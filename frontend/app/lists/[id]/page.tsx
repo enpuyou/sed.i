@@ -14,6 +14,8 @@ import { useLists } from "@/contexts/ListsContext";
 import Navbar from "@/components/Navbar";
 import ReaderArticle from "@/components/ReaderArticle";
 import NowPlaying from "@/components/NowPlaying";
+import InlineError from "@/components/InlineError";
+import EmptyState from "@/components/EmptyState";
 
 interface ListDetail {
   id: string;
@@ -96,6 +98,7 @@ export default function ListDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [hasDraft, setHasDraft] = useState(false);
 
   // Writing pane state
@@ -112,7 +115,9 @@ export default function ListDetailPage() {
   const [splitPercent, setSplitPercent] = useState(DEFAULT_SPLIT);
   const [dividerVisible, setDividerVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches,
   );
 
   useEffect(() => {
@@ -225,7 +230,8 @@ export default function ListDetailPage() {
 
       isDraggingRef.current = true;
       setDividerVisible(true);
-      if (dividerHideTimerRef.current) clearTimeout(dividerHideTimerRef.current);
+      if (dividerHideTimerRef.current)
+        clearTimeout(dividerHideTimerRef.current);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
 
@@ -276,6 +282,7 @@ export default function ListDetailPage() {
       setContents(previousContents);
       setRemovingId(null);
       incrementListCount(listId);
+      setActionError("Couldn't remove item. Try again.");
     }
   };
 
@@ -298,6 +305,7 @@ export default function ListDetailPage() {
     } catch (err) {
       console.error("Failed to update content:", err);
       setContents(previousContents);
+      setActionError("Couldn't update item. Try again.");
     }
   };
 
@@ -309,6 +317,7 @@ export default function ListDetailPage() {
     } catch (err) {
       console.error("Failed to delete content:", err);
       setContents(previousContents);
+      setActionError("Couldn't delete item. Try again.");
     }
   };
 
@@ -389,11 +398,10 @@ export default function ListDetailPage() {
                 <div className="writing-left-scroll">
                   <div className="w-full max-w-2xl px-4 sm:px-6">
                     {contents.length === 0 ? (
-                      <div className="py-8 text-center">
-                        <p className="text-xs text-[var(--color-text-faint)] italic">
-                          No articles in this list yet.
-                        </p>
-                      </div>
+                      <EmptyState
+                        message="No articles in this list yet."
+                        className="py-8"
+                      />
                     ) : (
                       <div className="divide-y divide-[var(--color-border-subtle)]">
                         {contents.map((article) => (
@@ -518,11 +526,6 @@ export default function ListDetailPage() {
                 {contents.length} {contents.length === 1 ? "item" : "items"}{" "}
                 inside
               </span>
-              {list.is_shared && (
-                <span className="font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 border border-[var(--color-border)] text-[var(--color-text-muted)]">
-                  Shared
-                </span>
-              )}
               <span className="flex-1 font-mono text-[10px] text-[var(--color-border)] select-none overflow-hidden whitespace-nowrap">
                 {"·".repeat(40)}
               </span>
@@ -543,19 +546,25 @@ export default function ListDetailPage() {
               </div>
             </div>
 
+            {/* Action error */}
+            {actionError && (
+              <div className="mt-4">
+                <InlineError
+                  message={actionError}
+                  onDismiss={() => setActionError(null)}
+                />
+              </div>
+            )}
+
             {/* Empty state */}
             {contents.length === 0 && (
-              <div className="text-center py-12 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] rounded-none mt-6">
-                <h3 className="font-serif text-xl font-normal text-[var(--color-text-primary)] mb-4">
-                  No content yet
-                </h3>
-                <button
-                  onClick={() => setIsAddContentModalOpen(true)}
-                  className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
-                >
-                  Add Your First Item
-                </button>
-              </div>
+              <EmptyState
+                message="No content yet"
+                variant="bordered"
+                actionLabel="Add Your First Item"
+                onAction={() => setIsAddContentModalOpen(true)}
+                className="mt-6"
+              />
             )}
 
             {/* Content list */}
@@ -611,7 +620,6 @@ export default function ListDetailPage() {
               id: list.id,
               name: list.name,
               description: list.description,
-              is_shared: list.is_shared,
             }}
           />
         )}

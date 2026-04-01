@@ -33,6 +33,7 @@ export default function SearchBar() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -54,12 +55,15 @@ export default function SearchBar() {
     const timeoutId = setTimeout(async () => {
       try {
         setLoading(true);
+        setSearchError(false);
         const searchResults = await searchAPI.semantic(query);
         setResults(searchResults);
         setShowResults(true);
       } catch (error) {
         console.error("Search failed:", error);
         setResults([]);
+        setSearchError(true);
+        setShowResults(true);
       } finally {
         setLoading(false);
       }
@@ -193,14 +197,42 @@ export default function SearchBar() {
         </div>
       )}
 
-      {/* No Results Message */}
-      {showResults && !loading && query.length >= 3 && results.length === 0 && (
-        <div className="absolute w-full mt-2 bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-none shadow-lg p-4 z-50">
-          <p className="text-[var(--color-text-muted)] text-center">
-            No results found for "{query}"
-          </p>
+      {/* Error State */}
+      {showResults && !loading && searchError && (
+        <div className="absolute w-full mt-2 bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-none shadow-lg p-3 z-50">
+          <div className="border-l-2 border-red-400 dark:border-red-500/60 bg-[var(--color-bg-secondary)] pl-3 pr-3 py-2 flex items-center justify-between gap-3">
+            <span className="text-xs text-[var(--color-text-secondary)]">
+              Search failed. Try again.
+            </span>
+            <button
+              onClick={() => {
+                setSearchError(false);
+                setShowResults(false);
+                // Re-trigger search by slightly changing query
+                const q = query;
+                setQuery("");
+                setTimeout(() => setQuery(q), 10);
+              }}
+              className="text-[10px] font-mono tracking-wider text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors flex-shrink-0"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
+
+      {/* No Results Message */}
+      {showResults &&
+        !loading &&
+        !searchError &&
+        query.length >= 3 &&
+        results.length === 0 && (
+          <div className="absolute w-full mt-2 bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-none shadow-lg p-4 z-50">
+            <p className="text-sm text-[var(--color-text-muted)] text-center">
+              No results found for &ldquo;{query}&rdquo;
+            </p>
+          </div>
+        )}
     </div>
   );
 }
