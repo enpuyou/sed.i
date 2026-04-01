@@ -8,6 +8,8 @@ import RetroLoader from "@/components/RetroLoader";
 import ListBlockCard from "@/components/ListBlockCard";
 import { useLists } from "@/contexts/ListsContext";
 import Navbar from "@/components/Navbar";
+import InlineError from "@/components/InlineError";
+import EmptyState from "@/components/EmptyState";
 
 // Type for list with content count (from backend)
 interface ListWithCount {
@@ -62,7 +64,7 @@ export default function ListsPage() {
       });
     } catch (err) {
       console.error("Failed to fetch lists:", err);
-      setError("Failed to load lists. Please try again.");
+      setError("Couldn't load lists. Try again.");
     } finally {
       setLoading(false);
     }
@@ -120,27 +122,23 @@ export default function ListsPage() {
 
         {/* Error message */}
         {error && (
-          <div className="border-l-4 border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 px-4 py-3 rounded-none mb-6">
-            {error}
-          </div>
+          <InlineError
+            message={error}
+            onRetry={fetchLists}
+            onDismiss={() => setError(null)}
+            className="mb-6"
+          />
         )}
 
         {/* Empty state */}
-        {lists.length === 0 && !loading && (
-          <div className="text-center py-12 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] rounded-none">
-            <h3 className="font-serif text-xl font-normal text-[var(--color-text-primary)] mb-2">
-              No lists yet
-            </h3>
-            <p className="text-[var(--color-text-secondary)] mb-6">
-              Create your first list to organize your content
-            </p>
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
-            >
-              + Create Your First List
-            </button>
-          </div>
+        {lists.length === 0 && !loading && !error && (
+          <EmptyState
+            message="No lists yet"
+            description="Create your first list to organize your content"
+            variant="bordered"
+            actionLabel="+ Create Your First List"
+            onAction={() => setIsCreateModalOpen(true)}
+          />
         )}
 
         {/* Controls: search + view toggle (matches ContentList pattern) */}
@@ -223,7 +221,6 @@ export default function ListsPage() {
                   name={list.name}
                   description={list.description}
                   contentCount={listCounts[list.id] ?? list.content_count}
-                  isShared={list.is_shared}
                   onEdit={() => setEditingList(list)}
                   onDelete={() => handleDeleteList(list.id)}
                 />
@@ -267,11 +264,6 @@ export default function ListsPage() {
                           <span className="font-serif text-base text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors truncate">
                             {list.name}
                           </span>
-                          {list.is_shared && (
-                            <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-faint)] border border-[var(--color-border)] px-1 flex-shrink-0">
-                              shared
-                            </span>
-                          )}
                         </div>
                         {list.description && (
                           <p className="font-mono text-xs text-[var(--color-text-faint)] truncate mt-0.5">

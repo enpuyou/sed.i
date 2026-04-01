@@ -246,3 +246,185 @@ class TestXmlToHtml:
         result = self._fn(xml)
         assert 'href="https://example.com"' in result
         assert "this link" in result
+
+
+# ============================================================================
+# _extract_page_metadata (thumbnail fallbacks)
+# ============================================================================
+
+
+class TestExtractPageMetadata:
+    """Tests for thumbnail extraction fallback order in _extract_page_metadata()."""
+
+    def _fn(self, html: str, url: str = "https://example.com/article"):
+        from bs4 import BeautifulSoup
+        from app.tasks.extraction import _extract_page_metadata
+
+        soup = BeautifulSoup(html, "html.parser")
+        return _extract_page_metadata(soup, url)
+
+    def test_uses_og_image_relative_url(self):
+        html = """
+                <html><head>
+                    <meta property="og:title" content="Example" />
+                    <meta property="og:image" content="/images/hero.jpg" />
+                </head><body></body></html>
+                """
+        metadata = self._fn(html, "https://news.example.com/path/story")
+        assert metadata.get("thumbnail") == "https://news.example.com/images/hero.jpg"
+
+    def test_falls_back_to_twitter_image_src(self):
+        html = """
+                <html><head>
+                    <meta name="twitter:image:src" content="https://cdn.example.com/card.png" />
+                </head><body></body></html>
+                """
+        metadata = self._fn(html)
+        assert metadata.get("thumbnail") == "https://cdn.example.com/card.png"
+
+    def test_falls_back_to_jsonld_image(self):
+        html = """
+                <html><head>
+                    <script type="application/ld+json">
+                        {
+                            "@context": "https://schema.org",
+                            "@type": "NewsArticle",
+                            "image": {"url": "https://img.example.com/lead.webp"}
+                        }
+                    </script>
+                </head><body></body></html>
+                """
+        metadata = self._fn(html)
+        assert metadata.get("thumbnail") == "https://img.example.com/lead.webp"
+
+    def test_falls_back_to_image_src_link(self):
+        html = """
+                <html><head>
+                    <link rel="image_src" href="/assets/cover.jpg" />
+                </head><body></body></html>
+                """
+        metadata = self._fn(html, "https://example.com/articles/a1")
+        assert metadata.get("thumbnail") == "https://example.com/assets/cover.jpg"
+
+    def test_falls_back_to_first_content_image(self):
+        html = """
+                <html><head></head><body>
+                    <article>
+                        <p>Intro</p>
+                        <img src="/content/lead.jpg" alt="Lead image" />
+                    </article>
+                </body></html>
+                """
+        metadata = self._fn(html, "https://example.com/articles/a1")
+        assert metadata.get("thumbnail") == "https://example.com/content/lead.jpg"
+
+    # ============================================================================
+    # _detect_limited_extraction_reason
+    # ============================================================================
+
+    class TestDetectLimitedExtractionReason:
+        def _fn(self, source_html: str, extracted_html: str):
+            from app.tasks.extraction import _detect_limited_extraction_reason
+
+            return _detect_limited_extraction_reason(
+                source_html.encode("utf-8"), extracted_html
+            )
+
+        def test_schema_paywall_teaser_is_marked_limited(self):
+            source = (
+                "<html><head>"
+                '<script type="application/ld+json">'
+                '{"@type":"NewsArticle","isAccessibleForFree":false}'
+                "</script>"
+                "</head><body><main><h1>Title</h1><p>"
+                + ("word " * 800)
+                + "</p></main></body></html>"
+            )
+            extracted = (
+                "<p>Preview paragraph only.</p><p>Another short teaser paragraph.</p>"
+            )
+
+            reason = self._fn(source, extracted)
+            assert (
+                reason
+                == "Content appears restricted by a paywall or source access controls"
+            )
+
+        def test_structural_truncation_is_marked_limited(self):
+            source_paragraphs = "".join(f"<p>{'word ' * 120}</p>" for _ in range(10))
+            source = f"<html><body><article>{source_paragraphs}</article></body></html>"
+            extracted = "<p>" + ("word " * 180) + "</p><p>" + ("word " * 140) + "</p>"
+
+            reason = self._fn(source, extracted)
+            assert reason == "Limited content extracted from source page"
+
+        def test_non_restricted_domain_short_article_not_forced_limited(self):
+            source = (
+                "<html><body><main><h1>Short post</h1><p>"
+                + ("word " * 120)
+                + "</p></main></body></html>"
+            )
+            extracted = "<p>" + ("word " * 110) + "</p>"
+
+            reason = self._fn(source, extracted)
+            assert reason is None
+
+        def test_description_teaser_is_marked_limited(self):
+            description = (
+                "One of the promises of AI is that it can reduce workloads so employees can "
+                "focus more on higher-value tasks. But according to new evidence, the opposite "
+                "can happen in constrained organizations."
+            )
+            source = (
+                "<html><head>"
+                f'<meta property="og:description" content="{description}" />'
+                "</head><body><main><h1>Title</h1><p>"
+                + ("word " * 900)
+                + "</p></main></body></html>"
+            )
+            extracted = f"<p>{description}</p><p>Short follow-up sentence only.</p>"
+
+            reason = self._fn(source, extracted)
+            assert reason == "Limited content extracted from source page"
+
+        def test_media_caption_only_output_is_marked_limited(self):
+            source = (
+                "<html><body><main><h1>Title</h1><p>"
+                + ("word " * 600)
+                + "</p></main></body></html>"
+            )
+            extracted = (
+                '<figure><img src="/hero.jpg" alt="" />'
+                "<figcaption>This caption is present but there is no body paragraph text.</figcaption>"
+                "</figure>"
+            )
+
+            reason = self._fn(source, extracted)
+            assert reason == "Limited content extracted from source page"
+
+
+class TestDetectLimitedExtensionContentReason:
+    def _fn(self, html_text: str, description: str | None):
+        from app.tasks.extraction import _detect_limited_extension_content_reason
+
+        return _detect_limited_extension_content_reason(html_text, description)
+
+    def test_description_overlap_marks_limited(self):
+        description = (
+            "One of the promises of AI is that it can reduce workloads so employees can "
+            "focus more on higher-value and more engaging tasks. But according to "
+            "recent evidence, this often intensifies pressure."
+        )
+        html = f"<p>{description}</p><p>But accordin...</p>"
+        reason = self._fn(html, description)
+        assert reason == "Limited content extracted from source page"
+
+    def test_regular_extension_content_not_marked_limited(self):
+        description = "A short intro to a complete post"
+        html = (
+            "<p>" + ("word " * 220) + "</p>"
+            "<p>" + ("word " * 200) + "</p>"
+            "<p>" + ("word " * 180) + "</p>"
+        )
+        reason = self._fn(html, description)
+        assert reason is None

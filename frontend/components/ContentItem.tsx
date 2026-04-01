@@ -8,8 +8,10 @@ import { ContentItem as ContentItemType } from "@/types";
 import StatusIndicator from "./StatusIndicator";
 import MobileActionsMenu from "./MobileActionsMenu";
 import RetroLoader from "./RetroLoader";
+import InlineError from "./InlineError";
 import { useAuth } from "@/contexts/AuthContext";
 import { contentAPI } from "@/lib/api";
+import { getIngestIssue } from "@/lib/ingestErrors";
 
 /**
  * Props for ContentItem component
@@ -74,6 +76,7 @@ export default function ContentItem({
   const [tagInput, setTagInput] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -142,6 +145,7 @@ export default function ContentItem({
     newAutoTags?: string[],
   ) => {
     try {
+      setTagError(null);
       // Optimistic update
       const optimisticContent = {
         ...content,
@@ -171,6 +175,7 @@ export default function ContentItem({
       if (onUpdate) {
         onUpdate(content);
       }
+      setTagError("Couldn't save tags.");
     }
   };
 
@@ -228,7 +233,28 @@ export default function ContentItem({
     content.processing_status === "pending" ||
     content.processing_status === "processing";
   const hasFailed = content.processing_status === "failed";
+  const ingestIssue = getIngestIssue(
+    content.processing_status,
+    content.processing_error,
+    content.original_url,
+  );
+  const hasExtractedMetadata = Boolean(
+    content.title ||
+    content.description ||
+    content.thumbnail_url ||
+    content.author ||
+    content.published_date,
+  );
+  const showCompactFailed = hasFailed && Boolean(ingestIssue);
   const hasMinimalData = !content.title && !content.description;
+
+  const sourceDomain = (() => {
+    try {
+      return new URL(content.original_url).hostname.replace(/^www\./, "");
+    } catch {
+      return content.original_url;
+    }
+  })();
 
   // Check if content was added within last 10 minutes
   const isJustAdded = () => {
@@ -237,6 +263,64 @@ export default function ContentItem({
     const diffMinutes = (now.getTime() - createdAt.getTime()) / (1000 * 60);
     return diffMinutes < 10;
   };
+
+  if (showCompactFailed && !hasExtractedMetadata) {
+    return (
+      <div
+        id={id}
+        className={`py-5 px-4 border-b border-dashed border-[var(--color-border-subtle)] last:border-b-0 relative ${
+          isSelected
+            ? "bg-[var(--color-bg-secondary)] border-l-4 border-l-[var(--color-accent)] pl-3 -ml-1"
+            : ""
+        }`}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-muted)] min-w-0">
+            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0 bg-red-500"></span>
+            <span className="text-xs px-2 py-0.5 border bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800">
+              {ingestIssue?.badge}
+            </span>
+            {!hasExtractedMetadata && (
+              <a
+                href={content.original_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--color-accent)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {sourceDomain}
+              </a>
+            )}
+            <span>
+              {isJustAdded() ? "Just now" : formatDate(content.created_at)}
+            </span>
+          </div>
+
+          {!readOnly && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!confirmDelete) {
+                  setConfirmDelete(true);
+                  return;
+                }
+                setConfirmDelete(false);
+                onDelete(content.id);
+              }}
+              className={`text-xs px-2 py-1 rounded-none border transition-colors whitespace-nowrap ${
+                confirmDelete
+                  ? "border-red-400 text-red-500 dark:text-red-400"
+                  : "bg-[var(--color-bg-secondary)] text-rose-500 dark:text-red-400 border-[var(--color-border)] hover:bg-rose-50 dark:hover:bg-red-900/20"
+              }`}
+              title="Delete article"
+            >
+              {confirmDelete ? "Confirm?" : "Delete"}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -249,6 +333,7 @@ export default function ContentItem({
             : "hover:bg-[var(--color-bg-secondary)]"
         }
         ${isArchiving ? "bg-[var(--color-bg-tertiary)]" : ""}
+        ${isProcessing ? "opacity-70" : ""}
       `}
     >
       {/* Retro Archiving Overlay */}
@@ -283,13 +368,34 @@ export default function ContentItem({
 
           {/* Metadata: status, date, reading time */}
           {!isProcessing && (
-            <div className="flex items-center gap-3 mb-2 text-xs text-[var(--color-text-muted)]">
-              {hasFailed ? (
+            <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-[var(--color-text-muted)]">
+              {ingestIssue ? (
                 <>
-                  <span className="inline-block w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
-                  <span className="text-xs px-2 py-0.5 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800">
-                    Failed to extract
+                  <span
+                    className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
+                      ingestIssue.severity === "warning"
+                        ? "bg-orange-400"
+                        : "bg-red-500"
+                    }`}
+                  ></span>
+                  <span
+                    className={`text-xs px-2 py-0.5 border ${
+                      ingestIssue.severity === "warning"
+                        ? "bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800"
+                        : "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800"
+                    }`}
+                  >
+                    {ingestIssue.badge}
                   </span>
+                  <a
+                    href={content.original_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--color-accent)] hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {sourceDomain}
+                  </a>
                 </>
               ) : (
                 <StatusIndicator readingStatus={content.reading_status} />
@@ -333,7 +439,7 @@ export default function ContentItem({
           {/* Title - clickable, links to reader view */}
           <Link
             href={navigateTo || `/content/${content.id}`}
-            className="block mb-2"
+            className="block mb-4"
             onClick={() => {
               if (!navigateTo) {
                 sessionStorage.setItem(
@@ -356,7 +462,10 @@ export default function ContentItem({
                   return content.title;
                 }
                 if (hasFailed) {
-                  return "We couldn't load your article";
+                  return (
+                    ingestIssue?.titleFallback ||
+                    "We couldn't load your article"
+                  );
                 }
                 return "Untitled";
               })()}
@@ -368,18 +477,8 @@ export default function ContentItem({
             <p className="content-item-description text-sm text-[var(--color-text-muted)] line-clamp-2 mb-2">
               {content.description}
             </p>
-          ) : isProcessing ? null : hasFailed ? (
-            <p className="text-sm text-[var(--color-text-muted)] line-clamp-2 mb-3 leading-relaxed">
-              <a
-                href={content.original_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--color-accent)] hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
-                View original
-              </a>
-            </p>
+          ) : isProcessing ? null : ingestIssue ? (
+            <div className="mb-2" />
           ) : null}
 
           {/* Tags - display and edit */}
@@ -388,106 +487,116 @@ export default function ContentItem({
               new Set([...(content.tags || []), ...(content.auto_tags || [])]),
             );
 
-            if (allTags.length === 0 && !isEditingTags) return null;
+            if (allTags.length === 0 && !isEditingTags && !tagError)
+              return null;
 
             return (
-              <div className="content-item-tags mb-3 flex items-center gap-2 flex-wrap">
-                {allTags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="text-xs text-[var(--color-text-muted)] border-b border-[var(--color-border)] pb-0.5 flex items-center gap-1 cursor-default"
-                  >
-                    {tag}
-                    {isEditingTags && (
-                      <button
-                        onClick={() => handleRemoveTag(tag)}
-                        className="text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] ml-1 cursor-pointer"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                ))}
-
-                {/* Tag Input - only show when editing */}
-                {isEditingTags && (
-                  <div className="flex items-center gap-1">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={tagInput}
-                        onChange={(e) => {
-                          setTagInput(e.target.value);
-                          setShowSuggestions(true);
-                        }}
-                        onFocus={() => setShowSuggestions(true)}
-                        onBlur={() =>
-                          setTimeout(() => setShowSuggestions(false), 200)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            handleAddTag();
-                            setShowSuggestions(false);
-                          }
-                        }}
-                        placeholder="Add tag..."
-                        className="px-2 py-0.5 text-xs border border-[var(--color-border)] bg-transparent focus:outline-none focus:!ring-0"
-                        autoFocus
-                      />
-                      {showSuggestions && tagInput.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-bg-primary)] border border-[var(--color-border)] shadow-sm z-10">
-                          {availableTags
-                            .filter(
-                              (tag) =>
-                                tag
-                                  .toLowerCase()
-                                  .includes(tagInput.toLowerCase()) &&
-                                !allTags.includes(tag),
-                            )
-                            .slice(0, 5)
-                            .map((tag) => (
-                              <button
-                                key={tag}
-                                onClick={() => {
-                                  const newTags = [
-                                    ...(content.tags || []),
-                                    tag,
-                                  ];
-                                  handleUpdateTags(newTags);
-                                  setTagInput("");
-                                  setShowSuggestions(false);
-                                }}
-                                className="w-full text-left px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] last:border-b-0"
-                              >
-                                {tag}
-                              </button>
-                            ))}
-                        </div>
+              <>
+                <div className="content-item-tags mb-3 flex items-center gap-2 flex-wrap">
+                  {allTags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="text-xs text-[var(--color-text-muted)] border-b border-[var(--color-border)] pb-0.5 flex items-center gap-1 cursor-default"
+                    >
+                      {tag}
+                      {isEditingTags && (
+                        <button
+                          onClick={() => handleRemoveTag(tag)}
+                          className="text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] ml-1 cursor-pointer"
+                        >
+                          ×
+                        </button>
                       )}
+                    </span>
+                  ))}
+
+                  {/* Tag Input - only show when editing */}
+                  {isEditingTags && (
+                    <div className="flex items-center gap-1">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={tagInput}
+                          onChange={(e) => {
+                            setTagInput(e.target.value);
+                            setShowSuggestions(true);
+                          }}
+                          onFocus={() => setShowSuggestions(true)}
+                          onBlur={() =>
+                            setTimeout(() => setShowSuggestions(false), 200)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddTag();
+                              setShowSuggestions(false);
+                            }
+                          }}
+                          placeholder="Add tag..."
+                          className="px-2 py-0.5 text-xs border border-[var(--color-border)] bg-transparent focus:outline-none focus:!ring-0"
+                          autoFocus
+                        />
+                        {showSuggestions && tagInput.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--color-bg-primary)] border border-[var(--color-border)] shadow-sm z-10">
+                            {availableTags
+                              .filter(
+                                (tag) =>
+                                  tag
+                                    .toLowerCase()
+                                    .includes(tagInput.toLowerCase()) &&
+                                  !allTags.includes(tag),
+                              )
+                              .slice(0, 5)
+                              .map((tag) => (
+                                <button
+                                  key={tag}
+                                  onClick={() => {
+                                    const newTags = [
+                                      ...(content.tags || []),
+                                      tag,
+                                    ];
+                                    handleUpdateTags(newTags);
+                                    setTagInput("");
+                                    setShowSuggestions(false);
+                                  }}
+                                  className="w-full text-left px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] last:border-b-0"
+                                >
+                                  {tag}
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          handleAddTag();
+                          setShowSuggestions(false);
+                        }}
+                        className="text-xs px-2 py-0.5 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
+                      >
+                        Add
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsEditingTags(false);
+                          setTagInput("");
+                          setShowSuggestions(false);
+                        }}
+                        className="text-xs px-2 py-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                      >
+                        Done
+                      </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        handleAddTag();
-                        setShowSuggestions(false);
-                      }}
-                      className="text-xs px-2 py-0.5 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-primary)] hover:text-[var(--color-text-primary)] transition-colors"
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsEditingTags(false);
-                        setTagInput("");
-                        setShowSuggestions(false);
-                      }}
-                      className="text-xs px-2 py-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                    >
-                      Done
-                    </button>
-                  </div>
+                  )}
+                </div>
+                {tagError && (
+                  <InlineError
+                    message={tagError}
+                    onDismiss={() => setTagError(null)}
+                    className="mt-1 py-1"
+                  />
                 )}
-              </div>
+              </>
             );
           })()}
 

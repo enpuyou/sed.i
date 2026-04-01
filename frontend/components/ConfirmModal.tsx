@@ -79,7 +79,7 @@ export default function ConfirmModal({
             className={`text-xs px-2 py-0.5 leading-none rounded-none border transition-colors ${
               danger
                 ? "bg-rose-50 dark:bg-red-900/30 text-rose-500 dark:text-red-400 border-transparent hover:border-red-500 dark:hover:bg-red-900/50"
-                : "border-[var(--color-accent)] bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] hover:border-[var(--color-accent-hover)]"
+                : "border-[var(--color-border)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)]"
             }`}
           >
             {confirmText}

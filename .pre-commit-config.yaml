@@ -1,6 +1,10 @@
 # Pre-commit hooks for Content Queue project
 # Install: pre-commit install
 # Run manually: pre-commit run --all-files
+# Root wrapper: ./scripts/pre-commit.sh install
+# Root wrapper: ./scripts/pre-commit.sh run --all-files
+# Backend pytest hook runs a fast smoke target by default.
+# Run full backend suite manually: cd content-queue-backend && poetry run pytest tests/ -q --tb=line -p no:xdist
 
 repos:
   # General file checks
@@ -43,7 +47,7 @@ repos:
     hooks:
       - id: pytest-backend
         name: Run backend tests
-        entry: bash -c 'cd content-queue-backend && poetry run pytest tests/ --tb=line -p no:xdist'
+        entry: ./scripts/run_backend_pytest_precommit.sh
         language: system
         pass_filenames: false
         files: ^content-queue-backend/.*\.py$

@@ -10,7 +10,6 @@ interface ListBlockCardProps {
   name: string;
   description: string | null;
   contentCount: number;
-  isShared: boolean;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -20,7 +19,6 @@ export default function ListBlockCard({
   name,
   description,
   contentCount,
-  isShared,
   onEdit,
   onDelete,
 }: ListBlockCardProps) {
@@ -36,8 +34,7 @@ export default function ListBlockCard({
         try {
           setLoadingPreview(true);
           const data = await listsAPI.getContent(id);
-          // Take first 3 items for preview
-          setPreview(data.slice(0, 3));
+          setPreview(data.slice(0, 5));
         } catch (err) {
           console.error("Failed to load list preview:", err);
         } finally {
@@ -73,47 +70,45 @@ export default function ListBlockCard({
             <span className="text-[10px] uppercase tracking-widest text-[var(--color-text-faint)]">
               {contentCount} {contentCount === 1 ? "item" : "items"}
             </span>
-            {isShared && (
-              <span className="text-xs px-2 py-1 rounded-none border border-[var(--color-border)] text-[var(--color-text-muted)]">
-                Shared
-              </span>
-            )}
           </div>
         </div>
 
         {/* Hover Preview Overlay */}
         {isHovered && (
           <div className="absolute inset-0 bg-[var(--color-bg-primary)] bg-opacity-95 p-4 flex flex-col overflow-hidden">
-            {loadingPreview ? (
-              <div className="text-center py-8 text-[var(--color-text-muted)]">
-                Loading...
-              </div>
-            ) : preview.length > 0 ? (
-              <div className="space-y-2 flex-1 overflow-y-auto">
-                {preview.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-2 rounded-none bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)]"
-                  >
-                    <p className="text-xs font-medium text-[var(--color-text-primary)] line-clamp-1">
-                      {item.title || "Untitled"}
-                    </p>
-                    <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                      {item.reading_time_minutes}
-                      {item.reading_time_minutes ? " min" : ""}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-[var(--color-text-muted)]">
-                No content yet
-              </div>
-            )}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {loadingPreview ? (
+                <div className="h-full flex items-center justify-center text-center text-[var(--color-text-muted)]">
+                  Loading...
+                </div>
+              ) : preview.length > 0 ? (
+                <div className="space-y-2">
+                  {preview.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-2 rounded-none bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)]"
+                    >
+                      <p className="text-xs font-medium text-[var(--color-text-primary)] line-clamp-1">
+                        {item.title || "Untitled"}
+                      </p>
+                      <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                        {item.reading_time_minutes}
+                        {item.reading_time_minutes ? " min" : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center text-center text-[var(--color-text-muted)]">
+                  No content yet
+                </div>
+              )}
+            </div>
 
             {/* Action Buttons */}
             <div className="flex gap-2 mt-3 pt-3 border-t border-[var(--color-border-subtle)]">
               <button
+                type="button"
                 onClick={(e) => {
                   e.preventDefault();
                   onEdit(id);
@@ -123,6 +118,7 @@ export default function ListBlockCard({
                 Edit
               </button>
               <button
+                type="button"
                 onClick={(e) => {
                   e.preventDefault();
                   if (!confirmDelete) {

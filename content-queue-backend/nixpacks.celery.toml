@@ -8,4 +8,4 @@ cmds = [
 ]
 
 [start]
-cmd = "poetry run celery -A app.core.celery_app worker --loglevel=info --concurrency=2"
+cmd = "poetry run celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --pool=solo --beat"

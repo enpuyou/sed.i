@@ -11,6 +11,7 @@ import {
   ReadingSettings,
 } from "@/contexts/ReadingSettingsContext";
 import api from "@/lib/api";
+import InlineError from "@/components/InlineError";
 
 // ── Setting configs ────────────────────────────────────
 
@@ -374,6 +375,7 @@ function CircleToggle({
 }) {
   return (
     <button
+      type="button"
       onClick={onChange}
       className="w-full flex items-start justify-between py-2.5 text-left group gap-4"
     >
@@ -387,22 +389,47 @@ function CircleToggle({
           </div>
         )}
       </div>
-      <svg
-        width="10"
-        height="10"
-        viewBox="0 0 10 10"
-        className="flex-shrink-0 mt-1"
-      >
-        <circle
-          cx="5"
-          cy="5"
-          r="4"
-          fill={checked ? "var(--color-accent)" : "none"}
-          stroke={checked ? "var(--color-accent)" : "var(--color-border)"}
-          strokeWidth="1.5"
-        />
-      </svg>
+      <span className="flex-shrink-0 mt-0.5 p-2 -m-2">
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          className="pointer-events-none"
+        >
+          <circle
+            cx="5"
+            cy="5"
+            r="4"
+            fill={checked ? "var(--color-accent)" : "none"}
+            stroke={checked ? "var(--color-accent)" : "var(--color-border)"}
+            strokeWidth="1.5"
+          />
+        </svg>
+      </span>
     </button>
+  );
+}
+
+function FeatureVisibilitySection() {
+  const { settings, updateSetting } = useReadingSettings();
+
+  return (
+    <div className="space-y-1">
+      <CircleToggle
+        checked={settings.showConnections}
+        onChange={() =>
+          updateSetting("showConnections", !settings.showConnections)
+        }
+        label="Connections (Experiment)"
+        description="Experimental feature in progress. Show connections controls in the reader, including the sidebar and navbar toggle"
+      />
+      <CircleToggle
+        checked={settings.showCrates}
+        onChange={() => updateSetting("showCrates", !settings.showCrates)}
+        label="Crates + audio player"
+        description="Show crates navigation and audio player surfaces across the app"
+      />
+    </div>
   );
 }
 
@@ -545,9 +572,7 @@ function PublicProfileSection() {
 
       {/* Error */}
       {status === "error" && errorMsg && (
-        <div className="font-mono text-[9px] text-red-500 border border-red-500/20 px-3 py-2">
-          {errorMsg}
-        </div>
+        <InlineError message={errorMsg} className="py-1.5" />
       )}
 
       {/* Actions */}
@@ -680,6 +705,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [activeSection, setActiveSection] = useState("reading");
   const readingRef = useRef<HTMLDivElement>(null);
+  const featuresRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -691,6 +717,7 @@ export default function SettingsPage() {
       { rootMargin: "-40% 0px -55% 0px" },
     );
     if (readingRef.current) observer.observe(readingRef.current);
+    if (featuresRef.current) observer.observe(featuresRef.current);
     if (accountRef.current) observer.observe(accountRef.current);
     return () => observer.disconnect();
   }, []);
@@ -700,7 +727,8 @@ export default function SettingsPage() {
 
   const tocItems = [
     { id: "reading", label: "Reading", num: "01", ref: readingRef },
-    { id: "account", label: "Account", num: "02", ref: accountRef },
+    { id: "features", label: "Features", num: "02", ref: featuresRef },
+    { id: "account", label: "Account", num: "03", ref: accountRef },
   ];
 
   return (
@@ -739,10 +767,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Sections */}
-          <div className="flex-1 space-y-16">
+          <div className="flex-1 space-y-12">
             {/* 01 — Reading */}
-            <div id="reading" ref={readingRef}>
-              <div className="flex items-center gap-4 mb-6">
+            <div id="reading" ref={readingRef} className="space-y-6">
+              <div className="flex items-center gap-4">
                 <span className="font-mono text-[9px] uppercase tracking-[0.25em] text-[var(--color-text-muted)] whitespace-nowrap">
                   Reading Preferences
                 </span>
@@ -751,9 +779,20 @@ export default function SettingsPage() {
               <ReadingCarousel isActive={activeSection === "reading"} />
             </div>
 
-            {/* 02 — Account */}
-            <div id="account" ref={accountRef}>
-              <div className="flex items-center gap-4 mb-6">
+            {/* 02 — Features */}
+            <div id="features" ref={featuresRef} className="space-y-6">
+              <div className="flex items-center gap-4">
+                <span className="font-mono text-[9px] uppercase tracking-[0.25em] text-[var(--color-text-muted)] whitespace-nowrap">
+                  Feature Visibility
+                </span>
+                <div className="flex-1 border-t border-[var(--color-border)]" />
+              </div>
+              <FeatureVisibilitySection />
+            </div>
+
+            {/* 03 — Account */}
+            <div id="account" ref={accountRef} className="space-y-6">
+              <div className="flex items-center gap-4">
                 <span className="font-mono text-[9px] uppercase tracking-[0.25em] text-[var(--color-text-muted)] whitespace-nowrap">
                   Account
                 </span>

@@ -139,7 +139,7 @@ def generate_embedding(self, content_item_id: str):
             .first()
         )
         if item:
-            item.processing_status = "completed"
+            item.processing_status = "failed"
             item.processing_error = f"Embedding error: {str(e)}"
             self.db.commit()
 

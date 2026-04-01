@@ -1,226 +1,147 @@
-# Pre-Commit Dev Workflow Skill
+---
+name: pre-commit-dev
+description: "Development checkpoint: write tests, run checks, fix issues, then hand off for manual commit."
+user-invokable: true
+---
 
-## Purpose
-Complete pre-commit development workflow: write tests for new features/behaviors, run tests, decide whether to fix code or update tests, fix linting issues, check build, create commit, and check in with user.
+# /pre-commit-dev — Development Checkpoint
 
-## When to Use
-- After implementing new features or functionality
-- After modifying existing behavior
-- Before committing code changes
-- When user says "ready to commit" or similar
+The "during development" skill. Write tests for what you just built, run all
+checks, fix what's broken, and hand off clean code for manual commit. Use this
+after implementing a feature or fix, before you're ready for full branch
+finalization.
 
-## Workflow
+## Project conventions
 
-### Phase 1: Test Coverage Assessment (Auto)
+!`cat .claude/skills/_shared/conventions.md`
 
-1. **Analyze Recent Changes**
-   - Use git diff to see what files changed
-   - Identify new functions, components, or behaviors
-   - Check if changes affect existing test coverage
+## Current changes
 
-2. **Determine Test Requirements**
+!`git diff --stat`
+
+!`git status`
+
+**Invoke**: `/pre-commit-dev`
+
+---
+
+## Phase 1 · Analyze changes
+
+1. **Identify what changed**
+   - Use the pre-loaded diff and status above.
+   - Classify: new components, modified behavior, bug fix, refactor.
+
+2. **Determine test requirements**
    For each change type:
-   - **New Component**: Needs rendering tests, interaction tests, prop validation
-   - **New Function/Method**: Needs unit tests for happy path + edge cases
-   - **Modified Behavior**: Update existing tests or add regression tests
-   - **Bug Fix**: Add test that would have caught the bug
-   - **Refactor Only**: Verify existing tests still pass
+   - **New component**: rendering tests, interaction tests, prop validation.
+   - **New function/hook**: unit tests for happy path + edge cases.
+   - **Modified behavior**: update existing tests or add regression tests.
+   - **Bug fix**: add test that would have caught the bug.
+   - **Refactor only**: verify existing tests still pass.
 
-3. **Identify Test Gaps**
-   - List what needs new tests
-   - List what needs test updates
-   - Skip trivial changes (typos, comments, minor formatting)
+3. **Skip testing for**:
+   - Documentation-only changes.
+   - Comment/formatting changes.
+   - Configuration file updates (unless they affect behavior).
 
-### Phase 2: Write Tests (If Needed)
+---
 
-1. **Follow Project Test Patterns**
-   - Match existing test file structure (`__tests__/components/`, etc.)
-   - Use same testing library (Jest, React Testing Library based on package.json)
-   - Follow established mocking patterns
-   - Match naming conventions
+## Phase 2 · Write tests
 
-2. **Write Comprehensive Tests**
-   ```typescript
-   describe('NewFeature', () => {
-     it('handles the main use case', () => { ... });
-     it('handles edge case: empty input', () => { ... });
-     it('handles error states', () => { ... });
-   });
-   ```
+### Test file structure
+- Frontend tests go in `frontend/__tests__/` mirroring the source structure.
+- Use Jest + React Testing Library (check `package.json` for exact setup).
+- Match existing test patterns in the codebase.
 
-3. **Explain Each Test**
-   Tutorial-style comments explaining:
-   - What behavior is being tested
-   - Why this test matters
-   - What we're asserting and why
+### Test quality
+- Test behavior, not implementation.
+- Cover: happy path, edge cases, error states.
+- Keep tests focused — one assertion per test when possible.
+- Use descriptive test names: "shows error when fetch fails", not "test error".
 
-### Phase 3: Run Tests
+---
 
-1. **Execute Test Suite**
-   ```bash
-   npm test  # or yarn test, pnpm test
-   ```
+## Phase 3 · Run checks
 
-2. **Analyze Results**
-   - All pass → Continue to Phase 4
-   - Some fail → Go to Phase 3b (Triage)
+Run all checks in order. Stop and fix before proceeding if any fail.
 
-### Phase 3b: Triage Test Failures
-
-For each failing test:
-
-1. **Read the Failure**
-   - What was expected vs actual?
-   - Which component/function failed?
-   - Is this a new test or existing test?
-
-2. **Determine Root Cause**
-   - **Code is wrong**: Implementation has a bug
-   - **Test is wrong**: Test expectations don't match intended behavior
-   - **Test is outdated**: Behavior intentionally changed, test needs update
-   - **Integration issue**: Mocking or setup problem
-
-3. **Decide Action**
-   - If code is wrong: Fix the implementation
-   - If test is wrong/outdated: Update the test
-   - Explain decision to user with reasoning
-
-4. **Fix and Re-run**
-   - Make the fix
-   - Run tests again
-   - Repeat until all pass
-
-### Phase 4: Linting
-
-1. **Run Linter**
-   ```bash
-   npm run lint  # Check package.json for exact command
-   ```
-
-2. **Auto-fix What You Can**
-   ```bash
-   npm run lint -- --fix
-   ```
-
-3. **Manual Fixes**
-   - Address remaining lint errors
-   - Explain why each fix is needed
-   - Maintain code style consistency
-
-### Phase 5: Type Checking (If TypeScript)
-
-1. **Run Type Checker**
-   ```bash
-   npm run type-check  # or tsc --noEmit
-   ```
-
-2. **Fix Type Errors**
-   - Add missing types
-   - Fix incorrect type annotations
-   - Resolve type incompatibilities
-
-### Phase 6: Build Check
-
-1. **Run Build**
-   ```bash
-   npm run build
-   ```
-
-2. **Handle Build Failures**
-   - Read error messages carefully
-   - Fix import issues, missing dependencies
-   - Resolve build-time type errors
-   - Verify assets compile correctly
-
-### Phase 7: Create Commit
-
-1. **Review Changes**
-   ```bash
-   git status
-   git diff
-   git log --oneline -5  # See recent commit style
-   ```
-
-2. **Draft Commit Message**
-   - Follow repository's commit message conventions
-   - Focus on "why" not just "what"
-   - Be specific and concise (1-2 sentences)
-   - Match the tone of recent commits
-
-3. **Stage Files**
-   ```bash
-   git add path/to/file1 path/to/file2
-   # Prefer specific files over git add -A
-   ```
-
-4. **Create Commit**
-   ```bash
-   git commit -m "$(cat <<'EOF'
-   Add feature: [clear description]
-
-   Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
-   EOF
-   )"
-   ```
-
-5. **Verify Commit**
-   ```bash
-   git status  # Should show clean working tree
-   git log -1  # Review the commit
-   ```
-
-### Phase 8: User Check-in
-
-Present summary to user:
+### 3a. Type checking
+```bash
+cd frontend && npx tsc --noEmit
 ```
-✅ Tests: [X new tests written, all Y tests passing]
-✅ Linting: Clean
-✅ Type Check: Clean
-✅ Build: Successful
-✅ Commit: [commit hash] "[commit message]"
+Zero errors required.
 
-Changes ready! Would you like me to:
-- Push to remote
-- Create a pull request
-- Make any adjustments
-- Continue with next task
+### 3b. Linting
+```bash
+cd frontend && npx eslint . --max-warnings=0 2>&1 | head -50
+```
+Auto-fix safe issues first: `npx eslint . --fix`
+
+### 3c. Tests
+```bash
+cd frontend && npx jest --ci --passWithNoTests 2>&1 | tail -30
 ```
 
-## Important Notes
-
-### Test Philosophy
-- **Don't over-test**: Skip tests for trivial getters/setters
-- **Don't under-test**: Cover all user-facing behaviors
-- **Test behavior, not implementation**: Focus on what users experience
-
-### When to Skip Tests
-- Documentation changes only
-- Comment updates
-- Whitespace/formatting fixes
-- Configuration file updates (unless they affect behavior)
-
-### Pre-commit Hook Handling
-- If pre-commit hooks fail, fix issues and make NEW commit (not --amend)
-- Never use --no-verify unless explicitly requested by user
-
-### Error Recovery
-- If any phase fails critically, stop and ask user for guidance
-- Don't proceed to commit if tests/build are broken
-- Be transparent about what's not working
-
-## Example Invocation
-```
-User: "I just added a new filter feature, let's commit this"
-User: "Tests are done, ready to commit"
-User: "/pre-commit-dev"
+### 3d. Backend (if backend files changed)
+```bash
+cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/ 2>&1 | head -50
+cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q 2>&1 | tail -30
 ```
 
-## Configuration Detection
+---
 
-Auto-detect from package.json:
-- Test command: `test`, `test:unit`, etc.
-- Lint command: `lint`, `eslint`, etc.
-- Build command: `build`
-- Type check command: `type-check`, `tsc`
+## Phase 4 · Triage failures
 
-If commands don't exist, skip that phase gracefully.
+For each failing check:
+
+1. **Read the failure** — what was expected vs actual?
+2. **Determine root cause**:
+   - **Code is wrong**: fix the implementation.
+   - **Test is wrong**: test expectations don't match intended behavior — update test.
+   - **Test is outdated**: behavior intentionally changed — update test.
+3. **Fix and re-run** until all checks pass.
+
+---
+
+## Phase 5 · Commit handoff (manual)
+
+1. **Prepare commit checklist for the user**:
+   - review staged changes with `git diff --cached` and `git status`.
+   - stage specific files (never `git add -A` blindly).
+2. **Check for**:
+   - `console.log` that should be removed.
+   - Commented-out code.
+   - `.env` or credentials (never commit these).
+3. **Suggest commit message** that focuses on *why*, matching existing style.
+4. **Do not run** `pre-commit`, `git commit`, or `git push` in this skill.
+   The user executes those manually.
+
+---
+
+## Phase 6 · Report
+
+Present results:
+```
+Tests:      [X new, Y total passing]
+Types:      Clean
+Lint:       Clean
+Build:      Not checked (use /finalize for full build verification)
+Commit:     Manual by user (message suggested)
+```
+
+---
+
+## What this skill does NOT do
+
+- It does not run a full build (that's `/finalize`).
+- It does not review code quality or architecture (that's `/improve`).
+- It does not create PRs (that's `/finalize`).
+- It does not run `pre-commit`, `git commit`, or `git push`.
+- It's a checkpoint, not a finish line.
+
+---
+
+## Cross-references
+
+- When the branch is ready for merge, use `/finalize` for full verification + PR.
+- If tests reveal design issues, consider `/improve` to assess the broader impact.

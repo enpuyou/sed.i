@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import api from "@/lib/api";
+import InlineError from "./InlineError";
 
 function Toggle({
   checked,
@@ -107,9 +108,7 @@ export default function ProfileSettings() {
       </div>
 
       {status === "error" && errorMsg && (
-        <div className="bg-red-500/10 text-red-500 text-xs font-mono p-3 border border-red-500/20">
-          {errorMsg}
-        </div>
+        <InlineError message={errorMsg} className="py-1.5" />
       )}
 
       <div className="space-y-6 max-w-xl font-mono">

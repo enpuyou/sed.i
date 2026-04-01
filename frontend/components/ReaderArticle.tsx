@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ContentItem } from "@/types";
 import { searchAPI, highlightsAPI, contentAPI } from "@/lib/api";
 import { sanitizeContentHtml } from "@/lib/bionicReading";
+import { getIngestIssue } from "@/lib/ingestErrors";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -80,6 +81,7 @@ export interface ReaderArticleHandle {
   ) => void;
   isEditing: boolean;
   isSaving: boolean;
+  highlightsLoading: boolean;
   handleSaveChanges: () => Promise<void>;
   setIsEditing: (v: boolean) => void;
   savedScrollPosition: React.RefObject<number>;
@@ -206,7 +208,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
         note?: string;
       }>
     >([]);
-    const [_loadingHighlights, _setLoadingHighlights] = useState(false);
+    const [highlightsLoading, setHighlightsLoading] = useState(false);
     const [connectedHighlightIds, setConnectedHighlightIds] = useState<
       Set<string>
     >(new Set());
@@ -227,7 +229,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
     }, [content, displayTitle, displayAuthor, displayPublishedDate]);
 
     // Save Changes Handler
-    const handleSaveChanges = async () => {
+    const handleSaveChanges = useCallback(async () => {
       if (!editorRef.current) return;
 
       setIsSaving(true);
@@ -250,7 +252,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       } finally {
         setIsSaving(false);
       }
-    };
+    }, [content.id, editTitle, editDescription, onStatusChange]);
 
     // Save metadata (title, author, published_date) without entering full edit mode
     const handleSaveMetadata = async () => {
@@ -418,6 +420,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
         }
         if (content.id) {
           try {
+            setHighlightsLoading(true);
             const [highlightData, connectionData] = await Promise.allSettled([
               highlightsAPI.getByContent(content.id),
               searchAPI.findArticleConnections(content.id),
@@ -444,10 +447,12 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
             }
           } catch (error) {
             console.error("Failed to fetch highlights:", error);
+          } finally {
+            setHighlightsLoading(false);
           }
         }
       },
-      [content.id],
+      [content.id, onHighlightsChange],
     );
 
     useEffect(() => {
@@ -579,8 +584,10 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
         }
       };
 
-      if (embedded && containerRef.current) {
-        containerRef.current.addEventListener("scroll", checkFocus, {
+      const containerEl = containerRef.current;
+
+      if (embedded && containerEl) {
+        containerEl.addEventListener("scroll", checkFocus, {
           passive: true,
         });
       } else {
@@ -590,8 +597,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       setTimeout(checkFocus, 500);
 
       return () => {
-        if (embedded && containerRef.current) {
-          containerRef.current.removeEventListener("scroll", checkFocus);
+        if (embedded && containerEl) {
+          containerEl.removeEventListener("scroll", checkFocus);
         } else {
           window.removeEventListener("scroll", checkFocus);
         }
@@ -1061,9 +1068,11 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                     interval={2000}
                   />
                   <p className="text-sm text-[var(--color-text-muted)] opacity-70">
-                    {content.processing_status === "failed"
-                      ? "Content extraction failed. Please visit the original URL."
-                      : "This might take a few seconds."}
+                    {getIngestIssue(
+                      content.processing_status,
+                      content.processing_error,
+                      content.original_url,
+                    )?.readerMessage || "This might take a few seconds."}
                   </p>
                 </div>
               )}
@@ -1075,6 +1084,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       content.full_text,
       content.content_type,
       content.processing_status,
+      content.processing_error,
+      content.original_url,
       highlights,
       connectedHighlightIds,
       scrollToHighlight,
@@ -1083,6 +1094,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       handleImageZoom,
       newlyCreatedHighlightId,
       refreshHighlights,
+      embedded,
+      onShowConnections,
     ]);
 
     useImperativeHandle(
@@ -1093,6 +1106,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
         scrollToHighlight,
         isEditing,
         isSaving,
+        highlightsLoading,
         handleSaveChanges,
         setIsEditing,
         savedScrollPosition,
@@ -1103,6 +1117,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
         scrollToHighlight,
         isEditing,
         isSaving,
+        highlightsLoading,
         handleSaveChanges,
       ],
     );

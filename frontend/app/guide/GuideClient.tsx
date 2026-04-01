@@ -209,11 +209,12 @@ export default function GuideClient() {
               <Feature label="Typography">
                 Customize font family (serif, sans, system, Merriweather,
                 Verdana), size, line height, letter spacing, and content width
-                from the settings bar.
+                from the Settings page.
               </Feature>
               <Feature label="Themes">
-                Four themes: Light (warm cream), Dark, Sepia, and True Black
-                (OLED). Switch from the navbar or reader toolbar.
+                Four themes are available: Light, Dark, Sepia, and True Black
+                (OLED). The navbar toggle cycles Light/Dark/True Black, and
+                Sepia is available in Settings.
               </Feature>
               <Feature label="Focus mode">
                 Press <Kbd>f</Kbd> to dim everything except the paragraph
@@ -221,30 +222,25 @@ export default function GuideClient() {
                 context.
               </Feature>
               <Feature label="Bionic reading">
-                Press <Kbd>b</Kbd> to bold the first half of each word, helping
-                your eyes track faster across long text.
+                Enable Bionic mode from Settings to bold the leading part of
+                each word and improve scanning on long passages.
               </Feature>
               <Feature label="Highlights">
                 Select text to highlight in 5 colors (yellow, green, blue, pink,
-                purple). Add notes to any highlight. View all highlights in the
-                side panel with <Kbd>h</Kbd>.
+                purple). Add notes to any highlight. On desktop, toggle the
+                highlights side panel with <Kbd>h</Kbd>.
               </Feature>
               <Feature label="Table of contents">
-                Press <Kbd>c</Kbd> to toggle an auto-generated table of contents
-                based on the article&apos;s headings. Click any heading to jump
-                to it.
+                An auto-generated table of contents appears on desktop for
+                articles with headings. Click any heading to jump to it.
               </Feature>
               <Feature label="TL;DR">
-                Press <Kbd>t</Kbd> to generate an AI summary of the article.
-                Quick overview before committing to the full read.
+                Use the Generate TL;DR button in the reader to create an AI
+                summary before committing to the full read.
               </Feature>
               <Feature label="Similar articles">
                 After reading, discover related articles from your queue based
                 on semantic similarity (powered by embeddings).
-              </Feature>
-              <Feature label="TTS">
-                Press <Kbd>n</Kbd> for text-to-speech narration of the article
-                content.
               </Feature>
             </div>
           </section>
@@ -295,9 +291,9 @@ export default function GuideClient() {
                 Add articles to any list from the content card menu or from
                 within the reader.
               </Feature>
-              <Feature label="Shared lists">
-                Mark a list as shared to make it accessible to others via a
-                public link.
+              <Feature label="List management">
+                Rename lists, update descriptions, add or remove articles, and
+                iterate on drafts from one workspace.
               </Feature>
               <Feature label="Writing draft">
                 Each list has a writing workspace — a full-screen markdown
@@ -342,8 +338,8 @@ export default function GuideClient() {
                 exact words don&apos;t match.
               </Feature>
               <Feature label="Global search">
-                Access search from the navbar on any page. Results include
-                articles, highlights, and matching passages.
+                Access search from the navbar on any page. Results show
+                semantically related articles with match scores.
               </Feature>
             </div>
           </section>
@@ -357,9 +353,9 @@ export default function GuideClient() {
                 analysis of the content.
               </Feature>
               <Feature label="Connections">
-                Discover links between your highlights across different
-                articles. The connections panel shows semantically related
-                passages you&apos;ve highlighted.
+                Connections is an experimental feature we&apos;re still
+                building. It helps surface links between your highlights across
+                different articles and shows semantically related passages.
               </Feature>
             </div>
           </section>
@@ -376,14 +372,15 @@ export default function GuideClient() {
                 sed.i connects to Claude via the Model Context Protocol. The
                 endpoint is{" "}
                 <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
-                  https://api.read-sedi.com/mcp-transport/mcp
+                  https://api.read-sedi.com/mcp-transport
                 </code>
                 . Both Claude Desktop and claude.ai web are supported.
               </Feature>
               <Feature label="Claude Desktop">
                 Edit{" "}
                 <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
-                  ~/Library/Application Support/Claude/claude_desktop_config.json
+                  ~/Library/Application
+                  Support/Claude/claude_desktop_config.json
                 </code>{" "}
                 and add sed.i as an MCP server with{" "}
                 <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
@@ -444,13 +441,10 @@ export default function GuideClient() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-2 mb-8">
                 {[
                   ["f", "Toggle focus mode"],
-                  ["h", "Highlights panel"],
-                  ["c", "Table of contents"],
-                  ["b", "Bionic reading"],
-                  ["i", "Article info"],
-                  ["n", "Text-to-speech"],
-                  ["t", "TL;DR summary"],
-                  ["Esc", "Close reader"],
+                  ["h", "Toggle highlights panel (desktop)"],
+                  ["c", "Toggle connections panel (desktop, experiment)"],
+                  ["?", "Shortcuts help"],
+                  ["Esc", "Back to queue"],
                 ].map(([key, desc]) => (
                   <div key={key} className="flex items-center gap-2">
                     <Kbd>{key}</Kbd>

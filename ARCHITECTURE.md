@@ -130,7 +130,7 @@ Browser / Extension
 | `is_read`, `is_archived` | Boolean | Status flags. |
 | `read_at` | DateTime | Set when `is_read` becomes true. |
 | `processing_status` | String | `'pending'`, `'processing'`, `'completed'`, `'failed'`. |
-| `processing_error` | Text | Error message if extraction failed. |
+| `processing_error` | Text | Error message if extraction failed. 401/403-style failures are normalized as source-site access issues (authorization/anti-bot), not parser failures. |
 | `deleted_at` | DateTime | Soft delete. Null = active. Indexed. |
 
 **Reading status helper (`compute_reading_status`):**
@@ -298,6 +298,10 @@ All routes require `Authorization: Bearer <token>` unless noted.
 | POST | `/content/{id}/tags/accept` | Copy `auto_tags` → `tags`. |
 | POST | `/content/{id}/tags/dismiss` | Clear `auto_tags`, keep user `tags`. |
 
+`ContentItemResponse` now includes both `processing_status` and `processing_error`
+for list and single-item routes so the frontend can distinguish source-site
+access failures (401/403/paywall/bot blocks) from parser/network issues.
+
 **Extension path** (`pre_extracted_html`): When the body includes
 `pre_extracted_html`, the backend skips trafilatura. It calls
 `_clean_extension_html()` to strip title H1 / description P / thumbnail IMG
@@ -396,7 +400,8 @@ always evaluates to `False` (Column objects are truthy). Replaced with
   If `len(deque) < max_requests`, request is allowed and timestamp is appended.
 - Limit: **10 requests / 60 seconds** AND **50 requests / 3600 seconds** per user
   (identified by JWT user ID; falls back to client IP if auth not on request state).
-- Response on exceeded: HTTP 429. No `Retry-After` header is added.
+- Response on exceeded: HTTP 429 with `{detail: "Too many requests. Please try again later."}`,
+  CORS headers from `ALLOWED_ORIGINS`, and a `Retry-After` header (seconds).
 - **Known limitation:** State is in-memory per process. Does not work correctly
   across multiple FastAPI instances. Production fix: move to Redis.
 - **Test isolation:** Tests must call `rate_limiter.requests.clear()` between
@@ -439,7 +444,7 @@ POST /content (201, processing_status='completed' immediately)
 
 | Task | File | Description |
 |------|------|-------------|
-| `extract_metadata` | `tasks/extraction.py` | Full pipeline: fetch → parse → trafilatura. |
+| `extract_metadata` | `tasks/extraction.py` | Full pipeline: fetch → parse → trafilatura. For article URLs, limited extraction is flagged via source-restriction/truncation heuristics (paywall/access markers, schema/content-tier signals, teaser-description overlap, media/caption-only extraction, and low extraction coverage), not a raw short-text threshold. Thumbnail extraction uses a fallback chain: OG/Twitter meta → JSON-LD image → `link[rel=image_src]` → first usable in-content image. |
 | `generate_embedding` | `tasks/embedding.py` | OpenAI embedding, stored in pgvector. Also embeds highlights. |
 | `generate_tags` | `tasks/tagging.py` | Hybrid two-pass. Pass 1 (pgvector similarity, free): if ≥2 high-confidence tag matches found, auto-accepts into both `auto_tags` and `tags`. Pass 2 (`gpt-4o-mini`): if pass 1 misses, calls LLM and also auto-accepts. `auto_tags`/`tags` endpoints exist for manual override. |
 | `generate_summary` | `tasks/summarization.py` | Triggered by `POST /content/{id}/summary`. Calls OpenAI to produce a summary. |
@@ -549,8 +554,9 @@ Optional `mood` filter:
 | `/lists/[id]` | `lists/[id]/page.tsx` | Items inside a list. |
 | `/crates` | `crates/` | Vinyl record collection (feature-flagged). |
 | `/guide` | `guide/` | Static user guide page. |
+| `/mockups/failed-ingest` | `mockups/failed-ingest/page.tsx` | Design exploration page with three visual directions for failed-ingestion cards. |
 | `/login`, `/register` | auth pages | |
-| `/settings` | `settings/` | User preferences. Reading settings via static property list + live preview. |
+| `/settings` | `settings/` | User preferences. Reading settings + feature visibility toggles (Connections, Crates/audio player) with live preview. |
 | `/[username]` | `[username]/PublicProfileClient.tsx` | Public profile. Standard Navbar, same ContentItem/index layout as dashboard, all actions hidden (`readOnly`). List/index toggle persisted in localStorage. Identity breadcrumb `@username's queue`. |
 | `/[username]/content/[id]` | `[username]/content/[id]/page.tsx` | Public reader. Uses `publicAPI.getPublicContentItem()`. Guest limit: 3 reads per profile owner tracked in localStorage; shows signup prompt after limit. |
 
@@ -560,17 +566,19 @@ Optional `mood` filter:
 |-----------|----------|------|
 | `AddContentForm` | dashboard | Collects URL, submits to API. |
 | `ContentList` | dashboard | Fetches items, client-side filter, list/index view toggle. Sort field/dir persisted in localStorage. RetroLoader on all loading states. Active sort header highlighted in accent color (no glyph). |
-| `ContentItem` | dashboard / public profile | Card view. Accepts `readOnly?: boolean` — hides all action buttons (read, archive, delete, tag, list) when true. Accepts `navigateTo?: string` to override default `/content/:id` link. |
+| `ContentItem` | dashboard / public profile | Card view. Accepts `readOnly?: boolean` — hides all action buttons (read, archive, delete, tag, list) when true. Accepts `navigateTo?: string` to override default `/content/:id` link. Uses `getIngestIssue(...)` mapping to show clearer ingest failure badges (blocked/auth/network/partial) instead of a single generic extraction failure label. Failed-ingest items only use the compact single-line row (status badge + source domain + date + right-aligned delete) when extraction fails before meaningful metadata is available; failed items with usable metadata keep the standard full card layout. |
 | `ContentIndexItem` | dashboard / public profile | Index row. Responsive layout layout: Desktop shows Date \| Title \| Author/Source \| hover menu. Mobile collapses to just Date \| Title to preserve space. Hovering reveals absolute-positioned multi-action tools (Read, Archive, Delete). Delete uses click→"Delete?"→click confirm. Accepts `readOnly` and `navigateTo` props. |
-| `Reader` | content/[id] | Shell: fixed navbar (back, font-size, theme, focus/highlights/connections buttons), reading progress bar, NowPlaying player, HighlightsPanel + ConnectionsPanel sidebars, TOC sidebar, KeyboardShortcuts. Renders `<ReaderArticle>` for the article body. Receives live highlights count via `onHighlightsChange` callback. |
-| `ReaderArticle` | content/[id], lists/[id] | Reusable article body. Handles highlights, selection toolbar, summary, metadata editing, similar articles, ImageZoomModal, scroll position save/restore. `embedded` prop switches from window scroll to container scroll (used in split-pane list view). `focusModeEnabled` prop controlled by Reader's navbar. Exposes `highlights`, `refreshHighlights`, `scrollToHighlight` via `forwardRef`/`useImperativeHandle` for Reader's sidepanels. |
+| `Reader` | content/[id] | Shell: fixed navbar (back, font-size, theme, focus/highlights and optional connections buttons), reading progress bar, optional NowPlaying player, HighlightsPanel + optional ConnectionsPanel sidebars, TOC sidebar, KeyboardShortcuts. Renders `<ReaderArticle>` for the article body. Receives live highlights count via `onHighlightsChange` callback. |
+| `ReaderArticle` | content/[id], lists/[id] | Reusable article body. Handles highlights, selection toolbar, summary, metadata editing, similar articles, ImageZoomModal, scroll position save/restore. `embedded` prop switches from window scroll to container scroll (used in split-pane list view). `focusModeEnabled` prop controlled by Reader's navbar. Exposes `highlights`, `refreshHighlights`, `scrollToHighlight` via `forwardRef`/`useImperativeHandle` for Reader's sidepanels. Uses `getIngestIssue(...)` fallback copy when full text is unavailable, including source-blocked and partial-extraction states. |
+| `InlineError` | shared | Inline contextual error with optional dismiss/retry. See §16. |
+| `EmptyState` | shared | Empty data state with optional CTA. Variants: `inline`, `bordered`. See §16. |
 | `Sidebar` | layout | List navigation with counts. |
 | `CratesClient` | crates | Grid of records, search/sort/filter, Now Digging bar. |
 | `RecordDetail` | crates | Gatefold panel: art + metadata + tracklist + videos. |
 | `ListeningMode` | crates | Full-screen music player overlay. `z-[80]` > RecordDetail `z-50`. |
 | `VinylCard` | crates | Individual record card. |
 | `YouTubePlayer` | crates | Invisible div hosting YouTube IFrame API. Plays queue sequentially. |
-| `Navbar` | layout | Mini-player on mobile. `mounted` guard avoids SSR hydration mismatch. Supports writing-mode controls (`Export`, `Close`) and fullscreen-aware auto-hide behavior (listens to editor scroll container instead of window). |
+| `Navbar` | layout | Mini-player on mobile (hidden when Crates/audio feature is disabled). `mounted` guard avoids SSR hydration mismatch. Supports writing-mode controls (`Export`, `Close`) and fullscreen-aware auto-hide behavior (listens to editor scroll container instead of window). |
 | `ProfileSettings` | settings | Public profile toggles (is_public, is_queue_public, is_crates_public), username, full name. Inline "Saved." state replaces alert(). Preview link to `/{username}` shown when public. |
 
 ### React Contexts
@@ -579,8 +587,9 @@ Optional `mood` filter:
 |---------|-------|
 | `AuthContext` | Current user, login/logout. Token stored in `localStorage['token']`. |
 | `ListsContext` | List counts shown in sidebar. |
-| `ToastContext` | User notifications (success/error toasts). |
+| `ToastContext` | Legacy — replaced by inline `InlineError` feedback. Context still exists but is unused. |
 | `PlayerContext` | Vinyl player: `QueueTrack[]`, `currentIndex`, play/pause, `YT.Player` ref. Queue persisted in `localStorage['sedi-player']`. |
+| `ReadingSettingsContext` | Reader preferences (`theme`, typography, bionic reading) plus local feature visibility toggles (`showConnections`, `showCrates`). Persisted in `localStorage['sedi-reading-settings']`. |
 
 ### Feature flags (`frontend/lib/flags.ts`)
 
@@ -600,6 +609,7 @@ Environment variable driven — all default to `true` unless explicitly disabled
 | `bionicReading.ts` | `toBionic`, `addHeadingAnchors`, `stripDocumentWrappers`, `sanitizeContentHtml` | Reader UX. Bionic reading bolds the first ~50% of each word. `addHeadingAnchors` generates deduped IDs for TOC links. `stripDocumentWrappers` strips `<html>/<body>` from PDF-extracted content. `sanitizeContentHtml` removes ephemeral UI before saving. |
 | `blockParser.ts` | `parseHtmlToBlocks` | Converts HTML to `ContentBlock[]` for the block editor. Maps h1–h6 and p/ul/ol to block types. SSR guard included. |
 | `flags.ts` | Feature flag booleans | See table above. |
+| `ingestErrors.ts` | `getIngestIssue` | Classifies ingestion failures (`processing_status` + `processing_error`) into user-facing categories (`blocked`, `unauthorized`, `network`, `paywall_partial`, `partial`, `unknown`) used by queue cards and reader fallback messaging. |
 
 ---
 
@@ -626,27 +636,53 @@ Environment variable driven — all default to `true` unless explicitly disabled
 
 ## 16. Error handling and reliability
 
-### Backend
+### Backend error shape
+
+All error responses use `{detail: string}` — a single, consistent shape.
 
 | Code | When |
 |------|------|
 | 400 | Bad request (duplicate email, invalid input). |
 | 401 | Missing or invalid JWT. |
-| 403 | Active check failed. |
+| 403 | Inactive user or forbidden access. |
 | 404 | Item not found or soft-deleted (or belongs to another user). |
-| 429 | Rate limit exceeded on POST /content. |
+| 422 | Validation error (simplified field messages from `RequestValidationError`). |
+| 429 | Rate limit exceeded on POST /content. Includes `Retry-After` header. |
+| 500 | Unhandled error (sanitized via global exception handler — no internal details leaked). |
+
+**Global exception handlers** (registered in `app/main.py`):
+
+- `RequestValidationError` → 422 with simplified field messages.
+- `SQLAlchemyError` → 500 with generic "database error" detail, logged server-side.
+- `Exception` → 500 with generic "unexpected error" detail, logged with traceback.
 
 ### Background jobs
 
 - `max_retries=3` on extraction tasks.
 - Saves `processing_error` if extraction fails after retries.
-- `processing_status` surfaces to frontend — UI can show "processing" states.
+- `processing_status` set to `"failed"` (not `"completed"`) on error.
+- `processing_status` surfaces to frontend — UI shows processing items at reduced opacity.
 
-### Frontend
+### Frontend error conventions
 
-- Optimistic updates for responsiveness; reverts on API failure.
-- Toast notifications for errors.
-- Polling `processing_status` until `'completed'` or `'failed'`.
+**No toasts.** All error feedback is inline and contextual — near the action that failed.
+
+**Shared components:**
+
+| Component | File | Usage |
+|-----------|------|-------|
+| `InlineError` | `components/InlineError.tsx` | Left red border, muted bg, concise text. Props: `message`, optional `onDismiss`, optional `onRetry`, optional `className`. Used everywhere an action can fail. |
+| `EmptyState` | `components/EmptyState.tsx` | Muted centered text. Props: `message`, optional `description`, optional `actionLabel`/`onAction`, `variant` (`"inline"` or `"bordered"`). Used for all empty data states. |
+
+**Error message tone:** Use "Couldn't [action]. Try again." pattern — concise, no jargon, action-oriented. Never "Failed to..." or "Error: ...".
+
+**Empty state tone:** Sentence case, no emoji, no UPPERCASE. Optional CTA where the user can take action.
+
+**State rendering:** Loading, Error, Empty, and Data states are mutually exclusive. Use the order: loading > error > empty > data.
+
+**Optimistic updates:** Update UI immediately, revert on API failure, show `InlineError` near the action.
+
+**`fetchWithAuth`** (`lib/api.ts`): Central API helper. Parses `{detail}` from backend responses. Rate limit reads `Retry-After` header. All API methods (including deletes) route through it.
 
 ---
 
@@ -806,3 +842,20 @@ same commit:
 The goal: ARCHITECTURE.md always reflects the current codebase so any new
 contributor or future AI session can get oriented quickly without reading
 every file.
+
+---
+
+## 22. Engineering workflow standard
+
+The operational standard for this repository (local dev, CI, Railway deploy,
+and coding-agent behavior) is documented in:
+
+- `docs/engineering-workflow.md`
+- `docs/product-quality-execution-plan.md` (phased UX/state/error consistency rollout plan)
+
+Use that document as the source of truth for:
+
+- Local startup commands and quality gates
+- GitHub Actions expectations and branch protection checks
+- Railway process model (web + worker) and release flow
+- Coding-agent change, validation, and documentation requirements

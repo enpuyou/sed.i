@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import { contentAPI, listsAPI } from "@/lib/api";
 import { ContentItem } from "@/types";
 import { useLists } from "@/contexts/ListsContext";
+import InlineError from "./InlineError";
 
 interface AddContentToListModalProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ export default function AddContentToListModal({
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAllContent = useCallback(async () => {
     try {
@@ -68,6 +70,7 @@ export default function AddContentToListModal({
 
     try {
       setLoading(true);
+      setError(null);
       // Optimistic update - increment count by number of items being added
       for (let i = 0; i < itemCount; i++) {
         incrementListCount(listId);
@@ -76,8 +79,9 @@ export default function AddContentToListModal({
       await listsAPI.addContent(listId, Array.from(selectedIds));
       onSuccess();
       onClose();
-    } catch (error) {
-      console.error("Failed to add content to list:", error);
+    } catch (err) {
+      console.error("Failed to add content to list:", err);
+      setError("Couldn't add content to list. Try again.");
       // Revert on error - decrement count back
       for (let i = 0; i < itemCount; i++) {
         decrementListCount(listId);
@@ -237,7 +241,14 @@ export default function AddContentToListModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+        <div className="p-4 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] space-y-2">
+          {error && (
+            <InlineError
+              message={error}
+              onDismiss={() => setError(null)}
+              className="py-1.5"
+            />
+          )}
           <div className="flex items-center justify-between">
             <span className="text-xs text-[var(--color-text-muted)]">
               {selectedIds.size} item{selectedIds.size !== 1 ? "s" : ""}{" "}
@@ -254,7 +265,7 @@ export default function AddContentToListModal({
               <button
                 onClick={handleSubmit}
                 disabled={loading || selectedIds.size === 0}
-                className="text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-accent)] bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] hover:border-[var(--color-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs px-2 py-0.5 leading-none rounded-none border border-[var(--color-border)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Adding..." : `Add to List`}
               </button>

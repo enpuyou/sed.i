@@ -48,6 +48,7 @@ class ContentItemResponse(BaseModel):
     is_archived: bool
     is_public: bool
     processing_status: str
+    processing_error: str | None = None
     created_at: datetime
     updated_at: datetime
 

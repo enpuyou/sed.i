@@ -18,6 +18,8 @@ import { useProcessingPolling } from "@/hooks/useProcessingPolling";
 import { useLists } from "@/contexts/ListsContext";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { FilterDropdownContent } from "./FilterDropdownContent";
+import EmptyState from "./EmptyState";
+import InlineError from "./InlineError";
 
 /**
  * Helper to ensure safe usage of useLayoutEffect in Next.js SSR
@@ -329,7 +331,7 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
       setCachedData(response.items, response.total);
     } catch (err) {
       console.error("Failed to fetch contents:", err);
-      if (!silent) setError("Failed to load your content. Please try again.");
+      if (!silent) setError("Couldn't load your content. Try again.");
     } finally {
       if (!silent) setLoading(false);
     }
@@ -401,7 +403,7 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
       console.error("Failed to update content:", err);
       // REVERT on error: restore previous state
       setContents(previousContents);
-      setError("Failed to update item. Please try again.");
+      setError("Couldn't update item. Try again.");
     }
   };
 
@@ -424,7 +426,7 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
       // Restore on error
       setContents(previousContents);
       setTotal(total + 1);
-      setError("Failed to delete item. Please try again.");
+      setError("Couldn't delete item. Try again.");
     }
   };
 
@@ -533,15 +535,12 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
     <div className="space-y-4">
       {/* Error message - shown at top if something went wrong */}
       {error && (
-        <div className="text-[var(--color-text-secondary)] border-l-2 border-red-400 pl-4 bg-transparent py-3 flex justify-between items-center mb-4">
-          <span className="text-sm">{error}</span>
-          <button
-            onClick={() => setError(null)}
-            className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-          >
-            ✕
-          </button>
-        </div>
+        <InlineError
+          message={error}
+          onDismiss={() => setError(null)}
+          onRetry={() => fetchContents(true)}
+          className="mb-4"
+        />
       )}
 
       {/* Contextual Filter Row */}
@@ -670,13 +669,12 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
           />
         </div>
       ) : filteredContents.length === 0 ? (
-        <div className="text-center py-12 text-[var(--color-text-muted)]">
-          <p className="text-sm">
-            {filter === "all"
-              ? "No content yet. Add your first article above!"
-              : `No ${filter} items.`}
-          </p>
-        </div>
+        <EmptyState
+          message={filter === "all" ? "No content yet." : `No ${filter} items.`}
+          description={
+            filter === "all" ? "Add your first article above." : undefined
+          }
+        />
       ) : (
         <>
           {/* Mobile: Card layout (only when List Mode) */}

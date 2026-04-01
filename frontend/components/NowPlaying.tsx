@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useReadingSettings } from "@/contexts/ReadingSettingsContext";
 
 export default function NowPlaying({
   direction = "down",
 }: {
   direction?: "up" | "down";
 }) {
+  const { settings } = useReadingSettings();
   const {
     current,
     isPlaying,
@@ -66,6 +68,8 @@ export default function NowPlaying({
 
   // Avoid hydration mismatch by not rendering until mounted
   if (!isMounted) return null;
+
+  if (!settings.showCrates) return null;
 
   // Empty state — show nothing
   if (!current && queue.length === 0) {

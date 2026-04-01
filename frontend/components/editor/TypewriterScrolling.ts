@@ -25,7 +25,7 @@ export const TypewriterScrolling = Extension.create({
     return [
       new Plugin({
         key: TypewriterScrollingKey,
-        view(editorView) {
+        view(_editorView) {
           return {
             update(view, prevState) {
               if (!options.enabled) return;

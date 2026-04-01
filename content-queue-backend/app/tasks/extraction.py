@@ -1,15 +1,273 @@
+import json
 import logging
 import re
 import requests
 import trafilatura
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from app.core.celery_app import celery_app
 from app.tasks.base import DatabaseTask
 from app.models.content import ContentItem
 from app.tasks.embedding import generate_embedding
 
 logger = logging.getLogger(__name__)
+
+SOCIAL_MEDIA_DOMAINS = {
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "threads.net",
+    "facebook.com",
+    "tiktok.com",
+    "reddit.com",
+    "linkedin.com",
+    "pinterest.com",
+    "snapchat.com",
+    "tumblr.com",
+    "mastodon.social",
+    "bsky.app",
+}
+
+VIDEO_DOMAINS = {
+    "youtube.com",
+    "youtu.be",
+    "vimeo.com",
+    "twitch.tv",
+    "dailymotion.com",
+    "wistia.com",
+}
+
+SOURCE_RESTRICTION_MARKERS = [
+    "paywall",
+    "subscriber-only",
+    "subscriber only",
+    "subscription required",
+    "subscribe to continue",
+    "sign in to continue",
+    "log in to continue",
+    "already a subscriber",
+    "continue reading",
+    "unlock this article",
+    "premium content",
+    "metered",
+]
+
+
+def _detect_limited_extraction_reason(
+    downloaded: bytes, html_text: str, page_url: str | None = None
+) -> str | None:
+    """
+    Detect likely limited/truncated extraction from source restrictions.
+
+    Avoid relying on absolute length alone, because some articles are genuinely
+    short. Use paywall markers and relative extraction coverage instead.
+    """
+    source_soup = BeautifulSoup(downloaded, "html.parser")
+    extracted_soup = BeautifulSoup(html_text, "html.parser")
+
+    source_text = source_soup.get_text(" ", strip=True)
+    extracted_text = extracted_soup.get_text(" ", strip=True)
+
+    source_len = len(source_text)
+    extracted_len = len(extracted_text)
+
+    extracted_paragraphs = sum(
+        1
+        for p in extracted_soup.find_all("p")
+        if len(p.get_text(" ", strip=True)) >= 45
+    )
+    extracted_has_media = bool(
+        extracted_soup.find("figure")
+        or extracted_soup.find("img")
+        or extracted_soup.find("picture")
+    )
+
+    source_container = (
+        source_soup.find("article")
+        or source_soup.find("main")
+        or source_soup.find("body")
+        or source_soup
+    )
+    source_paragraphs = sum(
+        1
+        for p in source_container.find_all("p")
+        if len(p.get_text(" ", strip=True)) >= 45
+    )
+
+    # Attribute-based hints catch paywall wrappers even when copy text is minimal.
+    attrs = []
+    for tag in source_soup.find_all(True, limit=500):
+        classes = tag.get("class") or []
+        if isinstance(classes, str):
+            attrs.append(classes)
+        else:
+            attrs.extend(classes)
+        element_id = tag.get("id")
+        if element_id:
+            attrs.append(element_id)
+
+    source_markers_text = (source_text[:15000] + " " + " ".join(attrs)).lower()
+    has_restriction_markers = any(
+        marker in source_markers_text for marker in SOURCE_RESTRICTION_MARKERS
+    )
+
+    source_description = ""
+    source_desc_meta = (
+        source_soup.find("meta", property="og:description")
+        or source_soup.find("meta", attrs={"name": "twitter:description"})
+        or source_soup.find("meta", attrs={"name": "description"})
+    )
+    if source_desc_meta and source_desc_meta.get("content"):
+        source_description = source_desc_meta.get("content").strip().lower()
+
+    ratio = (extracted_len / source_len) if source_len > 0 else 0.0
+
+    has_schema_paywall = False
+    for script in source_soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except Exception:
+            continue
+
+        def _walk(node):
+            if isinstance(node, dict):
+                access_flag = node.get("isAccessibleForFree")
+                if isinstance(access_flag, bool) and access_flag is False:
+                    return True
+                if isinstance(access_flag, str) and access_flag.strip().lower() in {
+                    "false",
+                    "no",
+                    "0",
+                }:
+                    return True
+                return any(_walk(v) for v in node.values())
+            if isinstance(node, list):
+                return any(_walk(v) for v in node)
+            return False
+
+        if _walk(data):
+            has_schema_paywall = True
+            break
+
+    content_tier_meta = source_soup.find(
+        "meta",
+        attrs={"name": lambda value: value and "content_tier" in value.lower()},
+    )
+    has_paid_tier_meta = bool(
+        content_tier_meta
+        and any(
+            token in (content_tier_meta.get("content") or "").lower()
+            for token in ["paid", "premium", "subscriber", "metered"]
+        )
+    )
+
+    if has_restriction_markers and extracted_len < 2200 and extracted_paragraphs <= 5:
+        return "Content appears restricted by a paywall or source access controls"
+
+    if (
+        (has_schema_paywall or has_paid_tier_meta)
+        and extracted_len < 2200
+        and extracted_paragraphs <= 5
+    ):
+        return "Content appears restricted by a paywall or source access controls"
+
+    # If the page is paywalled but we got substantial content (user was authenticated
+    # via extension), skip ratio-based checks — the source HTML is the unauthenticated
+    # version so ratio comparisons are meaningless.
+    if has_schema_paywall or has_paid_tier_meta:
+        return None
+
+    # Some restricted pages collapse to hero image + caption with no real body.
+    if (
+        extracted_has_media
+        and extracted_paragraphs == 0
+        and extracted_len < 900
+        and source_len >= 1500
+    ):
+        return "Limited content extracted from source page"
+
+    # Teaser-only extraction: extracted content mostly mirrors the metadata
+    # description with little additional body text.
+    if source_description:
+        desc_norm = re.sub(r"\s+", " ", source_description).strip()
+        body_norm = re.sub(r"\s+", " ", extracted_text.lower()).strip()
+        desc_prefix = desc_norm[: min(200, len(desc_norm))]
+        if (
+            len(desc_prefix) >= 80
+            and desc_prefix in body_norm
+            and extracted_len <= max(1200, int(len(desc_norm) * 3.2))
+            and extracted_paragraphs <= 4
+        ):
+            return "Limited content extracted from source page"
+
+    # Structural truncation signal: source appears to have substantial article
+    # paragraph content, but extracted output contains only a small subset.
+    if (
+        (source_paragraphs >= 6 or source_len >= 5000)
+        and extracted_paragraphs <= 4
+        and ratio < 0.4
+        and extracted_len < 1800
+    ):
+        return "Limited content extracted from source page"
+
+    # Generic limited extraction: source page has substantial visible text,
+    # but extracted article body is tiny and structurally very short.
+    if (
+        source_len >= 4000
+        and extracted_len < 900
+        and ratio < 0.18
+        and extracted_paragraphs <= 3
+    ):
+        return "Limited content extracted from source page"
+
+    return None
+
+
+def _detect_limited_extension_content_reason(
+    html_text: str,
+    description: str | None,
+) -> str | None:
+    """Detect likely teaser-only extraction when source HTML is unavailable."""
+    extracted_soup = BeautifulSoup(html_text, "html.parser")
+    extracted_text = extracted_soup.get_text(" ", strip=True)
+    extracted_text_lower = extracted_text.lower()
+
+    word_count = len(extracted_text.split())
+    extracted_paragraphs = sum(
+        1
+        for p in extracted_soup.find_all("p")
+        if len(p.get_text(" ", strip=True)) >= 45
+    )
+
+    if any(marker in extracted_text_lower for marker in SOURCE_RESTRICTION_MARKERS):
+        if word_count <= 450 and extracted_paragraphs <= 5:
+            return "Content appears restricted by a paywall or source access controls"
+
+    if description:
+        desc_norm = re.sub(r"\s+", " ", description.strip().lower())
+        body_norm = re.sub(r"\s+", " ", extracted_text_lower)
+        desc_prefix = desc_norm[: min(180, len(desc_norm))]
+        if (
+            len(desc_prefix) >= 80
+            and desc_prefix in body_norm
+            and word_count <= max(260, int(len(desc_norm.split()) * 3.2))
+            and extracted_paragraphs <= 4
+        ):
+            return "Limited content extracted from source page"
+
+    # Truncation ellipsis in short content is a strong paywall signal regardless of domain.
+    if (
+        ("..." in extracted_text or "…" in extracted_text)
+        and word_count <= 500
+        and extracted_paragraphs <= 6
+    ):
+        return "Limited content extracted from source page"
+
+    # Short content with no paywall markers but structurally thin — likely teaser.
+    if word_count <= 150 and extracted_paragraphs <= 2:
+        return "Limited content extracted from source page"
+
+    return None
 
 
 def _is_pdf_url(url: str) -> bool:
@@ -27,6 +285,17 @@ def _detect_content_type(url: str, response_headers: dict) -> str:
         return "pdf"
     if "video" in ct:
         return "video"
+
+    try:
+        domain = urlparse(url).hostname or ""
+        domain = domain.lower().removeprefix("www.")
+        if any(domain == d or domain.endswith(f".{d}") for d in VIDEO_DOMAINS):
+            return "video"
+        if any(domain == d or domain.endswith(f".{d}") for d in SOCIAL_MEDIA_DOMAINS):
+            return "social"
+    except Exception:
+        pass
+
     return "article"
 
 
@@ -53,6 +322,7 @@ def extract_metadata(self, item_id: str):
         # If the extension already sent all key metadata, skip the HTTP fetch entirely.
         # This avoids 403 errors on paywalled/rate-limited sites (e.g. NYT, Nature).
         has_metadata = bool(item.thumbnail_url and item.description)
+        extension_limited_reason = None
         if not has_metadata:
             logger.info(
                 f"Extension-submitted item {item_id} — fetching OG metadata only, skipping extraction pipeline"
@@ -75,8 +345,8 @@ def extract_metadata(self, item_id: str):
                         item.title = metadata["title"]
                     if metadata.get("description") and not item.description:
                         item.description = metadata["description"]
-                    if metadata.get("thumbnail_url") and not item.thumbnail_url:
-                        item.thumbnail_url = metadata["thumbnail_url"]
+                    if metadata.get("thumbnail") and not item.thumbnail_url:
+                        item.thumbnail_url = metadata["thumbnail"]
                     if metadata.get("author") and not item.author:
                         item.author = metadata["author"]
                     if metadata.get("published_date") and not item.published_date:
@@ -96,15 +366,46 @@ def extract_metadata(self, item_id: str):
                 item.content_type = _detect_content_type(
                     item.original_url, dict(resp.headers)
                 )
+                if item.content_type == "article":
+                    extension_limited_reason = _detect_limited_extraction_reason(
+                        resp.content,
+                        item.full_text,
+                    )
             except Exception as exc:
                 logger.warning(
                     f"Could not fetch OG metadata for {item.original_url}: {exc}"
                 )
         else:
             logger.info(
-                f"Extension-submitted item {item_id} — metadata already present, skipping HTTP fetch"
+                f"Extension-submitted item {item_id} — metadata already present, fetching page for extraction check"
             )
             item.content_type = _detect_content_type(item.original_url, {})
+            if item.content_type == "article":
+                try:
+                    request_headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                    }
+                    resp = requests.get(
+                        item.original_url, timeout=15, headers=request_headers
+                    )
+                    resp.raise_for_status()
+                    extension_limited_reason = _detect_limited_extraction_reason(
+                        resp.content,
+                        item.full_text,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not fetch page for extraction check on {item.original_url}: {exc}"
+                    )
+
+        if item.content_type == "article":
+            item.processing_error = (
+                extension_limited_reason
+                or _detect_limited_extension_content_reason(
+                    item.full_text,
+                    item.description,
+                )
+            )
         # Status stays "completed" as set by the API handler
         self.db.commit()
         return
@@ -163,6 +464,14 @@ def extract_metadata(self, item_id: str):
 
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else 0
+        if status_code == 401:
+            logger.error(f"Authorization required (401) for {url}")
+            item.processing_status = "failed"
+            item.processing_error = (
+                "Authorization required (401) - Source site requires login/subscription"
+            )
+            self.db.commit()
+            return
         # 403 = permanent block, don't retry
         if status_code == 403:
             logger.error(f"Access forbidden (403) for {url}")
@@ -274,7 +583,12 @@ def extract_full_content(self, item_id: str):
         words = plain.split()
         item.word_count = len(words)
         item.reading_time_minutes = max(1, round(len(words) / 200))
-        item.processing_error = None
+        if item.content_type == "article":
+            item.processing_error = _detect_limited_extraction_reason(
+                downloaded, html_text
+            )
+        else:
+            item.processing_error = None
         item.processing_status = "completed"
         self.db.commit()
         logger.info(
@@ -486,13 +800,9 @@ def _extract_page_metadata(soup: BeautifulSoup, url: str) -> dict:
     elif meta_desc and meta_desc.get("content"):
         metadata["description"] = meta_desc["content"]
 
-    # Thumbnail
-    og_image = soup.find("meta", property="og:image")
-    twitter_image = soup.find("meta", attrs={"name": "twitter:image"})
-    if og_image and og_image.get("content"):
-        metadata["thumbnail"] = og_image["content"]
-    elif twitter_image and twitter_image.get("content"):
-        metadata["thumbnail"] = twitter_image["content"]
+    thumbnail = _extract_thumbnail_url(soup, url)
+    if thumbnail:
+        metadata["thumbnail"] = thumbnail
 
     # Author — collect all article:author tags (handles multiple authors)
     author_metas = soup.find_all("meta", property="article:author")
@@ -513,11 +823,9 @@ def _extract_page_metadata(soup: BeautifulSoup, url: str) -> dict:
         author_names.append(val)
     # Also try JSON-LD for structured author data
     if not author_names:
-        import json as _json
-
         for script in soup.find_all("script", type="application/ld+json"):
             try:
-                data = _json.loads(script.string or "")
+                data = json.loads(script.string or "")
                 # Handle both single object and list
                 items = data if isinstance(data, list) else [data]
                 for obj in items:
@@ -615,6 +923,119 @@ def _extract_page_metadata(soup: BeautifulSoup, url: str) -> dict:
     metadata["vertical_metadata"] = vertical_metadata
 
     return metadata
+
+
+def _extract_thumbnail_url(soup: BeautifulSoup, page_url: str) -> str | None:
+    """
+    Extract a best-effort thumbnail URL from metadata and page content.
+
+    Priority:
+    1) OG/Twitter/meta image tags
+    2) JSON-LD image fields
+    3) link[rel=image_src]
+    4) first usable in-content <img> in article/main/body
+    """
+
+    def normalize(candidate: str | None) -> str | None:
+        if not candidate:
+            return None
+        value = candidate.strip()
+        if not value:
+            return None
+        if value.startswith("data:"):
+            return None
+
+        lowered = value.lower()
+        if lowered.endswith(".svg"):
+            return None
+        if any(token in lowered for token in ["sprite", "favicon", "icon", "avatar"]):
+            return None
+
+        return urljoin(page_url, value)
+
+    def src_from_image_tag(image_tag) -> str | None:
+        direct_src = image_tag.get("src") or image_tag.get("data-src")
+        if direct_src:
+            return direct_src
+
+        srcset = image_tag.get("srcset") or image_tag.get("data-srcset")
+        if not srcset:
+            return None
+
+        entries = [entry.strip() for entry in srcset.split(",") if entry.strip()]
+        if not entries:
+            return None
+
+        # Prefer the last srcset entry, which is commonly the largest candidate.
+        return entries[-1].split(" ")[0].strip()
+
+    meta_selectors = [
+        ("meta", {"property": "og:image:secure_url"}, "content"),
+        ("meta", {"property": "og:image"}, "content"),
+        ("meta", {"name": "twitter:image:src"}, "content"),
+        ("meta", {"name": "twitter:image"}, "content"),
+        ("meta", {"itemprop": "image"}, "content"),
+    ]
+
+    for tag_name, attrs, key in meta_selectors:
+        node = soup.find(tag_name, attrs=attrs)
+        candidate = normalize(node.get(key) if node else None)
+        if candidate:
+            return candidate
+
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except Exception:
+            continue
+
+        items = data if isinstance(data, list) else [data]
+        for obj in items:
+            if not isinstance(obj, dict):
+                continue
+            image_field = obj.get("image")
+            if isinstance(image_field, str):
+                candidate = normalize(image_field)
+                if candidate:
+                    return candidate
+            elif isinstance(image_field, dict):
+                candidate = normalize(
+                    image_field.get("url")
+                    or image_field.get("contentUrl")
+                    or image_field.get("@id")
+                )
+                if candidate:
+                    return candidate
+            elif isinstance(image_field, list):
+                for image_item in image_field:
+                    if isinstance(image_item, str):
+                        candidate = normalize(image_item)
+                    elif isinstance(image_item, dict):
+                        candidate = normalize(
+                            image_item.get("url")
+                            or image_item.get("contentUrl")
+                            or image_item.get("@id")
+                        )
+                    else:
+                        candidate = None
+                    if candidate:
+                        return candidate
+
+    image_link = soup.find("link", rel=lambda value: value and "image_src" in value)
+    candidate = normalize(image_link.get("href") if image_link else None)
+    if candidate:
+        return candidate
+
+    for container_selector in ["article", "main", "body"]:
+        container = soup.find(container_selector)
+        if not container:
+            continue
+        for image_tag in container.find_all("img"):
+            candidate = normalize(src_from_image_tag(image_tag))
+            if candidate:
+                return candidate
+
+    return None
 
 
 def xml_to_html(xml_content: str, original_html: bytes = None) -> str:

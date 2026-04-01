@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { contentAPI } from "@/lib/api";
 import { ContentItem } from "@/types";
+import InlineError from "./InlineError";
 
 interface AddContentFormProps {
   onContentAdded: (newItem: ContentItem) => void;
@@ -45,9 +46,11 @@ export default function AddContentForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-2">
       {error && (
-        <div className="text-[var(--color-text-secondary)] border-l-2 border-red-400 pl-4 bg-transparent py-3">
-          {error}
-        </div>
+        <InlineError
+          message={error}
+          onDismiss={() => setError("")}
+          className="py-1.5"
+        />
       )}
 
       <div className="flex items-center gap-2 group focus-within:opacity-100 opacity-80 transition-opacity duration-300 border-b border-[var(--color-border)] focus-within:border-[var(--color-accent)]">

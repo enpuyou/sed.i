@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { highlightsAPI } from "@/lib/api";
+import InlineError from "./InlineError";
+import EmptyState from "./EmptyState";
 
 interface Highlight {
   id: string;
@@ -14,6 +16,7 @@ interface Highlight {
 
 interface HighlightsPanelProps {
   highlights: Highlight[];
+  loading?: boolean;
   onHighlightClick: (highlight: Highlight) => void;
   onHighlightDeleted: () => void;
   onHighlightUpdated: () => void;
@@ -29,6 +32,7 @@ const colorOptions = [
 
 export default function HighlightsPanel({
   highlights,
+  loading,
   onHighlightClick,
   onHighlightDeleted,
   onHighlightUpdated,
@@ -39,11 +43,13 @@ export default function HighlightsPanel({
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [justCopied, setJustCopied] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const handleStartEdit = (highlight: Highlight) => {
     setEditingId(highlight.id);
     setEditNote(highlight.note || "");
     setEditColor(highlight.color);
+    setActionError(null);
   };
 
   const handleCancelEdit = () => {
@@ -54,6 +60,7 @@ export default function HighlightsPanel({
 
   const handleSaveEdit = async (highlightId: string) => {
     try {
+      setActionError(null);
       await highlightsAPI.update(highlightId, {
         note: editNote || undefined,
         color: editColor,
@@ -64,16 +71,19 @@ export default function HighlightsPanel({
       setEditColor("");
     } catch (error) {
       console.error("Error updating highlight:", error);
+      setActionError("Couldn't save changes. Try again.");
     }
   };
 
   const handleDelete = async (highlightId: string) => {
     try {
       setIsDeleting(highlightId);
+      setActionError(null);
       await highlightsAPI.delete(highlightId);
       onHighlightDeleted();
     } catch (error) {
       console.error("Error deleting highlight:", error);
+      setActionError("Couldn't delete highlight. Try again.");
     } finally {
       setIsDeleting(null);
       setDeleteConfirmId(null);
@@ -89,26 +99,38 @@ export default function HighlightsPanel({
       .join("\n\n");
 
     try {
+      setActionError(null);
       await navigator.clipboard.writeText(markdown);
       setJustCopied(true);
       setTimeout(() => setJustCopied(false), 4000);
     } catch (error) {
       console.error("Failed to copy highlights:", error);
+      setActionError("Couldn't copy to clipboard.");
     }
   };
 
+  if (loading && highlights.length === 0) {
+    return (
+      <div className="p-4 text-center text-sm text-[var(--color-text-muted)]">
+        Loading highlights…
+      </div>
+    );
+  }
+
   if (highlights.length === 0) {
     return (
-      <div className="p-4 text-center text-[var(--color-text-muted)] text-sm">
-        No highlights yet. Select text to create a highlight.
-      </div>
+      <EmptyState
+        message="No highlights yet."
+        description="Select text in the article to create a highlight."
+        className="p-4"
+      />
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Sticky copy button */}
-      <div className="px-4 pt-4 pb-2">
+      {/* Sticky copy button + error */}
+      <div className="px-4 pt-4 pb-2 space-y-2">
         <button
           onClick={handleCopyAllHighlights}
           className="text-xs px-2 py-1 rounded-none bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] border border-[var(--color-border)] hover:border-[var(--color-accent)] transition-colors"
@@ -119,6 +141,14 @@ export default function HighlightsPanel({
             ? `Copied (${highlights.length})`
             : `Copy (${highlights.length})`}
         </button>
+
+        {actionError && (
+          <InlineError
+            message={actionError}
+            onDismiss={() => setActionError(null)}
+            className="py-1.5"
+          />
+        )}
       </div>
 
       {/* Highlights List - Scrollable */}

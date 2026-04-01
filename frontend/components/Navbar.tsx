@@ -9,6 +9,7 @@ import { SHOW_CRATES } from "@/lib/flags";
 import NowPlaying from "@/components/NowPlaying";
 import SediLogo from "@/components/SediLogo";
 import { usePlayer } from "@/contexts/PlayerContext";
+import { useReadingSettings } from "@/contexts/ReadingSettingsContext";
 
 // Nav link that forces text-primary color (overrides global `a` color rule)
 function NavLink({
@@ -54,6 +55,7 @@ export default function Navbar({
   fullscreenMode = false,
 }: NavbarProps = {}) {
   const pathname = usePathname();
+  const { settings } = useReadingSettings();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
@@ -115,12 +117,15 @@ export default function Navbar({
       const timer = setTimeout(() => {
         attachedContainer = getScrollTarget();
         if (attachedContainer) {
-          attachedContainer.addEventListener("scroll", handleScroll, { passive: true });
+          attachedContainer.addEventListener("scroll", handleScroll, {
+            passive: true,
+          });
         }
       }, 100);
       return () => {
         clearTimeout(timer);
-        if (attachedContainer) attachedContainer.removeEventListener("scroll", handleScroll);
+        if (attachedContainer)
+          attachedContainer.removeEventListener("scroll", handleScroll);
       };
     } else {
       window.addEventListener("scroll", handleWindowScroll, { passive: true });
@@ -241,7 +246,7 @@ export default function Navbar({
                 <NavLink href="/lists" active={isListsActive}>
                   Lists
                 </NavLink>
-                {SHOW_CRATES && (
+                {SHOW_CRATES && settings.showCrates && (
                   <NavLink href="/crates" active={isCratesActive}>
                     Crates
                   </NavLink>
@@ -266,7 +271,7 @@ export default function Navbar({
             ) : (
               <>
                 {/* Mini player — album art + play/pause */}
-                {mounted && playerCurrent && (
+                {mounted && settings.showCrates && playerCurrent && (
                   <button
                     onClick={toggle}
                     className="compact-touch relative w-6 h-6 flex-shrink-0 overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]"
@@ -343,7 +348,7 @@ export default function Navbar({
               {[
                 { href: "/dashboard", label: "Queue", active: isQueueActive },
                 { href: "/lists", label: "Lists", active: isListsActive },
-                ...(SHOW_CRATES
+                ...(SHOW_CRATES && settings.showCrates
                   ? [
                       {
                         href: "/crates",
@@ -377,9 +382,11 @@ export default function Navbar({
                 </Link>
               ))}
             </nav>
-            <div className="px-5 py-3">
-              <NowPlaying />
-            </div>
+            {settings.showCrates && (
+              <div className="px-5 py-3">
+                <NowPlaying />
+              </div>
+            )}
           </div>
         </>
       )}

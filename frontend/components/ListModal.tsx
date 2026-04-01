@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { listsAPI } from "@/lib/api";
+import InlineError from "./InlineError";
 
 interface ListModalProps {
   isOpen: boolean;
@@ -12,7 +13,6 @@ interface ListModalProps {
     id: string;
     name: string;
     description: string | null;
-    is_shared: boolean;
   };
 }
 
@@ -25,7 +25,6 @@ export default function ListModal({
   // Form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [isShared, setIsShared] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -37,12 +36,10 @@ export default function ListModal({
     if (list) {
       setName(list.name);
       setDescription(list.description || "");
-      setIsShared(list.is_shared);
     } else {
       // Reset form when creating new list
       setName("");
       setDescription("");
-      setIsShared(false);
     }
     setError("");
   }, [list, isOpen]);
@@ -83,7 +80,6 @@ export default function ListModal({
         await listsAPI.create({
           name: name.trim(),
           description: description.trim() || undefined,
-          is_shared: isShared,
         });
       }
 
@@ -150,9 +146,11 @@ export default function ListModal({
 
           {/* Error message */}
           {error && (
-            <div className="border-l-2 border-red-500 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 px-3 py-2 text-xs rounded-none mb-4">
-              {error}
-            </div>
+            <InlineError
+              message={error}
+              onDismiss={() => setError("")}
+              className="mb-4 py-1.5"
+            />
           )}
 
           {/* Form */}
@@ -196,29 +194,6 @@ export default function ListModal({
               />
             </div>
 
-            {/* Shared checkbox - only show when creating */}
-            {!isEditing && (
-              <div className="flex items-start">
-                <input
-                  type="checkbox"
-                  id="is_shared"
-                  checked={isShared}
-                  onChange={(e) => setIsShared(e.target.checked)}
-                  disabled={loading}
-                  className="mt-1 h-4 w-4 text-[var(--color-accent)] focus:ring-[var(--color-accent)] border-[var(--color-border)] rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <label
-                  htmlFor="is_shared"
-                  className="ml-2 block text-sm text-[var(--color-text-secondary)]"
-                >
-                  <span className="font-medium">Make this list shared</span>
-                  <span className="block text-[var(--color-text-muted)] text-xs mt-0.5">
-                    Others can view this list (future feature)
-                  </span>
-                </label>
-              </div>
-            )}
-
             {/* Buttons */}
             <div className="flex gap-2 pt-4">
               <button
@@ -232,7 +207,7 @@ export default function ListModal({
               <button
                 type="submit"
                 disabled={loading || !name.trim()}
-                className="flex-1 text-xs px-2 py-1 leading-none rounded-none border border-[var(--color-accent)] bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] hover:border-[var(--color-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 text-xs px-2 py-1 leading-none rounded-none border border-[var(--color-border)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading
                   ? "Saving..."

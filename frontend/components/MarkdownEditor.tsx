@@ -99,7 +99,6 @@ function buildTocDecorations(
   doc: import("@tiptap/pm/model").Node,
 ): DecorationSet {
   const decorations: Decoration[] = [];
-  let pos = 0;
   doc.forEach((node, offset) => {
     if (
       node.type.name === "heading" &&
@@ -122,7 +121,6 @@ function buildTocDecorations(
         );
       }
     }
-    pos = offset + node.nodeSize;
   });
   return DecorationSet.create(doc, decorations);
 }
@@ -179,7 +177,7 @@ export default function MarkdownEditor({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [wordCount, setWordCount] = useState(0);
   const [isWriting, setIsWriting] = useState(false);
-  const [hasSelection, setHasSelection] = useState(false);
+  const [_hasSelection, setHasSelection] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(initialFullscreen);
   const [exportOpen, setExportOpen] = useState(false);
@@ -190,7 +188,9 @@ export default function MarkdownEditor({
   const exportDropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savedStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const latestContentRef = useRef(initialContent);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -477,7 +477,8 @@ export default function MarkdownEditor({
         doSave(latestContentRef.current);
       }
       if (writingTimerRef.current) clearTimeout(writingTimerRef.current);
-      if (savedStatusTimerRef.current) clearTimeout(savedStatusTimerRef.current);
+      if (savedStatusTimerRef.current)
+        clearTimeout(savedStatusTimerRef.current);
     };
   }, [doSave]);
 

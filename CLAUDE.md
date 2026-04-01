@@ -23,6 +23,32 @@
 
 ### Key Patterns
 
+- **No toasts.** All error feedback uses `InlineError` component — inline, contextual, near the action.
+- **Shared empty states.** All empty data states use `EmptyState` component — sentence case, no emoji.
+- **Error message tone.** "Couldn't [action]. Try again." — concise, no jargon.
+- **Exclusive state rendering.** Loading > Error > Empty > Data. Never show two at once.
+- **Optimistic updates.** Update UI immediately, revert on failure, show InlineError.
+- **`fetchWithAuth`** is the single API path. All methods (including deletes) route through it.
+- **Backend error shape.** All responses use `{detail: string}`. Global exception handlers sanitize 422/500.
+
+### Engineering Workflow (Skills)
+
+The project has custom Claude Code skills for a complete staff-level workflow.
+Use them in this order for any significant work:
+
+| Phase | Skill | When to use |
+|-------|-------|-------------|
+| **Plan** | `/plan <goal>` | Before starting any feature. Analyze codebase, design approach, phase the work. |
+| **Build** | `/pre-commit-dev` | During development. Write tests, run checks, commit. |
+| **Finalize** | `/finalize` | When branch is ready for merge. Full audit + verify + review + ship. |
+| **Retro** | `/retro` | After merging. Analyze what went well/badly, extract process improvements. |
+| **Improve** | `/improve` | Between features. Find duplicated logic, god components, missing abstractions. |
+| **Perf** | `/perf-audit` | When app feels slow. Bundle, rendering, data fetching, image analysis. |
+
+Documents produced by these skills go in:
+- `docs/plans/` — execution plans (from `/plan`)
+- `docs/retros/` — retrospectives (from `/retro`)
+
 ### Documentation Workflow
 
 **ARCHITECTURE.md must be updated in the same commit as any feature change:**

@@ -373,7 +373,7 @@ describe("ContentList", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/Failed to load your content/),
+          screen.getByText(/Couldn't load your content\. Try again\./),
         ).toBeInTheDocument();
       });
 
