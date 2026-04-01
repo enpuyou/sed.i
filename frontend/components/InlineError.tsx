@@ -24,6 +24,7 @@ export default function InlineError({
       <div className="flex items-center gap-2 flex-shrink-0">
         {onRetry && (
           <button
+            type="button"
             onClick={onRetry}
             className="text-[10px] font-mono tracking-wider text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors"
           >
@@ -32,6 +33,7 @@ export default function InlineError({
         )}
         {onDismiss && (
           <button
+            type="button"
             onClick={onDismiss}
             className="text-[var(--color-text-faint)] hover:text-[var(--color-text-primary)] transition-colors text-xs leading-none"
             aria-label="Dismiss"

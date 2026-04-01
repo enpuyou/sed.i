@@ -78,3 +78,6 @@ private/
 
 # Agents
 _agents/
+
+# Dev-only mockup routes
+frontend/app/mockups/

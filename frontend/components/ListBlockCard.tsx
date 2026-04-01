@@ -34,7 +34,7 @@ export default function ListBlockCard({
         try {
           setLoadingPreview(true);
           const data = await listsAPI.getContent(id);
-          setPreview(data);
+          setPreview(data.slice(0, 5));
         } catch (err) {
           console.error("Failed to load list preview:", err);
         } finally {
@@ -108,6 +108,7 @@ export default function ListBlockCard({
             {/* Action Buttons */}
             <div className="flex gap-2 mt-3 pt-3 border-t border-[var(--color-border-subtle)]">
               <button
+                type="button"
                 onClick={(e) => {
                   e.preventDefault();
                   onEdit(id);
@@ -117,6 +118,7 @@ export default function ListBlockCard({
                 Edit
               </button>
               <button
+                type="button"
                 onClick={(e) => {
                   e.preventDefault();
                   if (!confirmDelete) {

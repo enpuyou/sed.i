@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ContentItem } from "@/types";
 import { searchAPI, highlightsAPI, contentAPI } from "@/lib/api";
 import { sanitizeContentHtml } from "@/lib/bionicReading";
+import { getIngestIssue } from "@/lib/ingestErrors";
 import { useHotkeys } from "@/hooks/useHotkeys";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -1067,9 +1068,11 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                     interval={2000}
                   />
                   <p className="text-sm text-[var(--color-text-muted)] opacity-70">
-                    {content.processing_status === "failed"
-                      ? "Content extraction failed. Please visit the original URL."
-                      : "This might take a few seconds."}
+                    {getIngestIssue(
+                      content.processing_status,
+                      content.processing_error,
+                      content.original_url,
+                    )?.readerMessage || "This might take a few seconds."}
                   </p>
                 </div>
               )}
@@ -1081,6 +1084,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       content.full_text,
       content.content_type,
       content.processing_status,
+      content.processing_error,
+      content.original_url,
       highlights,
       connectedHighlightIds,
       scrollToHighlight,

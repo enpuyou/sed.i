@@ -33,6 +33,7 @@ export default function EmptyState({
         )}
         {actionLabel && onAction && (
           <button
+            type="button"
             onClick={onAction}
             className="text-xs px-3 py-1.5 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
           >
@@ -53,6 +54,7 @@ export default function EmptyState({
       )}
       {actionLabel && onAction && (
         <button
+          type="button"
           onClick={onAction}
           className="mt-4 text-xs font-mono tracking-wider px-3 py-1.5 border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
         >

@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { searchAPI } from "@/lib/api";
 import RetroLoader from "./RetroLoader";
@@ -39,6 +39,23 @@ export default function SearchBar() {
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const runSearch = useCallback(async (q: string) => {
+    try {
+      setLoading(true);
+      setSearchError(false);
+      const searchResults = await searchAPI.semantic(q);
+      setResults(searchResults);
+      setShowResults(true);
+    } catch (error) {
+      console.error("Search failed:", error);
+      setResults([]);
+      setSearchError(true);
+      setShowResults(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   /**
    * Debounced search - waits for user to stop typing
    * This prevents making too many API calls while typing
@@ -52,26 +69,11 @@ export default function SearchBar() {
     }
 
     // Set a timeout to delay the search
-    const timeoutId = setTimeout(async () => {
-      try {
-        setLoading(true);
-        setSearchError(false);
-        const searchResults = await searchAPI.semantic(query);
-        setResults(searchResults);
-        setShowResults(true);
-      } catch (error) {
-        console.error("Search failed:", error);
-        setResults([]);
-        setSearchError(true);
-        setShowResults(true);
-      } finally {
-        setLoading(false);
-      }
-    }, 300); // Wait 300ms after user stops typing
+    const timeoutId = setTimeout(() => runSearch(query), 300);
 
     // Cleanup: cancel the timeout if user types again
     return () => clearTimeout(timeoutId);
-  }, [query]);
+  }, [query, runSearch]);
 
   /**
    * Close dropdown when clicking outside
@@ -157,6 +159,7 @@ export default function SearchBar() {
           {results.map((result) => (
             <button
               key={result.item.id}
+              type="button"
               onClick={() => handleSelectResult(result.item.id)}
               className="w-full text-left px-4 py-3 hover:bg-[var(--color-bg-secondary)] transition-colors border-b border-[var(--color-border-subtle)] last:border-b-0"
             >
@@ -205,14 +208,8 @@ export default function SearchBar() {
               Search failed. Try again.
             </span>
             <button
-              onClick={() => {
-                setSearchError(false);
-                setShowResults(false);
-                // Re-trigger search by slightly changing query
-                const q = query;
-                setQuery("");
-                setTimeout(() => setQuery(q), 10);
-              }}
+              type="button"
+              onClick={() => runSearch(query)}
               className="text-[10px] font-mono tracking-wider text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors flex-shrink-0"
             >
               Retry
