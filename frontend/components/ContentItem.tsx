@@ -409,7 +409,7 @@ export default function ContentItem({
                   <span>{content.reading_time_minutes} min read</span>
                 </>
               )}
-              {user?.is_public && content.is_public && (
+              {user?.is_queue_public && content.is_public && (
                 <>
                   <span>·</span>
                   <span

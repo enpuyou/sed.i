@@ -2,10 +2,10 @@
  * popup.js — sed.i browser extension popup controller
  *
  * Flow:
- *   login  → user enters credentials + API URL
- *   ready  → shows page title, save options, save button
+ *   login  → user enters credentials
+ *   ready  → shows page title + article meta, save button
  *   saving → extracting content (overlay)
- *   preview → shows extraction signals + text snippet; user confirms or cancels
+ *   preview → shows extraction signals + scrollable text snippet; user confirms or cancels
  *   sending → posting to backend (overlay)
  *   result → shows success/error after saving
  */
@@ -59,7 +59,6 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
 
   const email = document.getElementById('input-email').value.trim();
   const password = document.getElementById('input-password').value;
-  // Use stored API base (set in settings drawer) or fall back to production default
   const { apiBase: storedBase } = await msg('getApiBase');
   const apiBase = storedBase || DEFAULT_API_BASE;
   await msg('setApiBase', { apiBase });
@@ -100,10 +99,10 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
 async function setupReadyView() {
   show('view-ready');
 
-  // Show current page title
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const titleEl = document.getElementById('page-title');
   if (tab?.title) titleEl.textContent = tab.title;
+
 }
 
 // Settings toggle
@@ -111,26 +110,100 @@ document.getElementById('btn-settings-toggle').addEventListener('click', () => {
   document.getElementById('settings-drawer').classList.toggle('hidden');
 });
 
-// Close button — just closes the popup window
+// Close button
 document.getElementById('btn-close').addEventListener('click', () => {
   window.close();
 });
 
-// Logout (moved into settings drawer)
+// Logout
 document.getElementById('btn-logout').addEventListener('click', async () => {
   await msg('clearToken');
   show('view-login');
 });
 
+// ─── Dev mode (long-press any logo ≥ 2s) ────────────────────────────────────
+
+let _logoHoldTimer = null;
+
+function attachLongPress(el, onTrigger) {
+  function start() {
+    // Cancel any in-flight timer before starting a new one (idempotent)
+    if (_logoHoldTimer) { clearTimeout(_logoHoldTimer); }
+    _logoHoldTimer = setTimeout(() => { _logoHoldTimer = null; onTrigger(); }, 2000);
+  }
+  function cancel() {
+    if (_logoHoldTimer) { clearTimeout(_logoHoldTimer); _logoHoldTimer = null; }
+  }
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mouseup', cancel);
+  el.addEventListener('mouseleave', cancel);
+  el.addEventListener('touchstart', start, { passive: true });
+  el.addEventListener('touchend', cancel);
+  el.addEventListener('touchcancel', cancel);
+  el.addEventListener('pointercancel', cancel);
+}
+
+async function showDevFields(inputId, feedbackId, revealEl) {
+  revealEl.classList.remove('hidden');
+  const { apiBase } = await msg('getApiBase');
+  document.getElementById(inputId).value = apiBase || DEFAULT_API_BASE;
+  document.getElementById(feedbackId).classList.add('hidden');
+}
+
+// Ready view: long-press logo-row in the header
+attachLongPress(document.querySelector('#view-ready .logo-row'), async () => {
+  document.getElementById('settings-drawer').classList.remove('hidden');
+  await showDevFields('input-api-url', 'api-url-feedback', document.getElementById('dev-fields'));
+});
+
+// Login view: long-press the login logo-row
+attachLongPress(document.getElementById('login-logo-row'), async () => {
+  await showDevFields('input-login-api-url', 'login-api-url-feedback', document.getElementById('login-dev-fields'));
+});
+
+// Dev field actions — ready view
+document.getElementById('btn-save-api-url').addEventListener('click', async () => {
+  const val = document.getElementById('input-api-url').value.trim();
+  if (!val) return;
+  await msg('setApiBase', { apiBase: val });
+  const fb = document.getElementById('api-url-feedback');
+  fb.textContent = 'Saved. Re-login to apply.';
+  fb.classList.remove('hidden');
+});
+
+document.getElementById('btn-reset-api-url').addEventListener('click', async () => {
+  await msg('setApiBase', { apiBase: DEFAULT_API_BASE });
+  document.getElementById('input-api-url').value = DEFAULT_API_BASE;
+  const fb = document.getElementById('api-url-feedback');
+  fb.textContent = 'Reset to production.';
+  fb.classList.remove('hidden');
+});
+
+// Dev field actions — login view
+document.getElementById('btn-login-save-api-url').addEventListener('click', async () => {
+  const val = document.getElementById('input-login-api-url').value.trim();
+  if (!val) return;
+  await msg('setApiBase', { apiBase: val });
+  const fb = document.getElementById('login-api-url-feedback');
+  fb.textContent = 'Saved.';
+  fb.classList.remove('hidden');
+});
+
+document.getElementById('btn-login-reset-api-url').addEventListener('click', async () => {
+  await msg('setApiBase', { apiBase: DEFAULT_API_BASE });
+  document.getElementById('input-login-api-url').value = DEFAULT_API_BASE;
+  const fb = document.getElementById('login-api-url-feedback');
+  fb.textContent = 'Reset to production.';
+  fb.classList.remove('hidden');
+});
+
 // ─── Save / Extract ───────────────────────────────────────────────────────────
 
-// Holds the pending payload between extraction and user confirmation
 let _pendingPayload = null;
 let _pendingTabTitle = '';
 
 document.getElementById('btn-save').addEventListener('click', async () => {
   hideError('save-error');
-  const withImages = document.getElementById('toggle-images').checked;
 
   show('view-saving');
 
@@ -141,21 +214,11 @@ document.getElementById('btn-save').addEventListener('click', async () => {
 
     _pendingTabTitle = tab?.title || url;
 
-    if (!withImages) {
-      // Text-only: skip extraction preview, send immediately
-      _pendingPayload = { url };
-      await sendPayload();
-      return;
-    }
-
-    // We now rely solely on activeTab permission to inject on demand.
-    // This avoids the need for broad host_permissions in the manifest.
-    let extracted = null;
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ['lib/Readability.js', 'content/content.js'],
     });
-    extracted = results?.[0]?.result;
+    const extracted = results?.[0]?.result;
 
     if (!extracted || extracted.error) {
       throw new Error(extracted?.error || 'Content extraction failed.');
@@ -163,12 +226,13 @@ document.getElementById('btn-save').addEventListener('click', async () => {
 
     _pendingPayload = {
       url,
-      html:          extracted.html,
-      title:         extracted.title,
-      author:        extracted.author        || '',
-      description:   extracted.description   || '',
-      thumbnail:     extracted.thumbnail     || '',
-      publishedDate: extracted.publishedDate || '',
+      html:             extracted.html,
+      title:            extracted.title,
+      author:           extracted.author        || '',
+      description:      extracted.description   || '',
+      thumbnail:        extracted.thumbnail     || '',
+      publishedDate:    extracted.publishedDate || '',
+      accessRestricted: extracted.accessRestricted || false,
     };
     showPreview(extracted);
 
@@ -184,7 +248,7 @@ function showPreview(extracted) {
   show('view-preview');
   hideError('preview-error');
 
-  const { wordCount, debugInfo, html } = extracted;
+  const { wordCount, debugInfo, html, accessRestricted, author, publishedDate } = extracted;
   const signals = document.getElementById('preview-signals');
   signals.innerHTML = '';
 
@@ -195,20 +259,42 @@ function showPreview(extracted) {
     signals.appendChild(s);
   }
 
-  // Word count signal
-  if (wordCount > 300) sig(`${wordCount} words`, 'ok');
-  else if (wordCount > 50) sig(`${wordCount} words`, 'warn');
-  else sig(`${wordCount} words — very short`, 'bad');
-
-  // Paywall-specific selector signal
-  if (debugInfo?.foundSpecific) {
-    sig('subscriber content detected', 'ok');
-  } else {
-    sig('no subscriber selector found', 'warn');
+  // Access restriction — show first, it's the most important signal
+  if (accessRestricted) {
+    sig('access restricted', 'bad');
   }
 
-  // Plain text snippet (strip tags)
-  const snippet = (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400);
+  // Word count
+  if (wordCount > 300) sig(`${wordCount} words`, 'ok');
+  else if (wordCount > 80) sig(`${wordCount} words`, 'warn');
+  else sig(`${wordCount} words`, 'bad');
+
+  // Estimated reading time
+  const readMins = Math.max(1, Math.round(wordCount / 200));
+  sig(`~${readMins} min read`, 'ok');
+
+  // Author
+  if (author) sig(author.length > 25 ? author.slice(0, 25) + '…' : author, 'ok');
+
+  // Published date — show just the year/month if available
+  if (publishedDate) {
+    try {
+      const d = new Date(publishedDate);
+      if (!isNaN(d.getTime())) {
+        sig(d.toLocaleDateString('en', { month: 'short', year: 'numeric' }), 'ok');
+      }
+    } catch {}
+  }
+
+  // Extraction quality
+  if (!accessRestricted) {
+    if (debugInfo?.foundSpecific) {
+      sig('subscriber content', 'ok');
+    }
+  }
+
+  // Snippet — show more text (800 chars), scrollable via CSS
+  const snippet = (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800);
   document.getElementById('preview-snippet').textContent = snippet || '(no text extracted)';
 }
 
@@ -257,11 +343,10 @@ function showResult(success, pageTitle) {
     link.href = '#';
     link.textContent = 'Open sed.i →';
     link.addEventListener('click', (e) => {
-        e.preventDefault();
-        // Open the frontend dashboard
-        const frontendBase = DEFAULT_FRONTEND_BASE.replace(/\/$/, '');
-        chrome.tabs.create({ url: `${frontendBase}/dashboard` });
-      });
+      e.preventDefault();
+      const frontendBase = DEFAULT_FRONTEND_BASE.replace(/\/$/, '');
+      chrome.tabs.create({ url: `${frontendBase}/dashboard` });
+    });
     actionsEl.appendChild(link);
   }
 }

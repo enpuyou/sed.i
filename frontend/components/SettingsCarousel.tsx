@@ -91,6 +91,7 @@ const settings: SettingConfig[] = [
 export default function SettingsCarousel() {
   const {
     settings: currentSettings,
+    hydrated,
     updateSetting,
     resetSettings,
   } = useReadingSettings();
@@ -145,8 +146,10 @@ export default function SettingsCarousel() {
     }
   }, [currentSetting, currentValue, updateSetting]);
 
-  // Keyboard navigation
+  // Keyboard navigation — only active after hydration so we don't intercept
+  // arrow/enter keys while the carousel is still hidden
   useEffect(() => {
+    if (!hydrated) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -162,7 +165,9 @@ export default function SettingsCarousel() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [goToPrev, goToNext, cycleValue]);
+  }, [hydrated, goToPrev, goToNext, cycleValue]);
+
+  if (!hydrated) return null;
 
   return (
     <div className="flex flex-col items-center gap-4">

@@ -106,7 +106,8 @@ A long-form essay in a literary magazine, a research paper on arXiv, a newslette
 There is no central place to collect this material, no continuity between sessions, and no infrastructure for building cumulative understanding.`;
 
 function PreviewBox() {
-  const { settings } = useReadingSettings();
+  const { settings, hydrated } = useReadingSettings();
+  if (!hydrated) return null;
 
   const themeClass =
     settings.theme === "dark"
@@ -162,7 +163,7 @@ function PreviewBox() {
       style={{ height: "500px", backgroundColor: "var(--color-bg-primary)" }}
     >
       <div className="flex items-center px-4 py-1.5 border-b border-[var(--color-border-subtle)]">
-        <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-faint)]">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-[var(--color-text-faint)]">
           Preview
         </span>
       </div>
@@ -309,11 +310,11 @@ function ReadingCarousel({ isActive }: { isActive: boolean }) {
               >
                 {icon}
               </span>
-              <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--color-text-muted)]">
+              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-text-muted)]">
                 {config.label}
               </span>
             </div>
-            <span className="font-mono text-[8px] text-[var(--color-text-faint)] tabular-nums">
+            <span className="font-mono text-[11px] text-[var(--color-text-faint)] tabular-nums">
               {settingIdx + 1}&thinsp;/&thinsp;{SETTING_CONFIGS.length}
             </span>
           </div>
@@ -343,12 +344,12 @@ function ReadingCarousel({ isActive }: { isActive: boolean }) {
 
         {/* Footer: nav hint · reset */}
         <div className="px-3 py-1.5 flex items-center justify-between">
-          <span className="font-mono text-[8px] tracking-widest text-[var(--color-text-faint)] select-none">
+          <span className="font-mono text-[11px] tracking-widest text-[var(--color-text-faint)] select-none">
             ← → setting · ↑ ↓ option
           </span>
           <button
             onClick={resetSettings}
-            className="font-mono text-[8px] uppercase tracking-widest text-[var(--color-text-faint)] hover:text-[var(--color-accent)] transition-colors"
+            className="font-mono text-[11px] uppercase tracking-widest text-[var(--color-text-faint)] hover:text-[var(--color-accent)] transition-colors"
           >
             reset ↺
           </button>
@@ -377,14 +378,14 @@ function CircleToggle({
     <button
       type="button"
       onClick={onChange}
-      className="w-full flex items-start justify-between py-2.5 text-left group gap-4"
+      className="w-full flex items-start justify-between py-3 text-left group gap-4"
     >
       <div>
-        <div className="font-mono text-[11px] text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors">
+        <div className="font-mono text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)] transition-colors">
           {label}
         </div>
         {description && (
-          <div className="font-mono text-[9px] text-[var(--color-text-faint)] mt-0.5">
+          <div className="font-mono text-xs text-[var(--color-text-muted)] mt-1 leading-relaxed">
             {description}
           </div>
         )}
@@ -514,11 +515,11 @@ function PublicProfileSection() {
     <div className="space-y-4">
       {/* Username URL row */}
       <div>
-        <div className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-faint)] mb-1.5">
+        <div className="font-mono text-[11px] uppercase tracking-widest text-[var(--color-text-faint)] mb-2">
           Username
         </div>
         <div className="flex border border-[var(--color-border)]">
-          <span className="px-2.5 py-2 font-mono text-[10px] text-[var(--color-text-faint)] bg-[var(--color-bg-secondary)] border-r border-[var(--color-border)] whitespace-nowrap select-none">
+          <span className="px-3 py-2.5 font-mono text-xs text-[var(--color-text-faint)] bg-[var(--color-bg-secondary)] border-r border-[var(--color-border)] whitespace-nowrap select-none">
             read-sedi.com/
           </span>
           <input
@@ -528,24 +529,24 @@ function PublicProfileSection() {
             placeholder="username"
             spellCheck={false}
             autoComplete="off"
-            className="flex-1 min-w-0 bg-transparent px-2.5 py-2 font-mono text-[11px] text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none"
+            className="flex-1 min-w-0 bg-transparent px-3 py-2.5 font-mono text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none"
           />
           {username && (
             <button
               onClick={handleCopy}
-              className="px-2.5 py-2 font-mono text-[9px] text-[var(--color-text-faint)] hover:text-[var(--color-text-primary)] border-l border-[var(--color-border)] transition-colors whitespace-nowrap"
+              className="px-3 py-2.5 font-mono text-xs text-[var(--color-text-faint)] hover:text-[var(--color-text-primary)] border-l border-[var(--color-border)] transition-colors whitespace-nowrap"
             >
               {copied ? "✓" : "Copy"}
             </button>
           )}
         </div>
-        <p className="mt-1 font-mono text-[9px] text-[var(--color-text-faint)]">
+        <p className="mt-1.5 font-mono text-xs text-[var(--color-text-faint)]">
           3–20 characters, lowercase letters, numbers, underscores.
         </p>
       </div>
 
       {/* Toggles */}
-      <div className="border-t border-[var(--color-border-subtle)] pt-3">
+      <div className="border-t border-[var(--color-border-subtle)] pt-4">
         <CircleToggle
           checked={isPublic}
           onChange={() => setIsPublic((v) => !v)}
@@ -553,18 +554,18 @@ function PublicProfileSection() {
           description="Claim your URL and allow access to enabled sections"
         />
         {isPublic && (
-          <div className="pl-4 border-l border-[var(--color-border-subtle)] ml-2">
+          <div className="pl-4 border-l border-[var(--color-border-subtle)] ml-2 mt-2 space-y-1">
             <CircleToggle
               checked={isQueuePublic}
               onChange={() => setIsQueuePublic((v) => !v)}
               label="Queue visible"
-              description="Show items marked as public"
+              description="Your reading queue is visible at your public URL. Items are private unless individually marked public."
             />
             <CircleToggle
               checked={isCratesPublic}
               onChange={() => setIsCratesPublic((v) => !v)}
               label="Crates visible"
-              description="Show your full vinyl collection"
+              description="Your full vinyl collection is visible at your public URL."
             />
           </div>
         )}
@@ -578,7 +579,7 @@ function PublicProfileSection() {
       {/* Actions */}
       <div className="flex items-center justify-end gap-4 pt-2 border-t border-[var(--color-border-subtle)]">
         {status === "saved" && (
-          <span className="font-mono text-[9px] text-[var(--color-accent)]">
+          <span className="font-mono text-xs text-[var(--color-accent)]">
             Saved.
           </span>
         )}
@@ -586,7 +587,7 @@ function PublicProfileSection() {
           <Link
             href={`/${username}`}
             target="_blank"
-            className="font-mono text-[9px] text-[var(--color-text-faint)] hover:text-[var(--color-text-primary)] transition-colors"
+            className="font-mono text-xs text-[var(--color-text-faint)] hover:text-[var(--color-text-primary)] transition-colors"
           >
             Preview ↗
           </Link>
@@ -594,7 +595,7 @@ function PublicProfileSection() {
         <button
           onClick={handleSave}
           disabled={isSaving || !hasChanges}
-          className="font-mono text-[9px] uppercase tracking-widest px-5 py-1.5 border border-[var(--color-border)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="font-mono text-xs uppercase tracking-widest px-5 py-1.5 border border-[var(--color-border)] text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isSaving ? "Saving…" : "Save Changes"}
         </button>
@@ -638,27 +639,27 @@ function DangerZone() {
       {!open ? (
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="font-mono text-[9px] uppercase tracking-widest text-red-500/70 mb-1">
+            <div className="font-mono text-xs uppercase tracking-widest text-red-500/70 mb-1">
               Delete Account
             </div>
-            <div className="font-mono text-[9px] text-[var(--color-text-faint)]">
+            <div className="font-mono text-xs text-[var(--color-text-faint)] leading-relaxed">
               Permanently removes your account and all data. This cannot be
               undone.
             </div>
           </div>
           <button
             onClick={() => setOpen(true)}
-            className="font-mono text-[9px] uppercase tracking-widest px-3 py-1.5 border border-red-500/30 text-red-500/70 hover:border-red-500 hover:text-red-500 transition-colors flex-shrink-0"
+            className="font-mono text-xs uppercase tracking-widest px-3 py-2 border border-red-500/30 text-red-500/70 hover:border-red-500 hover:text-red-500 transition-colors flex-shrink-0"
           >
             Delete →
           </button>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="font-mono text-[9px] uppercase tracking-widest text-red-500 mb-2">
+          <div className="font-mono text-xs uppercase tracking-widest text-red-500 mb-2">
             Confirm deletion
           </div>
-          <div className="font-mono text-[9px] text-[var(--color-text-faint)] mb-3">
+          <div className="font-mono text-xs text-[var(--color-text-faint)] mb-3 leading-relaxed">
             Enter your password to permanently delete your account and all
             associated content, highlights, and records.
           </div>
@@ -671,13 +672,13 @@ function DangerZone() {
             className="w-full bg-transparent border border-[var(--color-border)] px-3 py-2 font-mono text-[11px] text-[var(--color-text-primary)] placeholder-[var(--color-text-faint)] focus:outline-none focus:border-red-500/50"
           />
           {error && (
-            <div className="font-mono text-[9px] text-red-500">{error}</div>
+            <div className="font-mono text-xs text-red-500">{error}</div>
           )}
           <div className="flex gap-3">
             <button
               onClick={handleDelete}
               disabled={isDeleting || !password}
-              className="font-mono text-[9px] uppercase tracking-widest px-4 py-1.5 border border-red-500/50 text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="font-mono text-xs uppercase tracking-widest px-4 py-2 border border-red-500/50 text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isDeleting ? "Deleting…" : "Confirm Delete"}
             </button>
@@ -687,7 +688,7 @@ function DangerZone() {
                 setPassword("");
                 setError(null);
               }}
-              className="font-mono text-[9px] uppercase tracking-widest px-4 py-1.5 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+              className="font-mono text-xs uppercase tracking-widest px-4 py-2 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
             >
               Cancel
             </button>
@@ -754,11 +755,11 @@ export default function SettingsPage() {
                   }`}
                 >
                   <span
-                    className={`font-mono text-[9px] ${activeSection === id ? "text-[var(--color-accent)]" : "text-[var(--color-text-faint)]"}`}
+                    className={`font-mono text-[11px] ${activeSection === id ? "text-[var(--color-accent)]" : "text-[var(--color-text-faint)]"}`}
                   >
                     {num}
                   </span>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.15em]">
+                  <span className="font-mono text-xs uppercase tracking-[0.15em]">
                     {label}
                   </span>
                 </button>
@@ -771,7 +772,7 @@ export default function SettingsPage() {
             {/* 01 — Reading */}
             <div id="reading" ref={readingRef} className="space-y-6">
               <div className="flex items-center gap-4">
-                <span className="font-mono text-[9px] uppercase tracking-[0.25em] text-[var(--color-text-muted)] whitespace-nowrap">
+                <span className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--color-text-muted)] whitespace-nowrap">
                   Reading Preferences
                 </span>
                 <div className="flex-1 border-t border-[var(--color-border)]" />
@@ -782,7 +783,7 @@ export default function SettingsPage() {
             {/* 02 — Features */}
             <div id="features" ref={featuresRef} className="space-y-6">
               <div className="flex items-center gap-4">
-                <span className="font-mono text-[9px] uppercase tracking-[0.25em] text-[var(--color-text-muted)] whitespace-nowrap">
+                <span className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--color-text-muted)] whitespace-nowrap">
                   Feature Visibility
                 </span>
                 <div className="flex-1 border-t border-[var(--color-border)]" />
@@ -793,7 +794,7 @@ export default function SettingsPage() {
             {/* 03 — Account */}
             <div id="account" ref={accountRef} className="space-y-6">
               <div className="flex items-center gap-4">
-                <span className="font-mono text-[9px] uppercase tracking-[0.25em] text-[var(--color-text-muted)] whitespace-nowrap">
+                <span className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--color-text-muted)] whitespace-nowrap">
                   Account
                 </span>
                 <div className="flex-1 border-t border-[var(--color-border)]" />
@@ -805,13 +806,13 @@ export default function SettingsPage() {
                   <span className="font-serif text-[var(--color-text-faint)] text-base select-none">
                     §
                   </span>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--color-text-muted)]">
+                  <span className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--color-text-muted)]">
                     Session
                   </span>
                 </div>
                 <div className="border border-[var(--color-border)] px-5 py-4 flex items-center justify-between gap-4">
                   <div>
-                    <div className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-faint)] mb-1">
+                    <div className="font-mono text-xs uppercase tracking-widest text-[var(--color-text-faint)] mb-1">
                       Signed in as
                     </div>
                     <div className="font-serif text-base text-[var(--color-text-primary)]">
@@ -823,7 +824,7 @@ export default function SettingsPage() {
                       logout();
                       router.push("/login");
                     }}
-                    className="font-mono text-[9px] uppercase tracking-widest px-3 py-1.5 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-red-400 hover:text-red-500 transition-colors flex-shrink-0"
+                    className="font-mono text-xs uppercase tracking-widest px-3 py-2 border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-red-400 hover:text-red-500 transition-colors flex-shrink-0"
                   >
                     Sign out →
                   </button>
@@ -836,7 +837,7 @@ export default function SettingsPage() {
                   <span className="font-serif text-[var(--color-text-faint)] text-base select-none">
                     §
                   </span>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--color-text-muted)]">
+                  <span className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--color-text-muted)]">
                     Public Profile
                   </span>
                 </div>
@@ -849,7 +850,7 @@ export default function SettingsPage() {
                   <span className="font-serif text-[var(--color-text-faint)] text-base select-none">
                     §
                   </span>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-red-500/60">
+                  <span className="font-mono text-xs uppercase tracking-[0.2em] text-red-500/60">
                     Danger Zone
                   </span>
                 </div>

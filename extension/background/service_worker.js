@@ -29,12 +29,13 @@ async function handleSave(payload) {
     url: payload.url,
   };
 
-  if (payload.html)          body.pre_extracted_html         = payload.html;
-  if (payload.title)         body.pre_extracted_title        = payload.title;
-  if (payload.author)        body.pre_extracted_author       = payload.author;
-  if (payload.description)   body.pre_extracted_description  = payload.description;
-  if (payload.thumbnail)     body.pre_extracted_thumbnail    = payload.thumbnail;
-  if (payload.publishedDate) body.pre_extracted_published_date = payload.publishedDate;
+  if (payload.html)             body.pre_extracted_html               = payload.html;
+  if (payload.title)            body.pre_extracted_title              = payload.title;
+  if (payload.author)           body.pre_extracted_author             = payload.author;
+  if (payload.description)      body.pre_extracted_description        = payload.description;
+  if (payload.thumbnail)        body.pre_extracted_thumbnail          = payload.thumbnail;
+  if (payload.publishedDate)    body.pre_extracted_published_date     = payload.publishedDate;
+  if (payload.accessRestricted) body.pre_extracted_access_restricted  = true;
 
   const response = await fetch(`${base}/content`, {
     method: 'POST',

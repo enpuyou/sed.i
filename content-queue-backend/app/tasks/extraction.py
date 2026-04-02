@@ -50,6 +50,12 @@ SOURCE_RESTRICTION_MARKERS = [
     "unlock this article",
     "premium content",
     "metered",
+    "access to this article",
+    "access options",
+    "rent or buy this article",
+    "purchase this article",
+    "buy this article",
+    "is not available",
 ]
 
 
@@ -240,7 +246,7 @@ def _detect_limited_extension_content_reason(
     )
 
     if any(marker in extracted_text_lower for marker in SOURCE_RESTRICTION_MARKERS):
-        if word_count <= 450 and extracted_paragraphs <= 5:
+        if word_count <= 450 and extracted_paragraphs <= 10:
             return "Content appears restricted by a paywall or source access controls"
 
     if description:
@@ -377,9 +383,10 @@ def extract_metadata(self, item_id: str):
                 )
         else:
             logger.info(
-                f"Extension-submitted item {item_id} — metadata already present, fetching page for extraction check"
+                f"[{item_id}] extension: metadata present, fetching page for extraction check"
             )
             item.content_type = _detect_content_type(item.original_url, {})
+            logger.info(f"[{item_id}] content_type={item.content_type}")
             if item.content_type == "article":
                 try:
                     request_headers = {
@@ -389,23 +396,30 @@ def extract_metadata(self, item_id: str):
                         item.original_url, timeout=15, headers=request_headers
                     )
                     resp.raise_for_status()
+                    logger.info(
+                        f"[{item_id}] page fetch ok, size={len(resp.content)} bytes"
+                    )
                     extension_limited_reason = _detect_limited_extraction_reason(
                         resp.content,
                         item.full_text,
                     )
-                except Exception as exc:
-                    logger.warning(
-                        f"Could not fetch page for extraction check on {item.original_url}: {exc}"
+                    logger.info(
+                        f"[{item_id}] source-compare detection: {extension_limited_reason!r}"
                     )
+                except Exception as exc:
+                    logger.warning(f"[{item_id}] page fetch failed: {exc}")
 
-        if item.content_type == "article":
-            item.processing_error = (
-                extension_limited_reason
-                or _detect_limited_extension_content_reason(
-                    item.full_text,
-                    item.description,
-                )
+        if item.content_type == "article" and not item.processing_error:
+            content_only_detection = _detect_limited_extension_content_reason(
+                item.full_text,
+                item.description,
             )
+            logger.info(
+                f"[{item_id}] content-only detection: {content_only_detection!r} | "
+                f"source-compare: {extension_limited_reason!r}"
+            )
+            item.processing_error = extension_limited_reason or content_only_detection
+            logger.info(f"[{item_id}] final processing_error={item.processing_error!r}")
         # Status stays "completed" as set by the API handler
         self.db.commit()
         return
