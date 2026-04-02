@@ -10,9 +10,9 @@
  *   result → shows success/error after saving
  */
 
-const DEFAULT_API_BASE = 'https://api.sedi.read';
+const DEFAULT_API_BASE = 'https://api.read-sedi.com';
 // The frontend app URL (separate from the API — hosted on Vercel)
-const DEFAULT_FRONTEND_BASE = 'https://www.sedi.read';
+const DEFAULT_FRONTEND_BASE = 'https://www.read-sedi.com';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -103,8 +103,6 @@ async function setupReadyView() {
   const titleEl = document.getElementById('page-title');
   if (tab?.title) titleEl.textContent = tab.title;
 
-  // Hide meta row until we have data (populated after extraction)
-  document.getElementById('article-meta').classList.add('hidden');
 }
 
 // Settings toggle
@@ -129,6 +127,8 @@ let _logoHoldTimer = null;
 
 function attachLongPress(el, onTrigger) {
   function start() {
+    // Cancel any in-flight timer before starting a new one (idempotent)
+    if (_logoHoldTimer) { clearTimeout(_logoHoldTimer); }
     _logoHoldTimer = setTimeout(() => { _logoHoldTimer = null; onTrigger(); }, 2000);
   }
   function cancel() {
@@ -139,6 +139,8 @@ function attachLongPress(el, onTrigger) {
   el.addEventListener('mouseleave', cancel);
   el.addEventListener('touchstart', start, { passive: true });
   el.addEventListener('touchend', cancel);
+  el.addEventListener('touchcancel', cancel);
+  el.addEventListener('pointercancel', cancel);
 }
 
 async function showDevFields(inputId, feedbackId, revealEl) {

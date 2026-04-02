@@ -5,7 +5,7 @@
  * Uses chrome.storage.local exclusively (not localStorage, which is unavailable in MV3).
  */
 
-const DEFAULT_API_BASE = 'https://api.sedi.read';
+const DEFAULT_API_BASE = 'https://api.read-sedi.com';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
