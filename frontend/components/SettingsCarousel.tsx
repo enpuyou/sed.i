@@ -91,6 +91,7 @@ const settings: SettingConfig[] = [
 export default function SettingsCarousel() {
   const {
     settings: currentSettings,
+    hydrated,
     updateSetting,
     resetSettings,
   } = useReadingSettings();
@@ -163,6 +164,8 @@ export default function SettingsCarousel() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [goToPrev, goToNext, cycleValue]);
+
+  if (!hydrated) return null;
 
   return (
     <div className="flex flex-col items-center gap-4">

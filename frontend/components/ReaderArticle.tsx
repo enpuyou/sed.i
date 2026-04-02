@@ -1340,7 +1340,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                     </span>
                   </>
                 )}
-                {user?.is_public && (
+                {user?.is_queue_public && (
                   <>
                     <span>·</span>
                     <button

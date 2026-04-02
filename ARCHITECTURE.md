@@ -308,6 +308,12 @@ access failures (401/403/paywall/bot blocks) from parser/network issues.
 that would duplicate the card metadata, sets `processing_status='completed'`,
 and still calls `extract_metadata.delay()` for any missing fields + embedding.
 
+`pre_extracted_access_restricted: bool` — Optional field the extension sends
+when `detectAccessRestriction()` (content script) detects a paywall via JSON-LD
+`isAccessibleForFree: false`, `content_tier` meta, or DOM paywall selectors.
+When `true`, the backend sets `processing_error` immediately (before `extract_metadata`
+runs) so the item is flagged as limited without waiting for the Celery task.
+
 **Route ordering note:** literal paths (`/tags`, `/recommended`) are registered
 **before** `/{item_id}` in the router to prevent FastAPI parsing them as UUIDs.
 
@@ -589,7 +595,7 @@ Optional `mood` filter:
 | `ListsContext` | List counts shown in sidebar. |
 | `ToastContext` | Legacy — replaced by inline `InlineError` feedback. Context still exists but is unused. |
 | `PlayerContext` | Vinyl player: `QueueTrack[]`, `currentIndex`, play/pause, `YT.Player` ref. Queue persisted in `localStorage['sedi-player']`. |
-| `ReadingSettingsContext` | Reader preferences (`theme`, typography, bionic reading) plus local feature visibility toggles (`showConnections`, `showCrates`). Persisted in `localStorage['sedi-reading-settings']`. |
+| `ReadingSettingsContext` | Reader preferences (`theme`, typography, bionic reading) plus local feature visibility toggles (`showConnections`, `showCrates`). Persisted in `localStorage['sedi-reading-settings']`. Initializes with `DEFAULTS` on server; loads saved values in `useLayoutEffect` after mount. Exposes `hydrated: boolean` — components that render settings-dependent UI (`PreviewBox`, `SettingsCarousel`, `SettingsPreview`) return `null` until `hydrated` to avoid an SSR flash of defaults. |
 
 ### Feature flags (`frontend/lib/flags.ts`)
 
@@ -842,6 +848,22 @@ same commit:
 The goal: ARCHITECTURE.md always reflects the current codebase so any new
 contributor or future AI session can get oriented quickly without reading
 every file.
+
+---
+
+## 23. Chrome Extension (`extension/`)
+
+MV3 extension with three components:
+
+| File | Role |
+|------|------|
+| `content/content.js` | Injected into every page. Runs Readability, extracts HTML/metadata, and calls `detectAccessRestriction()` (JSON-LD `isAccessibleForFree: false`, `content_tier` meta, paywall DOM selectors). |
+| `popup/popup.js` | Save button UI. Sends payload to service worker. Displays article preview (word count, read time, author, publish date, access-restriction signal). |
+| `background/service_worker.js` | Calls `POST /content`. Maps `accessRestricted` → `pre_extracted_access_restricted`. Reads API base URL from `chrome.storage.local` (default: `https://api.sedi.read`). |
+
+**Dev mode:** Long-press (2s) on the extension logo reveals an API URL field for pointing the extension at localhost. The URL is saved to `chrome.storage.local` and reset on button click.
+
+**Dev worker hot-reload:** `content-queue-backend/scripts/dev_worker.sh` starts Celery with `watchfiles` monitoring `app/` — worker auto-restarts on any Python file change, eliminating the need to manually restart after editing tasks.
 
 ---
 

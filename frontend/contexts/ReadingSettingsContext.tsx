@@ -37,6 +37,7 @@ const STORAGE_KEY = "sedi-reading-settings";
 
 interface ReadingSettingsContextType {
   settings: ReadingSettings;
+  hydrated: boolean;
   updateSetting: <K extends keyof ReadingSettings>(
     key: K,
     value: ReadingSettings[K],
@@ -49,20 +50,21 @@ const ReadingSettingsContext = createContext<ReadingSettingsContextType | null>(
 );
 
 export function ReadingSettingsProvider({ children }: { children: ReactNode }) {
-  // Initialize from localStorage synchronously to prevent flash
-  const [settings, setSettings] = useState<ReadingSettings>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        try {
-          return { ...DEFAULTS, ...JSON.parse(saved) };
-        } catch (err) {
-          console.error("Failed to parse settings:", err);
-        }
+  const [settings, setSettings] = useState<ReadingSettings>(DEFAULTS);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load from localStorage after mount to avoid SSR/hydration mismatch
+  useLayoutEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setSettings({ ...DEFAULTS, ...JSON.parse(saved) });
+      } catch (err) {
+        console.error("Failed to parse settings:", err);
       }
     }
-    return DEFAULTS;
-  });
+    setHydrated(true);
+  }, []);
 
   // Apply theme synchronously before paint to prevent flash
   useLayoutEffect(() => {
@@ -72,10 +74,12 @@ export function ReadingSettingsProvider({ children }: { children: ReactNode }) {
     root.classList.add(settings.theme);
   }, [settings.theme]);
 
-  // Save settings to localStorage whenever they change
+  // Save settings to localStorage whenever they change (after hydration)
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  }, [settings]);
+    if (hydrated) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    }
+  }, [settings, hydrated]);
 
   const updateSetting = <K extends keyof ReadingSettings>(
     key: K,
@@ -88,7 +92,7 @@ export function ReadingSettingsProvider({ children }: { children: ReactNode }) {
 
   return (
     <ReadingSettingsContext.Provider
-      value={{ settings, updateSetting, resetSettings }}
+      value={{ settings, hydrated, updateSetting, resetSettings }}
     >
       {children}
     </ReadingSettingsContext.Provider>

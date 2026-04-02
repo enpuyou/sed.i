@@ -16,6 +16,9 @@ class ContentItemCreate(BaseModel):
     pre_extracted_description: Optional[str] = None
     pre_extracted_thumbnail: Optional[str] = None
     pre_extracted_published_date: Optional[str] = None
+    pre_extracted_access_restricted: bool = (
+        False  # Extension signals paywall/access gate
+    )
 
 
 class ContentItemResponse(BaseModel):

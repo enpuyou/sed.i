@@ -12,7 +12,7 @@
 <body>
   <!-- Login view -->
   <div id="view-login" class="view hidden">
-    <div class="logo-row">
+    <div class="logo-row" id="login-logo-row">
       <svg viewBox="0 0 100 100" width="28" height="28" class="logo-mark" aria-hidden="true">
         <path
           d="M52,3 C71,0 86,11 93,26 C101,42 98,58 92,71 C84,86 70,97 53,98 C37,99 22,92 13,79 C4,66 0,49 5,34 C10,18 26,5 42,2 C46,1 49,2 52,3Z"
@@ -21,6 +21,19 @@
       <span class="logo">sed.i</span>
     </div>
     <p class="tagline">curate. read. listen.</p>
+
+    <!-- Dev mode: revealed by long-pressing the logo on the login screen -->
+    <div id="login-dev-fields" class="drawer hidden">
+      <div class="field">
+        <label for="input-login-api-url">api url</label>
+        <input id="input-login-api-url" type="url" placeholder="https://api.sedi.read" />
+      </div>
+      <div class="drawer-actions">
+        <button type="button" id="btn-login-save-api-url" class="btn-secondary">Save</button>
+        <button type="button" id="btn-login-reset-api-url" class="btn-secondary">Reset</button>
+      </div>
+      <div id="login-api-url-feedback" class="hint hidden"></div>
+    </div>
 
     <form id="form-login">
       <div class="field">
@@ -55,6 +68,19 @@
 
     <!-- Settings drawer -->
     <div id="settings-drawer" class="drawer hidden">
+      <!-- Dev mode: revealed by long-pressing the logo -->
+      <div id="dev-fields" class="hidden">
+        <div class="field">
+          <label for="input-api-url">api url</label>
+          <input id="input-api-url" type="url" placeholder="https://api.sedi.read" />
+        </div>
+        <div class="drawer-actions">
+          <button id="btn-save-api-url" class="btn-secondary">Save</button>
+          <button id="btn-reset-api-url" class="btn-secondary">Reset</button>
+        </div>
+        <div id="api-url-feedback" class="hint hidden"></div>
+        <hr class="dev-divider" />
+      </div>
       <button id="btn-logout" class="btn-secondary btn-danger">Disconnect</button>
     </div>
 
@@ -63,12 +89,8 @@
       <span id="page-title" class="page-title"></span>
     </div>
 
-    <div class="toggle-row">
-      <label class="toggle-label">
-        <input id="toggle-images" type="checkbox" checked />
-        <span>Save with images</span>
-      </label>
-    </div>
+    <!-- Article meta: author, date, read time — populated by JS -->
+    <div id="article-meta" class="article-meta hidden"></div>
 
     <div id="save-error" class="error hidden"></div>
 

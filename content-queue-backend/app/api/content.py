@@ -193,6 +193,10 @@ async def create_content_item(
                 pass
         new_item.processing_status = "completed"
         new_item.submitted_via = "extension"
+        if item_data.pre_extracted_access_restricted:
+            new_item.processing_error = (
+                "Content appears restricted by a paywall or source access controls"
+            )
         # Compute word count from stripped HTML
         word_count = len(re.sub(r"<[^>]+>", " ", html).split())
         new_item.word_count = word_count

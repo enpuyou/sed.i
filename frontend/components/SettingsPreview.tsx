@@ -4,7 +4,8 @@ import { useReadingSettings } from "@/contexts/ReadingSettingsContext";
 import { BionicText } from "./BionicText";
 
 export default function SettingsPreview() {
-  const { settings } = useReadingSettings();
+  const { settings, hydrated } = useReadingSettings();
+  if (!hydrated) return null;
 
   const previewParagraphs = [
     {

@@ -133,6 +133,52 @@ function extractPageMeta() {
 }
 
 /**
+ * Detect whether the current page has an access restriction (paywall/subscription gate).
+ *
+ * Runs in the authenticated browser context — has access to the real JSON-LD and
+ * rendered DOM that the backend cannot see from an unauthenticated fetch.
+ *
+ * Returns true only when there is strong evidence the article body is gated.
+ */
+function detectAccessRestriction() {
+  // 1. Schema.org JSON-LD: isAccessibleForFree: false is a publisher-declared paywall signal
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const data = JSON.parse(script.textContent || '');
+      function walk(node) {
+        if (!node || typeof node !== 'object') return false;
+        if (Array.isArray(node)) return node.some(walk);
+        const flag = node.isAccessibleForFree;
+        if (flag === false) return true;
+        if (typeof flag === 'string' && ['false', 'no', '0'].includes(flag.trim().toLowerCase())) return true;
+        return Object.values(node).some(walk);
+      }
+      if (walk(data)) return true;
+    } catch {}
+  }
+
+  // 2. content_tier meta tag (used by publishers like Bloomberg, FT)
+  const tierMeta = document.querySelector('meta[name*="content_tier"], meta[name*="contentTier"]');
+  if (tierMeta) {
+    const tier = (tierMeta.getAttribute('content') || '').toLowerCase();
+    if (['paid', 'premium', 'subscriber', 'metered'].some(t => tier.includes(t))) return true;
+  }
+
+  // 3. DOM paywall gate: look for common paywall wrapper elements
+  const paywallSelectors = [
+    '[class*="paywall"]', '[id*="paywall"]',
+    '[class*="subscribe-wall"]', '[class*="subscribewall"]',
+    '[class*="access-wall"]', '[class*="meter-wall"]',
+    '[data-testid*="paywall"]', '[data-testid*="subscribe"]',
+  ];
+  for (const sel of paywallSelectors) {
+    if (document.querySelector(sel)) return true;
+  }
+
+  return false;
+}
+
+/**
  * Main extraction entry point.
  */
 async function extractAndInlineContent() {
@@ -177,6 +223,10 @@ async function extractAndInlineContent() {
 
   // Extract live-DOM metadata before cloning (includes auth-gated OG tags)
   const pageMeta = extractPageMeta();
+
+  // Detect access restriction from the live authenticated DOM — must run before
+  // cloning since paywall DOM elements may be removed/altered by Readability.
+  const accessRestricted = detectAccessRestriction();
 
   // Clone the full document so Readability doesn't mutate the live page
   const docClone = document.cloneNode(true);
@@ -366,17 +416,18 @@ async function extractAndInlineContent() {
   const wordCount = html.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
 
   return {
-    title:         effectiveTitle,
-    byline:        byline || '',
+    title:            effectiveTitle,
+    byline:           byline || '',
     html,
-    url:           location.href,
+    url:              location.href,
     wordCount,
     debugInfo,
+    accessRestricted,
     // Page metadata from the live authenticated DOM
-    description:   pageMeta.description,
-    thumbnail:     pageMeta.thumbnail,
-    author:        pageMeta.author  || (byline || '').replace(/<[^>]+>/g, '').trim(),
-    publishedDate: pageMeta.publishedDate,
+    description:      pageMeta.description,
+    thumbnail:        pageMeta.thumbnail,
+    author:           pageMeta.author  || (byline || '').replace(/<[^>]+>/g, '').trim(),
+    publishedDate:    pageMeta.publishedDate,
   };
 }
 

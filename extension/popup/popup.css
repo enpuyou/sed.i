@@ -1,6 +1,7 @@
 /* sed.i extension popup — follows system color theme */
 
 :root {
+  color-scheme: light dark;
   --bg: #fffef7;
   --bg-secondary: #f5f4ec;
   --text: #1a1a1a;
@@ -9,6 +10,8 @@
   --accent-hover: #2d35a0;
   --border: #d8d7ce;
   --red: #c0392b;
+  --green: #2e7d52;
+  --amber: #b45309;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -21,6 +24,8 @@
     --accent-hover: #818ae8;
     --border: #38382e;
     --red: #e05c4b;
+    --green: #4ade80;
+    --amber: #fbbf24;
   }
 }
 
@@ -31,12 +36,14 @@
 }
 
 body {
-  width: 320px;
+  width: 380px;
   min-height: 120px;
   background: var(--bg);
   color: var(--text);
   font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
   padding: 20px 18px 18px;
 }
 
@@ -79,7 +86,7 @@ body {
 }
 
 .tagline {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   letter-spacing: 0.08em;
   text-transform: lowercase;
@@ -104,7 +111,7 @@ body {
   border: none;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 15px;
   padding: 2px 4px;
   line-height: 1;
   transition: color 0.15s;
@@ -131,9 +138,10 @@ form {
 
 label {
   font-size: 10px;
-  text-transform: lowercase;
+  text-transform: uppercase;
   color: var(--text-muted);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.12em;
+  font-weight: 600;
 }
 
 input[type="email"],
@@ -145,7 +153,7 @@ input[type="text"] {
   border-bottom: 1px solid var(--border);
   padding: 6px 0 5px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   outline: none;
   width: 100%;
@@ -163,16 +171,16 @@ input::placeholder {
 
 /* ─── Buttons ────────────────────────────────────────── */
 
-/* Primary — matches navbar compact button style */
 .btn-primary {
   background: var(--bg-secondary);
   color: var(--text);
   border: 1px solid var(--text);
-  padding: 5px 12px;
+  padding: 7px 12px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   transition: border-color 0.15s, background 0.15s;
   border-radius: 0;
   width: 100%;
@@ -194,9 +202,9 @@ input::placeholder {
   background: transparent;
   color: var(--text);
   border: 1px solid var(--border);
-  padding: 5px 12px;
+  padding: 7px 12px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   letter-spacing: 0.04em;
   transition: border-color 0.15s;
@@ -233,7 +241,8 @@ input::placeholder {
 
 .page-title {
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.4;
   overflow: hidden;
   display: -webkit-box;
@@ -241,28 +250,22 @@ input::placeholder {
   -webkit-box-orient: vertical;
 }
 
-/* ─── Toggle ─────────────────────────────────────────── */
+/* ─── Article meta (author, date, read time) ─────────── */
 
-.toggle-row {
+.article-meta {
   display: flex;
-  align-items: center;
-}
-
-.toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  cursor: pointer;
-  color: var(--text-muted);
+  flex-wrap: wrap;
+  gap: 6px 12px;
   font-size: 11px;
-  user-select: none;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
 }
 
-.toggle-label input[type="checkbox"] {
-  accent-color: var(--accent);
-  width: 13px;
-  height: 13px;
-  border-bottom: none;
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* ─── Drawer ─────────────────────────────────────────── */
@@ -276,11 +279,34 @@ input::placeholder {
   gap: 10px;
 }
 
+.drawer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.dev-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2px 0 0;
+}
+
+/* Make logo area feel pressable without visual change */
+.logo-row {
+  cursor: default;
+  user-select: none;
+}
+
 /* ─── Error ──────────────────────────────────────────── */
 
 .error {
   color: var(--red);
-  font-size: 11px;
+  font-size: 12px;
   border-left: 2px solid var(--red);
   padding-left: 8px;
   line-height: 1.4;
@@ -293,20 +319,13 @@ input::placeholder {
   align-items: center;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 14px;
   padding: 12px 0;
 }
 
 @keyframes blink {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0;
-  }
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
 }
 
 .blink {
@@ -322,7 +341,7 @@ input::placeholder {
 
 #result-message {
   text-align: left;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-muted);
   line-height: 1.5;
 }
@@ -337,7 +356,7 @@ input::placeholder {
   display: block;
   text-align: left;
   color: var(--accent);
-  font-size: 11px;
+  font-size: 12px;
   text-decoration: none;
   padding: 4px 0;
   border-bottom: 1px solid transparent;
@@ -351,7 +370,7 @@ input::placeholder {
 /* ─── Preview view ───────────────────────────────────── */
 
 .preview-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   letter-spacing: 0.08em;
   text-transform: lowercase;
@@ -364,21 +383,21 @@ input::placeholder {
 }
 
 .signal {
-  font-size: 10px;
-  padding: 2px 6px;
+  font-size: 11px;
+  padding: 2px 7px;
   border: 1px solid var(--border);
   color: var(--text-muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
 }
 
 .signal.ok {
-  border-color: #2e7d52;
-  color: #2e7d52;
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .signal.warn {
-  border-color: #b45309;
-  color: #b45309;
+  border-color: var(--amber);
+  color: var(--amber);
 }
 
 .signal.bad {
@@ -387,13 +406,23 @@ input::placeholder {
 }
 
 .preview-snippet {
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--text-muted);
   border-left: 2px solid var(--border);
-  padding-left: 8px;
-  max-height: 90px;
-  overflow: hidden;
+  padding-left: 10px;
+  max-height: 160px;
+  overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.preview-snippet::-webkit-scrollbar {
+  width: 4px;
+}
+
+.preview-snippet::-webkit-scrollbar-thumb {
+  background: var(--border);
 }
