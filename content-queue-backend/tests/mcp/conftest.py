@@ -37,10 +37,34 @@ def receive_connect(dbapi_conn, connection_record):
 
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+_SEARCH_VECTOR_TRIGGER_SQL = """
+CREATE OR REPLACE FUNCTION content_items_search_vector_update()
+RETURNS trigger AS $$
+BEGIN
+    NEW.search_vector :=
+        setweight(to_tsvector('english', COALESCE(NEW.title, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(NEW.author, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(NEW.description, '')), 'B') ||
+        setweight(to_tsvector('english', COALESCE(array_to_string(NEW.tags, ' '), '')), 'B');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS tsvector_update ON content_items;
+CREATE TRIGGER tsvector_update
+BEFORE INSERT OR UPDATE OF title, author, description, tags
+ON content_items
+FOR EACH ROW EXECUTE FUNCTION content_items_search_vector_update();
+"""
+
 
 @pytest.fixture(scope="session")
 def setup_database():
     Base.metadata.create_all(bind=engine)
+    # Install the search_vector trigger (not created by create_all)
+    with engine.connect() as conn:
+        conn.execute(__import__("sqlalchemy").text(_SEARCH_VECTOR_TRIGGER_SQL))
+        conn.commit()
     yield
     Base.metadata.drop_all(bind=engine)
     engine.dispose()
@@ -48,22 +72,26 @@ def setup_database():
 
 @pytest.fixture(scope="function")
 def db(setup_database):
-    from sqlalchemy import text
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = TestingSessionLocal(bind=connection)
 
-    session = TestingSessionLocal()
-    for table in reversed(Base.metadata.sorted_tables):
-        session.execute(text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE;"))
-    session.commit()
+    # Start a nested transaction (SAVEPOINT)
+    nested = connection.begin_nested()
+
+    # If the application calls session.commit(), it will only commit the SAVEPOINT
+    @event.listens_for(session, "after_transaction_end")
+    def end_savepoint(session, transaction):
+        nonlocal nested
+        if not nested.is_active:
+            nested = connection.begin_nested()
+
     try:
         yield session
     finally:
         session.close()
-        with engine.connect() as conn:
-            with conn.begin():
-                for table in reversed(Base.metadata.sorted_tables):
-                    conn.execute(
-                        text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE;")
-                    )
+        transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture

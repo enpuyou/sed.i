@@ -13,7 +13,7 @@ import os
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import QueuePool
 
 import app.models  # noqa: F401 — ensures all models register with Base before create_all
 from app.main import app
@@ -30,7 +30,16 @@ SQLALCHEMY_TEST_DATABASE_URL = os.getenv(
     "postgresql://postgres:postgres@localhost:5433/content_queue_test",
 )
 
-engine = create_engine(SQLALCHEMY_TEST_DATABASE_URL, poolclass=NullPool)
+# Use a small QueuePool (not NullPool). NullPool opens a new TCP connection per
+# session — with slow bcrypt hashing and multiple open sessions in flight,
+# Postgres row/table locks accumulate and the next test's DELETE blocks forever.
+engine = create_engine(
+    SQLALCHEMY_TEST_DATABASE_URL,
+    poolclass=QueuePool,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+)
 
 
 # Enable pgvector extension for testing
@@ -44,6 +53,30 @@ def receive_connect(dbapi_conn, connection_record):
 
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+_SEARCH_VECTOR_TRIGGER_SQL = """
+CREATE OR REPLACE FUNCTION content_items_search_vector_update()
+RETURNS trigger AS $$
+BEGIN
+    NEW.search_vector :=
+        setweight(to_tsvector('english', COALESCE(NEW.title, '')), 'A') ||
+        setweight(to_tsvector('simple',  COALESCE(NEW.title, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(NEW.author, '')), 'A') ||
+        setweight(to_tsvector('simple',  COALESCE(NEW.author, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(NEW.description, '')), 'B') ||
+        setweight(to_tsvector('simple',  COALESCE(NEW.description, '')), 'B') ||
+        setweight(to_tsvector('english', COALESCE(array_to_string(NEW.tags, ' '), '')), 'B') ||
+        setweight(to_tsvector('simple',  COALESCE(array_to_string(NEW.tags, ' '), '')), 'B');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS tsvector_update ON content_items;
+CREATE TRIGGER tsvector_update
+BEFORE INSERT OR UPDATE OF title, author, description, tags
+ON content_items
+FOR EACH ROW EXECUTE FUNCTION content_items_search_vector_update();
+"""
+
 
 @pytest.fixture(scope="session")
 def setup_database():
@@ -52,6 +85,12 @@ def setup_database():
     """
     # Create tables
     Base.metadata.create_all(bind=engine)
+    # Install search_vector trigger (not created by create_all — trigger lives in migration)
+    from sqlalchemy import text as sa_text
+
+    with engine.connect() as conn:
+        conn.execute(sa_text(_SEARCH_VECTOR_TRIGGER_SQL))
+        conn.commit()
     yield
     # Drop all at the end of session
     Base.metadata.drop_all(bind=engine)
@@ -62,28 +101,20 @@ def setup_database():
 def db_session(setup_database):
     """
     Create a fresh database session for each test.
-    Validates empty state and cleans up via TRUNCATE after.
+    Uses DELETE FROM on setup to avoid TRUNCATE lock contention.
     """
-    session = TestingSessionLocal()
-
-    # Ensure clean slate (in case previous test failed to clean up)
     from sqlalchemy import text
 
+    session = TestingSessionLocal()
+    session.execute(text("SET LOCAL lock_timeout = '5s'"))
     for table in reversed(Base.metadata.sorted_tables):
-        session.execute(text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE;"))
+        session.execute(text(f"DELETE FROM {table.name};"))
     session.commit()
 
     try:
         yield session
     finally:
         session.close()
-        # Clean up data
-        with engine.connect() as conn:
-            with conn.begin():
-                for table in reversed(Base.metadata.sorted_tables):
-                    conn.execute(
-                        text(f"TRUNCATE TABLE {table.name} RESTART IDENTITY CASCADE;")
-                    )
 
 
 @pytest.fixture(scope="function")
@@ -91,21 +122,24 @@ def client(db_session):
     """
     Create a test client with dependency injection.
 
-    This overrides the get_db dependency to use our test database
-    instead of the production database.
+    The `get_db` override opens a fresh session per request (not the same
+    db_session object) so that endpoint commits don't contend with the
+    test's own open write transaction.
 
-    Args:
-        db_session: The test database session fixture
-
-    Returns:
-        TestClient: A FastAPI test client
+    db_session is still available for test assertions — it shares the same
+    underlying engine and sees committed rows.
     """
 
     def override_get_db():
+        session = TestingSessionLocal()
         try:
-            yield db_session
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
         finally:
-            pass
+            session.close()
 
     app.dependency_overrides[get_db] = override_get_db
 
@@ -113,6 +147,10 @@ def client(db_session):
         yield test_client
 
     app.dependency_overrides.clear()
+    # Dispose pool immediately after TestClient exits so all endpoint sessions
+    # are fully closed. The next test's db_session will then get a fresh
+    # connection with no lingered row locks.
+    engine.dispose()
 
 
 @pytest.fixture(scope="function")

@@ -398,10 +398,26 @@ export const searchAPI = {
   },
 
   // Semantic search (GET /search/semantic)
-  semantic: async (query: string) => {
-    return fetchWithAuth(
-      `${API_BASE_URL}/search/semantic?query=${encodeURIComponent(query)}`,
-    );
+  semantic: async (
+    query: string,
+    opts: {
+      limit?: number;
+      offset?: number;
+      after?: string;
+      before?: string;
+      mode?: "auto" | "full";
+    } = {},
+  ) => {
+    const params = new URLSearchParams({ query });
+    if (opts.limit) params.set("limit", String(opts.limit));
+    if (opts.offset) params.set("offset", String(opts.offset));
+    if (opts.mode) params.set("mode", opts.mode);
+    // Date filters appended as typed operators the backend already understands
+    let q = query;
+    if (opts.after) q += ` after:${opts.after}`;
+    if (opts.before) q += ` before:${opts.before}`;
+    params.set("query", q);
+    return fetchWithAuth(`${API_BASE_URL}/search/semantic?${params}`);
   },
 
   // Find connections for a highlight (GET /search/connections/{highlight_id})

@@ -5,11 +5,11 @@ with the rigor of a staff engineer — without doing everything manually.
 
 ## The Big Picture
 
-Six skills form a complete development lifecycle. Each one handles a specific
+Seven skills form a complete development lifecycle. Each one handles a specific
 phase of work so you don't skip steps or forget checks.
 
 ```
-  /plan  -->  build  -->  /pre-commit-dev  -->  /finalize  -->  /retro
+    /plan-product-strategy  -->  /plan  -->  build  -->  /pre-commit-dev  -->  /finalize  -->  /retro
     |                                                             |
     +-------- /improve, /perf-audit (between features) <----------+
 ```
@@ -33,6 +33,26 @@ not the implementation ("add InlineError component"). Review the plan, answer op
 questions, approve before coding starts.
 
 **Output**: `docs/plans/<feature-name>.md`
+
+---
+
+### 1b. `/plan-product-strategy <topic>`
+
+**When**: Before implementation planning when you need a deeper strategy artifact
+that includes market/context comparison, gap analysis, and phased product direction.
+
+**What it does**:
+- Audits current sed.i behavior from code/docs
+- Analyzes external patterns and what they imply for sed.i
+- Builds a capability/gap model (including uncertainty where metrics are missing)
+- Produces a realistic phased roadmap with metrics, risks, and decision gates
+- Writes a reusable strategy plan artifact to `docs/plans/`
+
+**What you do**: Use this when the question is product-directional (e.g. ingestion
+quality, mixed-media rendering, knowledge artifact strategy), then use `/plan` to
+convert approved phases into implementation plans.
+
+**Output**: `docs/plans/<topic>-plan.md`
 
 ---
 
@@ -155,6 +175,7 @@ The skills reference each other. Here's when one leads to another:
 
 | After running... | Consider running... | When |
 |------------------|---------------------|------|
+| `/plan-product-strategy` | `/plan` | Strategy direction is approved and ready for implementation breakdown |
 | `/plan` | Build + `/pre-commit-dev` | Plan is approved |
 | `/pre-commit-dev` | `/finalize` | Branch is complete |
 | `/finalize` | `/retro` | PR is merged |
@@ -167,27 +188,30 @@ The skills reference each other. Here's when one leads to another:
 Here's what a complete feature lifecycle looks like:
 
 ```
-1.  /plan add user notifications
+1.  /plan-product-strategy notifications experience and reliability
+    --> Review strategic direction, constraints, and roadmap
+
+2.  /plan add user notifications
     --> Review plan, approve scope and phases
 
-2.  Build Phase 1 (foundation: notification model, API)
+3.  Build Phase 1 (foundation: notification model, API)
     /pre-commit-dev
     --> Tests written, checks pass, committed
 
-3.  Build Phase 2 (UI: notification list, badge)
+4.  Build Phase 2 (UI: notification list, badge)
     /pre-commit-dev
     --> Tests written, checks pass, committed
 
-4.  Build Phase 3 (real-time: WebSocket integration)
+5.  Build Phase 3 (real-time: WebSocket integration)
     /pre-commit-dev
     --> Tests written, checks pass, committed
 
-5.  /finalize
+6.  /finalize
     --> Full audit, all checks pass, ARCHITECTURE.md updated, PR created
 
-6.  Merge PR
+7.  Merge PR
 
-7.  /retro
+8.  /retro
     --> Lessons extracted, CLAUDE.md updated with new conventions
 ```
 

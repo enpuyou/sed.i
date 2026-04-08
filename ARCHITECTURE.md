@@ -334,7 +334,7 @@ runs) so the item is flagged as limited without waiting for the Celery task.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/search/semantic?query=...` | Semantic search. Embeds query, cosine-sorts user's content. |
+| GET | `/search/semantic?query=...` | Hybrid search. Classifies query and routes to keyword, filter, semantic, or RRF-fused path. Supports `mode=full` (always runs all three), `offset`, `after`/`before` date operators. |
 | GET | `/search/connections/{highlight_id}` | Highlights in other articles similar to this highlight. Threshold param (default 0.75). |
 | GET | `/search/connections/article/{content_id}` | All cross-article connections for highlights in the given article, grouped by connected article. |
 | GET | `/search/{item_id}/similar` | Articles in user's queue similar to the given item. |
@@ -499,15 +499,40 @@ manual correction after the fact (UI can show suggested tags and let user overri
 
 ---
 
-## 12. Semantic search and connections
+## 12. Hybrid search and connections
 
 ### Content search
 
-`GET /search/semantic?query=...` — embeds the query string (OpenAI), then
-runs a raw SQL cosine sort against all the user's `content_items` with embeddings.
+`GET /search/semantic?query=...` — unified hybrid search entry point. The query
+is classified by `app/core/search_router.py` and dispatched to the cheapest path:
 
-`GET /search/{item_id}/similar` — same but uses an existing item's embedding as
-the query vector.
+| Query type | Path | Example |
+|---|---|---|
+| Operator syntax | SQL filter | `author:Paul Graham`, `tag:music`, `after:2025-01-01` |
+| Short keyword (≤4 words) | tsvector full-text | `llm`, `react hooks` |
+| Natural language / question | pgvector semantic | `how does attention work?` |
+| Longer conceptual phrase | keyword + semantic fused with RRF | `building products with AI` |
+
+**`mode=full`** (used by the SearchModal) bypasses classification and always runs
+all three engines, fusing results with three-way Reciprocal Rank Fusion.
+
+**Date filtering** — `after:YYYY-MM-DD` / `before:YYYY-MM-DD` operators are
+extracted from the query before routing. Filter path applies them in SQL;
+keyword/semantic paths receive the stripped query and results are post-filtered
+by `created_at` in Python.
+
+**tsvector index** — `search_vector` column maintained by a PostgreSQL trigger
+using dual-dictionary (english + simple) so stemmed words AND acronyms both match.
+Prefix matching (`llm:*`) catches plurals.
+
+**Embedding cache** — `app/core/embedding_cache.py` caches query embeddings in
+Redis (`qemb:{sha256[:16]}`, 1hr TTL) to avoid redundant OpenAI calls.
+
+**Untitled items excluded** — content with no title (failed extraction) is
+excluded from all search paths.
+
+`GET /search/{item_id}/similar` — uses an existing item's embedding as the query
+vector for cosine similarity search.
 
 ### Highlight connections
 

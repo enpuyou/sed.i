@@ -19,6 +19,10 @@ class SimilarContentResponse(BaseModel):
 
     item: ContentItemResponse
     similarity_score: float
+    match_type: str = "semantic"  # "filter" | "keyword" | "semantic" | "hybrid"
+    semantic_score: float | None = (
+        None  # cosine similarity, only set for semantic results
+    )
 
 
 class HighlightConnection(BaseModel):
@@ -55,95 +59,75 @@ class ArticleConnection(BaseModel):
 def semantic_search(
     query: str = Query(..., min_length=3),
     limit: int = Query(10, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    mode: str = Query("auto", pattern="^(auto|full)$"),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """
-    Search content by semantic meaning.
+    Search content using hybrid routing: keyword, filter, semantic, or RRF fusion.
 
-    - Converts query to embedding
-    - Finds content with similar meaning
-    - Not just keyword matching!
+    The query is classified automatically:
+    - Short keywords → full-text tsvector search (fast, no API call)
+    - Known author/tag/domain → SQL filter (fast, no API call)
+    - Natural language questions → semantic embedding search
+    - Longer conceptual phrases → keyword + semantic fused with RRF
     """
-    from openai import OpenAI
-    from app.core.config import settings
+    from app.core.hybrid_search import hybrid_search, get_user_search_context
+    from app.models.content import ContentItem
 
-    # Generate embedding for search query
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    response = client.embeddings.create(
-        model="text-embedding-3-small", input=query, encoding_format="float"
+    user_authors, user_tags = get_user_search_context(current_user, db)
+    results = hybrid_search(
+        query=query,
+        user=current_user,
+        db=db,
+        limit=limit,
+        offset=offset,
+        mode=mode,
+        user_authors=user_authors,
+        user_tags=user_tags,
     )
 
-    query_embedding = response.data[0].embedding
-
-    # Convert embedding to string format for PostgreSQL
-    embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
-
-    # Find similar items
-    similar_query = text(
-        """
-        SELECT
-            id,
-            user_id,
-            original_url,
-            title,
-            description,
-            thumbnail_url,
-            content_type,
-            summary,
-            tags,
-            full_text,
-            word_count,
-            reading_time_minutes,
-            read_position,
-            is_read,
-            is_archived,
-            is_public,
-            processing_status,
-            created_at,
-            updated_at,
-            (1 - (embedding <=> CAST(:query_embedding AS vector))) as similarity
-        FROM content_items
-        WHERE user_id = :user_id
-            AND deleted_at IS NULL
-            AND embedding IS NOT NULL
-        ORDER BY embedding <=> CAST(:query_embedding AS vector)
-        LIMIT :limit
-    """
-    )
-
-    results = db.execute(
-        similar_query,
-        {"query_embedding": embedding_str, "user_id": current_user.id, "limit": limit},
-    ).fetchall()
-
-    # Format response
+    # Map hybrid_search results to the existing SimilarContentResponse schema.
+    # Each result has flat item fields + 'score'; the response model expects
+    # {item: ContentItemResponse, similarity_score: float}.
     search_results = []
-    for row in results:
+    for r in results:
+        item = db.query(ContentItem).filter(ContentItem.id == r["id"]).first()
+        if not item:
+            continue
         item_dict = {
-            "id": row.id,
-            "user_id": row.user_id,
-            "original_url": row.original_url,
-            "title": row.title,
-            "description": row.description,
-            "thumbnail_url": row.thumbnail_url,
-            "content_type": row.content_type,
-            "summary": row.summary,
-            "tags": row.tags,
-            "full_text": row.full_text,
-            "word_count": row.word_count,
-            "reading_time_minutes": row.reading_time_minutes,
-            "read_position": row.read_position,
-            "is_read": row.is_read,
-            "is_archived": row.is_archived,
-            "is_public": row.is_public,
-            "processing_status": row.processing_status,
-            "created_at": row.created_at,
-            "updated_at": row.updated_at,
+            "id": item.id,
+            "user_id": item.user_id,
+            "original_url": item.original_url,
+            "title": item.title,
+            "description": item.description,
+            "thumbnail_url": item.thumbnail_url,
+            "content_type": item.content_type,
+            "summary": item.summary,
+            "tags": item.tags,
+            "full_text": item.full_text,
+            "word_count": item.word_count,
+            "reading_time_minutes": item.reading_time_minutes,
+            "read_position": item.read_position,
+            "is_read": item.is_read,
+            "is_archived": item.is_archived,
+            "is_public": item.is_public,
+            "processing_status": item.processing_status,
+            "created_at": item.created_at,
+            "updated_at": item.updated_at,
         }
-
         search_results.append(
-            {"item": item_dict, "similarity_score": float(row.similarity)}
+            {
+                "item": item_dict,
+                "similarity_score": float(r.get("score", 0.0)),
+                "match_type": r.get("match_type", "semantic"),
+                "semantic_score": (
+                    float(r["semantic_score"])
+                    if r.get("semantic_score") is not None
+                    else None
+                ),
+            }
         )
 
     return search_results
