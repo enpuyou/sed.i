@@ -421,9 +421,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
         if (content.id) {
           try {
             setHighlightsLoading(true);
-            const [highlightData, connectionData] = await Promise.allSettled([
+            const [highlightData] = await Promise.allSettled([
               highlightsAPI.getByContent(content.id),
-              searchAPI.findArticleConnections(content.id),
             ]);
 
             if (highlightData.status === "fulfilled") {
@@ -436,14 +435,21 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
               );
             }
 
-            if (connectionData.status === "fulfilled") {
-              const ids = new Set<string>();
-              for (const articleConn of connectionData.value) {
-                for (const pair of articleConn.highlight_pairs) {
-                  ids.add(pair.user_highlight_id);
+            if (!settings.showConnections) {
+              setConnectedHighlightIds(new Set());
+            } else {
+              const [connectionData] = await Promise.allSettled([
+                searchAPI.findArticleConnections(content.id),
+              ]);
+              if (connectionData.status === "fulfilled") {
+                const ids = new Set<string>();
+                for (const articleConn of connectionData.value) {
+                  for (const pair of articleConn.highlight_pairs) {
+                    ids.add(pair.user_highlight_id);
+                  }
                 }
+                setConnectedHighlightIds(ids);
               }
-              setConnectedHighlightIds(ids);
             }
           } catch (error) {
             console.error("Failed to fetch highlights:", error);
@@ -452,7 +458,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
           }
         }
       },
-      [content.id, onHighlightsChange],
+      [content.id, onHighlightsChange, settings.showConnections],
     );
 
     useEffect(() => {
