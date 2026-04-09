@@ -2,11 +2,9 @@
 /**
  * Unit tests for ContentList component.
  *
- * Tests cover caching behavior and loading states:
- * - RetroLoader displays when fetching without cache
- * - RetroLoader does NOT display when cache is valid
- * - Cache is populated from sessionStorage on mount
- * - Loading state is correctly set to false on cache hit
+ * Tests cover loading states and content management:
+ * - RetroLoader displays while fetching
+ * - Content renders after fetch completes
  * - Scroll position is restored after content loads
  * - Filter changes trigger content refresh
  */
@@ -155,8 +153,8 @@ describe("ContentList", () => {
     mockedContentAPI.getTags.mockResolvedValue([]);
   });
 
-  describe("Loading and Caching", () => {
-    it("displays RetroLoader when loading without cache", async () => {
+  describe("Loading", () => {
+    it("displays RetroLoader while fetching", async () => {
       render(<ContentList ref={React.createRef()} />);
 
       // Loader should be visible initially
@@ -168,99 +166,22 @@ describe("ContentList", () => {
         expect(screen.queryByTestId("retro-loader")).not.toBeInTheDocument();
       });
 
-      // Verify content is rendered (use getByTestId to avoid multiple text matches)
       expect(screen.getByTestId("content-item-1")).toBeInTheDocument();
     });
 
-    it("does NOT display RetroLoader when cache is valid", async () => {
-      // Pre-populate cache with valid timestamp
-      const cacheData = {
-        items: mockContents,
-        total: 2,
-        timestamp: Date.now(),
-      };
-      sessionStorage.setItem("contentListCache", JSON.stringify(cacheData));
-
-      render(<ContentList ref={React.createRef()} />);
-
-      // Loader should NOT appear because cache is valid
-      expect(screen.queryByTestId("retro-loader")).not.toBeInTheDocument();
-
-      // Content should be immediately visible
-      expect(screen.getByTestId("content-item-1")).toBeInTheDocument();
-      expect(screen.getByTestId("content-item-2")).toBeInTheDocument();
-    });
-
-    it("ensures loading=false on cache hit", async () => {
-      const cacheData = {
-        items: mockContents,
-        total: 2,
-        timestamp: Date.now(),
-      };
-      sessionStorage.setItem("contentListCache", JSON.stringify(cacheData));
-
-      // This tests the specific fix: fetchContents calls setLoading(false) on cache hit
-      render(<ContentList ref={React.createRef()} />);
-
-      // Verify loader never appears
-      expect(screen.queryByTestId("retro-loader")).not.toBeInTheDocument();
-
-      // Verify content renders immediately
-      await waitFor(() => {
-        expect(screen.getByTestId("content-item-1")).toBeInTheDocument();
-      });
-    });
-
-    it("clears expired cache and shows RetroLoader", async () => {
-      // Create cache that expired (more than 1 hour ago)
-      const expiredCache = {
-        items: mockContents,
-        total: 2,
-        timestamp: Date.now() - 4000000, // > 1 hour
-      };
-      sessionStorage.setItem("contentListCache", JSON.stringify(expiredCache));
-
-      render(<ContentList ref={React.createRef()} />);
-
-      // Loader should show because cache expired
-      expect(screen.getByTestId("retro-loader")).toBeInTheDocument();
-
-      // Wait for fresh fetch
-      await waitFor(() => {
-        expect(screen.queryByTestId("retro-loader")).not.toBeInTheDocument();
-        expect(screen.getByTestId("content-item-1")).toBeInTheDocument();
-      });
-
-      // API should have been called for fresh data
-      expect(mockedContentAPI.getAll).toHaveBeenCalled();
-    });
-
-    it("populates cache after successful fetch", async () => {
+    it("always calls contentAPI.getAll on mount", async () => {
       render(<ContentList ref={React.createRef()} />);
 
       await waitFor(() => {
         expect(screen.getByTestId("content-item-1")).toBeInTheDocument();
       });
 
-      // Verify cache was set
-      const cached = sessionStorage.getItem("contentListCache");
-      expect(cached).not.toBeNull();
-
-      const parsedCache = JSON.parse(cached!);
-      expect(parsedCache.items).toHaveLength(2);
-      expect(parsedCache.total).toBe(2);
-      expect(parsedCache.timestamp).toBeLessThanOrEqual(Date.now());
+      expect(mockedContentAPI.getAll).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("Scroll Restoration", () => {
-    it("restores scroll position after content loads from cache", async () => {
-      const cacheData = {
-        items: mockContents,
-        total: 2,
-        timestamp: Date.now(),
-      };
-      sessionStorage.setItem("contentListCache", JSON.stringify(cacheData));
+    it("restores scroll position after content loads", async () => {
       sessionStorage.setItem("contentListScrollPos", "500");
 
       const scrollSpy = jest.spyOn(window, "scrollTo").mockImplementation();
@@ -281,12 +202,6 @@ describe("ContentList", () => {
     });
 
     it("clears scroll position after restoring", async () => {
-      const cacheData = {
-        items: mockContents,
-        total: 2,
-        timestamp: Date.now(),
-      };
-      sessionStorage.setItem("contentListCache", JSON.stringify(cacheData));
       sessionStorage.setItem("contentListScrollPos", "250");
 
       jest.spyOn(window, "scrollTo").mockImplementation();
@@ -303,19 +218,12 @@ describe("ContentList", () => {
   });
 
   describe("Content Management", () => {
-    it("clears cache when new item is added via ref", async () => {
-      const cacheData = {
-        items: mockContents,
-        total: 2,
-        timestamp: Date.now(),
-      };
-      sessionStorage.setItem("contentListCache", JSON.stringify(cacheData));
-
+    it("prepends new item to the list when added via ref", async () => {
       const ref = React.createRef<any>();
       render(<ContentList ref={ref} />);
 
       await waitFor(() => {
-        expect(ref.current).toBeDefined();
+        expect(screen.getByTestId("content-item-1")).toBeInTheDocument();
       });
 
       const newItem = {
@@ -326,8 +234,10 @@ describe("ContentList", () => {
 
       ref.current?.addNewItem(newItem);
 
-      // Cache should be cleared
-      expect(sessionStorage.getItem("contentListCache")).toBeNull();
+      // New item should appear in the list
+      await waitFor(() => {
+        expect(screen.getByTestId("content-item-3")).toBeInTheDocument();
+      });
     });
 
     it("displays empty state when no content exists", async () => {

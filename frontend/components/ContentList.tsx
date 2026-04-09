@@ -37,65 +37,19 @@ const useIsomorphicLayoutEffect =
  */
 type FilterType = "all" | "unread" | "in_progress" | "read" | "archived";
 
-const CACHE_KEY = "contentListCache";
-const CACHE_DURATION = 3600000; // 1 hour
-
 export interface ContentListRef {
   addNewItem: (item: ContentItemType) => void;
 }
 
 const ContentList = forwardRef<ContentListRef>((_, ref) => {
-  // Toast context for showing success/error messages
   const { incrementListCount, decrementListCount } = useLists();
-
-  // Get URL search params to read filter from URL
   const searchParams = useSearchParams();
 
-  // Helper to get cached data from sessionStorage
-  const getCachedData = () => {
-    try {
-      const cached = sessionStorage.getItem(CACHE_KEY);
-      if (!cached) return null;
-      const data = JSON.parse(cached);
-      const now = Date.now();
-      if (data.timestamp && now - data.timestamp < CACHE_DURATION) {
-        return data;
-      }
-      // Cache expired
-      sessionStorage.removeItem(CACHE_KEY);
-      return null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Helper to set cached data in sessionStorage
-  const setCachedData = (items: ContentItemType[], total: number) => {
-    try {
-      sessionStorage.setItem(
-        CACHE_KEY,
-        JSON.stringify({
-          items,
-          total,
-          timestamp: Date.now(),
-        }),
-      );
-    } catch {
-      // Silently fail if sessionStorage is full
-    }
-  };
-
   // State for storing the content items from the backend
-  const [contents, setContents] = useState<ContentItemType[]>(() => {
-    const cached = getCachedData();
-    return cached ? cached.items : [];
-  });
+  const [contents, setContents] = useState<ContentItemType[]>([]);
 
   // Loading state - true while fetching data
-  const [loading, setLoading] = useState(() => {
-    const cached = getCachedData();
-    return cached ? false : true;
-  });
+  const [loading, setLoading] = useState(true);
 
   // Error state - stores error message if fetch fails
   const [error, setError] = useState<string | null>(null);
@@ -120,10 +74,7 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pagination state - backend returns total count
-  const [total, setTotal] = useState(() => {
-    const cached = getCachedData();
-    return cached ? cached.total : 0;
-  });
+  const [total, setTotal] = useState(0);
 
   // Filter dropdown state
   const [filterOpen, setFilterOpen] = useState(false);
@@ -168,50 +119,36 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
   >([]);
 
   /**
-   * Expose method to parent component for adding new items optimistically
+   * Expose method to parent component for adding new items optimistically.
+   * No cache to clear — next mount will always fetch fresh.
    */
   useImperativeHandle(ref, () => ({
     addNewItem: (newItem: ContentItemType) => {
-      // Add to the beginning of the list (most recent first)
       setContents((prev: ContentItemType[]) => [newItem, ...prev]);
       setTotal((prev: number) => prev + 1);
-
-      // Clear cache so next fetch is fresh
-      sessionStorage.removeItem(CACHE_KEY);
     },
   }));
 
   /**
-   * Synchronously load cache before the browser paints to prevent
-   * a 1-frame flash of the RetroLoader.
+   * Fetch on mount and whenever the filter changes.
+   * Also silently re-fetch when the tab becomes visible again (e.g. user
+   * adds an article from another tab or edits a title in the reader).
    */
-  useIsomorphicLayoutEffect(() => {
-    const cachedData = getCachedData();
-    if (cachedData) {
-      setContents(cachedData.items);
-      setTotal(cachedData.total);
-      setLoading(false);
-    }
-  }, []);
-
-  /**
-   * useEffect Hook - Runs when component mounts
-   * This is where we fetch fresh data if needed, and setup listeners
-   */
-
   useEffect(() => {
     fetchContents();
     fetchAvailableLists();
     fetchAvailableTags();
 
-    // Auto-refresh silently when user switches back to this tab
-    const handleFocus = () => {
-      fetchContents(true, true); // forceRefresh=true, silent=true
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchContents(true); // silent=true
+      }
     };
 
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-  }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [filter]);
 
   // Keyboard navigation state
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
@@ -289,8 +226,6 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
       const newContents = prevContents.map((content) =>
         content.id === updatedItem.id ? updatedItem : content,
       );
-      // Update cache so if user navigates back, it doesn't revert to processing
-      setCachedData(newContents, total);
       return newContents;
     });
 
@@ -303,24 +238,11 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
   });
 
   /**
-   * Fetches content from the backend API
-   * Uses the contentAPI.getAll() helper from lib/api.ts
-   * Backend returns: { items: ContentItem[], total: number, skip: number, limit: number }
-   *
-   * Now includes caching and support for silent background refreshes
+   * Fetches content from the backend API.
+   * Pass silent=true for background refreshes (tab regains visibility) so
+   * the existing list stays visible while the update comes in.
    */
-  const fetchContents = async (forceRefresh = false, silent = false) => {
-    // Cache hit with no force refresh — ensure loading is off and return
-    if (!forceRefresh) {
-      const cached = getCachedData();
-      if (cached) {
-        setContents(cached.items);
-        setTotal(cached.total);
-        setLoading(false);
-        return;
-      }
-    }
-
+  const fetchContents = async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
 
@@ -328,7 +250,6 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
       const response = await contentAPI.getAll();
       setContents(response.items);
       setTotal(response.total);
-      setCachedData(response.items, response.total);
     } catch (err) {
       console.error("Failed to fetch contents:", err);
       if (!silent) setError("Couldn't load your content. Try again.");
@@ -395,8 +316,6 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
         const updated = prevContents.map((content) =>
           content.id === id ? updatedContent : content,
         );
-        // Update cache
-        setCachedData(updated, total);
         return updated;
       });
     } catch (err) {
@@ -439,8 +358,6 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
       const updated = prevContents.map((content) =>
         content.id === updatedContent.id ? updatedContent : content,
       );
-      // Update cache
-      setCachedData(updated, total);
       return updated;
     });
     // Refresh tags to show new ones or update counts

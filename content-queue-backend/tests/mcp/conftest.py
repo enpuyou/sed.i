@@ -43,9 +43,13 @@ RETURNS trigger AS $$
 BEGIN
     NEW.search_vector :=
         setweight(to_tsvector('english', COALESCE(NEW.title, '')), 'A') ||
+        setweight(to_tsvector('simple',  COALESCE(NEW.title, '')), 'A') ||
         setweight(to_tsvector('english', COALESCE(NEW.author, '')), 'A') ||
+        setweight(to_tsvector('simple',  COALESCE(NEW.author, '')), 'A') ||
         setweight(to_tsvector('english', COALESCE(NEW.description, '')), 'B') ||
-        setweight(to_tsvector('english', COALESCE(array_to_string(NEW.tags, ' '), '')), 'B');
+        setweight(to_tsvector('simple',  COALESCE(NEW.description, '')), 'B') ||
+        setweight(to_tsvector('english', COALESCE(array_to_string(NEW.tags, ' '), '')), 'B') ||
+        setweight(to_tsvector('simple',  COALESCE(array_to_string(NEW.tags, ' '), '')), 'B');
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

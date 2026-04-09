@@ -449,6 +449,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                   }
                 }
                 setConnectedHighlightIds(ids);
+              } else {
+                setConnectedHighlightIds(new Set());
               }
             }
           } catch (error) {
@@ -465,6 +467,11 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       refreshHighlights();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [content.id]);
+
+    useEffect(() => {
+      refreshHighlights();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [settings.showConnections]);
 
     // Track scroll position and save periodically (embedded-aware)
     useEffect(() => {

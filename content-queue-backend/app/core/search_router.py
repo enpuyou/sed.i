@@ -16,7 +16,7 @@ Priority order:
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -198,14 +198,18 @@ def parse_filter_query(
 
     if "before" in meta:
         try:
-            dt = datetime.strptime(meta["before"], "%Y-%m-%d")
+            dt = datetime.strptime(meta["before"], "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
             q = q.filter(ContentItem.created_at < dt)
         except ValueError:
             pass
 
     if "after" in meta:
         try:
-            dt = datetime.strptime(meta["after"], "%Y-%m-%d")
+            dt = datetime.strptime(meta["after"], "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            )
             q = q.filter(ContentItem.created_at >= dt)
         except ValueError:
             pass

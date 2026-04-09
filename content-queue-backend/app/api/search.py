@@ -88,12 +88,19 @@ def semantic_search(
         user_tags=user_tags,
     )
 
+    # Bulk-load all result ContentItems in one query to avoid N+1.
+    result_ids = [r["id"] for r in results]
+    items_by_id = {
+        item.id: item
+        for item in db.query(ContentItem).filter(ContentItem.id.in_(result_ids)).all()
+    }
+
     # Map hybrid_search results to the existing SimilarContentResponse schema.
     # Each result has flat item fields + 'score'; the response model expects
     # {item: ContentItemResponse, similarity_score: float}.
     search_results = []
     for r in results:
-        item = db.query(ContentItem).filter(ContentItem.id == r["id"]).first()
+        item = items_by_id.get(r["id"])
         if not item:
             continue
         item_dict = {

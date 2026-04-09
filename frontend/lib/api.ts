@@ -409,8 +409,8 @@ export const searchAPI = {
     } = {},
   ) => {
     const params = new URLSearchParams({ query });
-    if (opts.limit) params.set("limit", String(opts.limit));
-    if (opts.offset) params.set("offset", String(opts.offset));
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts.offset !== undefined) params.set("offset", String(opts.offset));
     if (opts.mode) params.set("mode", opts.mode);
     // Date filters appended as typed operators the backend already understands
     let q = query;

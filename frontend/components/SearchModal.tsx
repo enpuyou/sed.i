@@ -104,11 +104,12 @@ export default function SearchModal({
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setFocusedIndex((i) => Math.min(i + 1, results.length - 1));
+        if (results.length > 0)
+          setFocusedIndex((i) => Math.min(i + 1, results.length - 1));
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setFocusedIndex((i) => Math.max(i - 1, 0));
+        if (results.length > 0) setFocusedIndex((i) => Math.max(i - 1, 0));
       }
       if (e.key === "Enter" && results[focusedIndex]) {
         handleSelect(results[focusedIndex].item.id);

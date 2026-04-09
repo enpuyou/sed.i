@@ -98,9 +98,14 @@ def keyword_search(
     # Build a prefix query for the simple dictionary so "llm" matches "llms", "api" matches "apis", etc.
     # websearch_to_tsquery doesn't support :* prefix, so we construct it manually for single tokens.
     # For multi-word queries we fall back to plain websearch_to_tsquery('simple').
+    import re as _re
+
     words = query.strip().split()
-    if len(words) == 1:
-        # Single token: use prefix matching so acronyms/partial words hit
+    _safe_token = _re.compile(r"^[a-zA-Z0-9_]+$")
+    if len(words) == 1 and _safe_token.match(words[0]):
+        # Single alphanumeric token: use prefix matching so acronyms/partial words hit.
+        # to_tsquery raises a syntax error on special chars (e.g. "c++"), so only use
+        # it when the token is safe.
         simple_query_sql = "to_tsquery('simple', :simple_token)"
         params = {
             "query": query,
@@ -433,7 +438,7 @@ def hybrid_search(
             sem = _semantic_search(kw_query, user, db, fetch)
             if sem:
                 for r in sem:
-                    r["match_type"] = "keyword"
+                    r["match_type"] = "semantic_fallback"
                 return _apply_date_filter(sem[offset:], after_date, before_date)
         for r in results:
             r["match_type"] = "keyword"
