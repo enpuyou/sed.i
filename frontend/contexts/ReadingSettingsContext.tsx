@@ -29,7 +29,7 @@ const DEFAULTS: ReadingSettings = {
   lineHeight: "comfortable",
   letterSpacing: "normal",
   bionicReading: false,
-  showConnections: true,
+  showConnections: false,
   showCrates: true,
 };
 

@@ -273,6 +273,9 @@ def test_delete_account_cascades_content(client, test_user, auth_headers, db_ses
     db_session.add(vinyl)
     db_session.commit()
 
+    # Capture id before the DELETE invalidates the SQLAlchemy identity map entry
+    user_id = test_user.id
+
     response = client.request(
         "DELETE",
         "/auth/me",
@@ -283,18 +286,11 @@ def test_delete_account_cascades_content(client, test_user, auth_headers, db_ses
 
     # All child rows must be gone
     assert (
-        db_session.query(ContentItem)
-        .filter(ContentItem.user_id == test_user.id)
-        .count()
+        db_session.query(ContentItem).filter(ContentItem.user_id == user_id).count()
         == 0
     )
+    assert db_session.query(Highlight).filter(Highlight.user_id == user_id).count() == 0
     assert (
-        db_session.query(Highlight).filter(Highlight.user_id == test_user.id).count()
-        == 0
-    )
-    assert (
-        db_session.query(VinylRecord)
-        .filter(VinylRecord.user_id == test_user.id)
-        .count()
+        db_session.query(VinylRecord).filter(VinylRecord.user_id == user_id).count()
         == 0
     )

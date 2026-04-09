@@ -80,11 +80,6 @@ class TestGetContentItem:
 
 
 class TestSearchContent:
-    def test_returns_empty_when_no_embeddings(self, db, user, article):
-        # article has no embedding → semantic search returns nothing
-        result = search_content(query="test article", user=user, db=db)
-        assert result == []
-
     def test_respects_limit_parameter(self, db, user):
         # Even with no results, limit param is accepted without error
         result = search_content(query="anything", user=user, db=db, limit=5)

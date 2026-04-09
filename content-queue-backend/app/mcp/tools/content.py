@@ -53,69 +53,41 @@ def search_content(
     limit: int = 10,
 ) -> list[dict]:
     """
-    Semantic search across the user's entire library using OpenAI embeddings + pgvector.
+    Hybrid search across the user's entire library.
+
+    Automatically routes to the most efficient search path:
+    - Short keywords or known authors/tags → SQL filter or tsvector (no API call)
+    - Natural language questions → semantic embedding search
+    - Conceptual phrases → keyword + semantic fused with RRF
 
     Args:
-        query: Natural-language search query.
+        query: Natural-language or structured search query.
         limit: Max results (default 10, capped at 50).
 
     Returns:
         List of {item, similarity_score} dicts, ordered by relevance.
-        Returns [] if no embeddings exist or OpenAI is not configured.
     """
+    from app.core.hybrid_search import hybrid_search, get_user_search_context
+
     limit = min(limit, 50)
+    user_authors, user_tags = get_user_search_context(user, db)
 
-    # Check whether any embeddings exist before calling OpenAI
-    has_any = (
-        db.query(ContentItem)
-        .filter(
-            ContentItem.user_id == user.id,
-            ContentItem.embedding.isnot(None),
-            ContentItem.deleted_at.is_(None),
-        )
-        .first()
+    results = hybrid_search(
+        query=query,
+        user=user,
+        db=db,
+        limit=limit,
+        user_authors=user_authors,
+        user_tags=user_tags,
     )
-    if not has_any:
-        return []
 
-    from openai import OpenAI
-    from app.core.config import settings
-
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=query,
-        encoding_format="float",
-    )
-    query_embedding = response.data[0].embedding
-    embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
-
-    rows = db.execute(
-        text(
-            """
-            SELECT id, (1 - (embedding <=> CAST(:q AS vector))) AS similarity
-            FROM content_items
-            WHERE user_id = :uid
-              AND deleted_at IS NULL
-              AND embedding IS NOT NULL
-            ORDER BY embedding <=> CAST(:q AS vector)
-            LIMIT :lim
-        """
-        ),
-        {"q": embedding_str, "uid": user.id, "lim": limit},
-    ).fetchall()
-
-    results = []
-    for row in rows:
-        item = db.query(ContentItem).filter(ContentItem.id == row.id).first()
-        if item:
-            results.append(
-                {
-                    "item": _format_item(item, include_full_text=False),
-                    "similarity_score": float(row.similarity),
-                }
-            )
-    return results
+    return [
+        {
+            "item": {k: v for k, v in r.items() if k != "score"},
+            "similarity_score": float(r.get("score", 0.0)),
+        }
+        for r in results
+    ]
 
 
 def find_similar(

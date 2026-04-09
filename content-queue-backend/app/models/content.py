@@ -9,7 +9,7 @@ from sqlalchemy import (
     Float,
     ARRAY,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, TSVECTOR
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -61,6 +61,11 @@ class ContentItem(Base):
 
     # Reading progress
     read_position = Column(Float, default=0.0, nullable=True)  # 0.0 to 1.0 (0% to 100%)
+
+    # Full-text search vector (generated, stored) — weighted: title/author = A, description/tags = B
+    # Full-text search vector — populated/updated by the tsvector_update trigger.
+    # Weighted: title/author = A (high), description/tags = B.
+    search_vector = Column(TSVECTOR, nullable=True)
 
     # ML embeddings (1536 dimensions for OpenAI text-embedding-3-small)
     embedding = Column(Vector(1536))
