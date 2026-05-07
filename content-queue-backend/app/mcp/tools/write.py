@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app.api.content import normalize_url
 from app.models.user import User
 from app.models.list import List, content_list_membership
 from app.models.content import ContentItem
@@ -99,17 +100,37 @@ def add_content(
     if not parsed.scheme or not parsed.netloc:
         raise ValueError(f"Invalid url: '{url}'")
 
+    normalized_url = normalize_url(url)
+
     existing = (
         db.query(ContentItem)
-        .filter(ContentItem.user_id == user.id, ContentItem.original_url == url)
+        .filter(
+            ContentItem.user_id == user.id,
+            ContentItem.original_url == normalized_url,
+            ContentItem.deleted_at.is_(None),
+        )
         .first()
     )
+    if not existing:
+        active_items = (
+            db.query(ContentItem)
+            .filter(
+                ContentItem.user_id == user.id,
+                ContentItem.deleted_at.is_(None),
+            )
+            .all()
+        )
+        for item in active_items:
+            if normalize_url(item.original_url) == normalized_url:
+                existing = item
+                break
+
     if existing:
         return {"item_id": str(existing.id), "status": "exists"}
 
     item = ContentItem(
         user_id=user.id,
-        original_url=url,
+        original_url=normalized_url,
         submitted_via="mcp",
         processing_status="pending",
     )

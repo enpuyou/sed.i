@@ -96,6 +96,38 @@ def normalize_url(url: str) -> str:
     return normalized.geturl()
 
 
+def _find_existing_active_item_by_normalized_url(
+    *,
+    db: Session,
+    user_id,
+    normalized_url: str,
+) -> ContentItem | None:
+    existing = (
+        db.query(ContentItem)
+        .filter(
+            ContentItem.user_id == user_id,
+            ContentItem.original_url == normalized_url,
+            ContentItem.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    active_items = (
+        db.query(ContentItem)
+        .filter(
+            ContentItem.user_id == user_id,
+            ContentItem.deleted_at.is_(None),
+        )
+        .all()
+    )
+    for item in active_items:
+        if normalize_url(item.original_url) == normalized_url:
+            return item
+    return None
+
+
 def _clean_extension_html(
     html: str,
     title: str | None,
@@ -213,14 +245,10 @@ async def create_content_item(
     normalized_url = normalize_url(item_data.url)
 
     # Duplicate check: block re-ingestion of active URLs (deleted items are exempt)
-    existing = (
-        db.query(ContentItem)
-        .filter(
-            ContentItem.user_id == current_user.id,
-            ContentItem.original_url == normalized_url,
-            ContentItem.deleted_at.is_(None),
-        )
-        .first()
+    existing = _find_existing_active_item_by_normalized_url(
+        db=db,
+        user_id=current_user.id,
+        normalized_url=normalized_url,
     )
     if existing:
         raise HTTPException(

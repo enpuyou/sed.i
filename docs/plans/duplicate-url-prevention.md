@@ -7,7 +7,6 @@ Prevent users from accidentally saving the same URL twice. Active content blocks
 
 ## Non-goals
 - URL deduplication across users
-- Retroactive deduplication of existing duplicate rows
 - Canonical URL resolution (redirects, URL shorteners, AMP variants)
 
 ---
@@ -51,7 +50,9 @@ Prevent users from accidentally saving the same URL twice. Active content blocks
 **Decision**: URL normalization before comparison
 - Strip trailing slash: `https://example.com/article/` → `https://example.com/article`
 - Lowercase scheme+host: `HTTP://Example.com` → `http://example.com`
-- Do NOT strip query params (they often distinguish articles, e.g. `?p=123`)
+- Strip known tracking query params (`utm_*`, `fbclid`, `gclid`, etc.)
+- Preserve non-tracking query params and sort them for deterministic comparison
+- Drop fragments (`#section`) because they do not change article identity
 - Do NOT resolve redirects (out of scope)
 **Recommendation**: Apply normalization in a shared util function called on both write and lookup paths.
 
@@ -95,6 +96,9 @@ Prevent users from accidentally saving the same URL twice. Active content blocks
 
 2. New migration `add_unique_constraint_content_url.py`:
    ```python
+   # First dedupe active rows per (user_id, original_url), then add index
+   op.execute("DELETE ...")
+
    # Partial unique index: only enforce uniqueness on active (non-deleted) rows
    op.execute("""
        CREATE UNIQUE INDEX uq_content_items_user_url_active
@@ -173,10 +177,10 @@ Prevent users from accidentally saving the same URL twice. Active content blocks
 ## Risks
 
 **Risk**: Existing duplicate rows in DB conflict with new partial unique index
-**Likelihood**: Low (URL ingestion was always manual per-user)
+**Likelihood**: Medium
 **Impact**: Medium (migration fails)
-**Mitigation**: The partial index (`WHERE deleted_at IS NULL`) only rejects new duplicates; existing data with duplicates won't cause a conflict on index creation because `CREATE UNIQUE INDEX` on existing data will fail if there are already duplicate active rows. Add a pre-check comment in the migration.
-**Detection**: Migration fails with `duplicate key value` — easy to spot.
+**Mitigation**: Deduplicate active rows during migration before creating the unique index.
+**Detection**: Migration logs should show deduplication and successful index creation.
 
 **Risk**: fetchWithAuth doesn't expose HTTP status code in the error object
 **Likelihood**: Medium — need to verify how 409 surfaces in the catch block
