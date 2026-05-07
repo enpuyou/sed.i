@@ -8,7 +8,10 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
-from app.api.content import normalize_url
+from app.api.content import (
+    normalize_url,
+    _find_existing_active_item_by_normalized_url,
+)
 from app.models.user import User
 from app.models.list import List, content_list_membership
 from app.models.content import ContentItem
@@ -102,28 +105,11 @@ def add_content(
 
     normalized_url = normalize_url(url)
 
-    existing = (
-        db.query(ContentItem)
-        .filter(
-            ContentItem.user_id == user.id,
-            ContentItem.original_url == normalized_url,
-            ContentItem.deleted_at.is_(None),
-        )
-        .first()
+    existing = _find_existing_active_item_by_normalized_url(
+        db=db,
+        user_id=user.id,
+        normalized_url=normalized_url,
     )
-    if not existing:
-        active_items = (
-            db.query(ContentItem)
-            .filter(
-                ContentItem.user_id == user.id,
-                ContentItem.deleted_at.is_(None),
-            )
-            .all()
-        )
-        for item in active_items:
-            if normalize_url(item.original_url) == normalized_url:
-                existing = item
-                break
 
     if existing:
         return {"item_id": str(existing.id), "status": "exists"}

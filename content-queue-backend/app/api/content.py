@@ -99,7 +99,7 @@ def normalize_url(url: str) -> str:
 def _find_existing_active_item_by_normalized_url(
     *,
     db: Session,
-    user_id,
+    user_id: UUID,
     normalized_url: str,
 ) -> ContentItem | None:
     existing = (
