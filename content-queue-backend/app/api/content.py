@@ -102,6 +102,12 @@ def _find_existing_active_item_by_normalized_url(
     user_id: UUID,
     normalized_url: str,
 ) -> ContentItem | None:
+    """Find an active duplicate by normalized URL.
+
+    Primary lookup uses the indexed exact match on `original_url` for fast path.
+    Fallback scans active items and normalizes each stored URL to catch legacy
+    rows created before URL normalization was consistently applied.
+    """
     existing = (
         db.query(ContentItem)
         .filter(
