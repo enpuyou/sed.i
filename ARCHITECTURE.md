@@ -113,7 +113,7 @@ Browser / Extension
 |--------|------|-------|
 | `id` | UUID PK | |
 | `user_id` | UUID FK → users | Ownership. Never cross-user. |
-| `original_url` | Text | The URL as submitted (normalized: lowercase scheme+host, no trailing slash). Partial unique index `uq_content_items_user_url_active` on `(user_id, original_url) WHERE deleted_at IS NULL` prevents duplicate active entries per user. |
+| `original_url` | Text | The URL as submitted, stored in normalized form: scheme+host lowercased, trailing slash stripped, fragment dropped, known tracking query params removed, and remaining query params sorted. Partial unique index `uq_content_items_user_url_active` on `(user_id, original_url) WHERE deleted_at IS NULL` prevents duplicate active entries per user after this normalization. |
 | `submitted_via` | String | `'web'`, `'extension'`, `'api'`, `'email'`. |
 | `title`, `description`, `author` | Text | Extracted by Celery or provided by extension. |
 | `thumbnail_url` | Text | OG image or PDF figure. |
