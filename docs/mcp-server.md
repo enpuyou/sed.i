@@ -61,7 +61,7 @@ Claude Desktop config (`~/.../Claude/claude_desktop_config.json`):
 
 **Why stdout/stderr split?** The MCP protocol multiplexes all communication over stdout as newline-delimited JSON. If any log line contaminates stdout, it breaks the JSON parser on the client side. All Python `logging` calls route to stderr so they never interfere.
 
-**Auth:** The `SEDI_TOKEN` is a standard sed.i JWT, copied from `localStorage['token']` in the browser. The server decodes it on every tool call (`app/mcp/auth.py`), verifies the signature against `SECRET_KEY`, and resolves the active user. No separate token type — same JWT the REST API uses.
+**Auth:** The `SEDI_TOKEN` is a standard sed.i JWT, copied from `localStorage['token']` in the browser. The server decodes it on every tool call (`app/mcp/auth.py` in stdio mode, `app/mcp/http_server.py` in hosted HTTP mode), verifies the signature against `SECRET_KEY`, and resolves the active user. No separate token type — same JWT the REST API uses.
 
 ### Mode 2: Streamable HTTP (hosted)
 
@@ -72,7 +72,7 @@ MCP Client (remote)
   │  HTTPS POST /mcp  (Streamable HTTP transport)
   │  Authorization: Bearer <sed.i-jwt>
   ▼
-JWTAuthMiddleware (starlette)
+MCPAuthMiddleware (starlette)
   │  decodes Bearer token, resolves user, stores in contextvar
   ▼
 http_mcp FastMCP instance  (app/mcp/http_server.py)
@@ -84,16 +84,19 @@ PostgreSQL
 Auth for HTTP uses a Starlette middleware class:
 
 ```python
-class JWTAuthMiddleware(BaseHTTPMiddleware):
+class MCPAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         authorization = request.headers.get("Authorization", "")
         with get_db() as db:
             user = _resolve_user_from_bearer(authorization, db)
-        _current_user_var.set(user)   # stored in a contextvar
-        return await call_next(request)
+        token = _request_user_var.set(user)   # stored in a contextvar
+        try:
+            return await call_next(request)
+        finally:
+            _request_user_var.reset(token)
 ```
 
-The tool handlers then call `_current_user_var.get()` to retrieve the authenticated user. **Contextvars** (Python's `contextvars.ContextVar`) are the right tool here because each request runs in its own async context — unlike a global variable, a contextvar is isolated per coroutine execution tree.
+The tool handlers then call `_request_user_var.get()` (via `_current_user()`) to retrieve the authenticated user. **Contextvars** (Python's `contextvars.ContextVar`) are the right tool here because each request runs in its own async context — unlike a global variable, a contextvar is isolated per coroutine execution tree.
 
 ---
 
@@ -189,7 +192,7 @@ def get_content_item(item_id: str, include_full_text: bool = False) -> dict:
 ```
 
 1. `get_db()` — context manager that opens a SQLAlchemy session and closes it on exit
-2. `get_user_from_env(db)` (stdio) or `_current_user_var.get()` (HTTP) — resolves the authenticated user
+2. `get_user_from_env(db)` (stdio) or `_request_user_var.get()` via `_current_user()` (HTTP) — resolves the authenticated user
 3. Delegate to a function in `app/mcp/tools/` — the actual business logic, importable and testable independently
 
 The tool functions in `app/mcp/tools/` accept `(user, db)` as explicit parameters. This makes them independently testable without going through the MCP transport at all — tests can call `_get_content_item(item_id, user, db)` directly.
