@@ -113,7 +113,7 @@ Browser / Extension
 |--------|------|-------|
 | `id` | UUID PK | |
 | `user_id` | UUID FK → users | Ownership. Never cross-user. |
-| `original_url` | Text | The URL as submitted. |
+| `original_url` | Text | The URL as submitted (normalized: lowercase scheme+host, no trailing slash). Partial unique index `uq_content_items_user_url_active` on `(user_id, original_url) WHERE deleted_at IS NULL` prevents duplicate active entries per user. |
 | `submitted_via` | String | `'web'`, `'extension'`, `'api'`, `'email'`. |
 | `title`, `description`, `author` | Text | Extracted by Celery or provided by extension. |
 | `thumbnail_url` | Text | OG image or PDF figure. |
@@ -286,7 +286,7 @@ All routes require `Authorization: Bearer <token>` unless noted.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 20 req/min per user. |
+| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 20 req/min per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists. |
 | GET | `/content` | List items. Filters: `is_read`, `is_archived`, `tag`. Pagination: `skip`, `limit`. |
 | GET | `/content/tags` | All unique tags for current user with occurrence counts. |
 | GET | `/content/recommended` | Scored unread items. Params: `mood` (`quick_read`, `deep_dive`, `light`). |

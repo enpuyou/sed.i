@@ -91,7 +91,7 @@ def semantic_search(
     # Bulk-load all result ContentItems in one query to avoid N+1.
     result_ids = [r["id"] for r in results]
     items_by_id = {
-        item.id: item
+        str(item.id): item
         for item in db.query(ContentItem).filter(ContentItem.id.in_(result_ids)).all()
     }
 
@@ -108,6 +108,7 @@ def semantic_search(
             "user_id": item.user_id,
             "original_url": item.original_url,
             "title": item.title,
+            "author": item.author,
             "description": item.description,
             "thumbnail_url": item.thumbnail_url,
             "content_type": item.content_type,

@@ -212,7 +212,7 @@ describe("AddContentForm", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/failed to add content. please try again/i),
+          screen.getByText(/couldn't add link. try again/i),
         ).toBeInTheDocument();
       });
     });
