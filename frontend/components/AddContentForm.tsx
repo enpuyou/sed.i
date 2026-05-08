@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
+import Link from "next/link";
 import { contentAPI } from "@/lib/api";
 import { ContentItem } from "@/types";
 import InlineError from "./InlineError";
@@ -9,35 +10,52 @@ interface AddContentFormProps {
   onContentAdded: (newItem: ContentItem) => void;
 }
 
+interface DuplicateInfo {
+  id: string;
+  isArchived: boolean;
+}
+
 export default function AddContentForm({
   onContentAdded,
 }: AddContentFormProps) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateInfo | null>(
+    null,
+  );
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleUrlChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setUrl(e.target.value);
+    setError("");
+    setDuplicateInfo(null);
+  };
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setDuplicateInfo(null);
 
     try {
-      // API returns the newly created content item
       const newItem = await contentAPI.create({ url });
-
-      // Reset form
       setUrl("");
-
-      // Notify parent component with the new item
       onContentAdded(newItem);
     } catch (err) {
-      // Extract the actual error message from the Error object
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "Failed to add content. Please try again.";
-
-      setError(errorMessage);
+      const message = err instanceof Error ? err.message : "";
+      try {
+        const body = JSON.parse(message);
+        if (body?.existing_id) {
+          setDuplicateInfo({
+            id: body.existing_id,
+            isArchived: body.is_archived ?? false,
+          });
+          return;
+        }
+      } catch {
+        // not a structured 409 — fall through to generic error
+      }
+      setError(message || "Couldn't add link. Try again.");
     } finally {
       setLoading(false);
     }
@@ -53,6 +71,19 @@ export default function AddContentForm({
         />
       )}
 
+      {duplicateInfo && (
+        <p className="text-xs font-mono text-[var(--color-text-muted)] py-1">
+          Already in your library{duplicateInfo.isArchived ? " (archived)" : ""}
+          .{" "}
+          <Link
+            href={`/content/${duplicateInfo.id}`}
+            className="underline text-[var(--color-text-primary)] hover:text-[var(--color-accent)] transition-colors"
+          >
+            View it →
+          </Link>
+        </p>
+      )}
+
       <div className="flex items-center gap-2 group focus-within:opacity-100 opacity-80 transition-opacity duration-300 border-b border-[var(--color-border)] focus-within:border-[var(--color-accent)]">
         <span className="text-[var(--color-text-muted)] font-mono text-lg select-none">
           &gt;
@@ -61,7 +92,7 @@ export default function AddContentForm({
           type="url"
           id="url"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={handleUrlChange}
           placeholder="Paste article URL..."
           required
           className="flex-1 px-0 py-2 bg-transparent rounded-none focus:outline-none focus:!ring-0 focus:!shadow-none placeholder-[var(--color-text-muted)] transition-all font-mono text-xs sm:text-sm border-none"

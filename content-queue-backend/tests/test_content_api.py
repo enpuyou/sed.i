@@ -12,6 +12,7 @@ Tests cover the complete content lifecycle:
 - Authorization and permission checks
 """
 
+import json
 import pytest
 from uuid import uuid4
 from unittest.mock import patch
@@ -132,6 +133,34 @@ class TestCreateContent:
 
         # Should either accept (and fail during extraction) or reject with 422
         assert response.status_code in [201, 422]
+
+    @patch("app.api.content.extract_metadata")
+    def test_create_content_blocks_duplicate_of_legacy_unnormalized_url(
+        self, mock_extract, client, auth_headers, test_user, db_session
+    ):
+        from app.models.content import ContentItem
+
+        legacy = ContentItem(
+            user_id=test_user.id,
+            original_url="HTTPS://Example.com/article/?utm_source=newsletter#section",
+            submitted_via="web",
+            processing_status="completed",
+        )
+        db_session.add(legacy)
+        db_session.commit()
+        db_session.refresh(legacy)
+
+        response = client.post(
+            "/content",
+            json={"url": "https://example.com/article"},
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 409
+        detail = json.loads(response.json()["detail"])
+        assert detail["existing_id"] == str(legacy.id)
+        assert detail["is_archived"] is False
+        mock_extract.delay.assert_not_called()
 
 
 class TestListContent:

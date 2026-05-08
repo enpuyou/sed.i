@@ -1,4 +1,6 @@
+import json
 import re
+from urllib.parse import urlparse, parse_qs, urlencode
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -17,6 +19,119 @@ from app.schemas.content import (
 )
 from app.tasks.extraction import extract_metadata
 from app.tasks.summarization import generate_summary
+
+
+# Tracking/analytics params that never change which article a URL points to.
+_STRIP_PARAMS = {
+    # UTM
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "utm_id",
+    "utm_source_platform",
+    "utm_creative_format",
+    "utm_marketing_tactic",
+    # Facebook
+    "fbclid",
+    "fb_action_ids",
+    "fb_action_types",
+    "fb_source",
+    "fb_ref",
+    # Google / DoubleClick
+    "gclid",
+    "gclsrc",
+    "dclid",
+    # Twitter / X
+    "twclid",
+    # Microsoft
+    "msclkid",
+    # HubSpot
+    "hsa_acc",
+    "hsa_cam",
+    "hsa_grp",
+    "hsa_ad",
+    "hsa_src",
+    "hsa_tgt",
+    "hsa_kw",
+    "hsa_mt",
+    "hsa_net",
+    "hsa_ver",
+    # Mailchimp / email
+    "mc_cid",
+    "mc_eid",
+    # Generic click-tracking
+    "ref",
+    "source",
+    "campaign",
+    "medium",
+}
+
+
+def normalize_url(url: str) -> str:
+    """Normalize a URL for deduplication.
+
+    - Lowercase scheme + host
+    - Strip trailing slash from path
+    - Remove tracking/analytics query params (UTM, fbclid, gclid, etc.)
+    - Preserve all other query params (sorted for determinism)
+    - Drop fragment
+    """
+    url = url.strip()
+    parsed = urlparse(url)
+    clean_params = {
+        k: v
+        for k, v in parse_qs(parsed.query, keep_blank_values=True).items()
+        if k.lower() not in _STRIP_PARAMS
+    }
+    clean_path = parsed.path.rstrip("/")
+    normalized = parsed._replace(
+        scheme=parsed.scheme.lower(),
+        netloc=parsed.netloc.lower(),
+        path=clean_path,
+        query=urlencode(sorted(clean_params.items()), doseq=True),
+        fragment="",
+    )
+    return normalized.geturl()
+
+
+def _find_existing_active_item_by_normalized_url(
+    *,
+    db: Session,
+    user_id: UUID,
+    normalized_url: str,
+) -> ContentItem | None:
+    """Find an active duplicate by normalized URL.
+
+    Primary lookup uses the indexed exact match on `original_url` for fast path.
+    Fallback scans active items and normalizes each stored URL to catch legacy
+    rows created before URL normalization was consistently applied.
+    """
+    existing = (
+        db.query(ContentItem)
+        .filter(
+            ContentItem.user_id == user_id,
+            ContentItem.original_url == normalized_url,
+            ContentItem.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    active_items = (
+        db.query(ContentItem)
+        .filter(
+            ContentItem.user_id == user_id,
+            ContentItem.deleted_at.is_(None),
+        )
+        .all()
+    )
+    for item in active_items:
+        if normalize_url(item.original_url) == normalized_url:
+            return item
+    return None
 
 
 def _clean_extension_html(
@@ -133,10 +248,30 @@ async def create_content_item(
     - Trigger background job to extract metadata/full text
     - Optionally adds to specified lists
     """
+    normalized_url = normalize_url(item_data.url)
+
+    # Duplicate check: block re-ingestion of active URLs (deleted items are exempt)
+    existing = _find_existing_active_item_by_normalized_url(
+        db=db,
+        user_id=current_user.id,
+        normalized_url=normalized_url,
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=json.dumps(
+                {
+                    "message": "Already in your library",
+                    "existing_id": str(existing.id),
+                    "is_archived": existing.is_archived,
+                }
+            ),
+        )
+
     # Create content item
     new_item = ContentItem(
         user_id=current_user.id,
-        original_url=item_data.url,
+        original_url=normalized_url,
         submitted_via="web",
         processing_status="pending",
     )

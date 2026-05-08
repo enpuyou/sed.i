@@ -111,6 +111,39 @@ class TestAddContent:
         mock_task.delay.assert_called_once()
         assert result["status"] == "queued"
 
+    def test_returns_exists_for_legacy_unnormalized_duplicate(self, db, user):
+        from app.models.content import ContentItem
+
+        existing = ContentItem(
+            user_id=user.id,
+            original_url="HTTPS://Example.com/article/?utm_source=newsletter#section",
+            submitted_via="web",
+            processing_status="completed",
+        )
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+
+        result = add_content(url="https://example.com/article", user=user, db=db)
+
+        assert result["status"] == "exists"
+        assert str(result["item_id"]) == str(existing.id)
+
+    def test_stores_normalized_url(self, db, user):
+        from app.models.content import ContentItem
+
+        with patch("app.mcp.tools.write.process_url_task") as mock_task:
+            mock_task.delay.return_value = MagicMock(id="celery-task-id")
+            result = add_content(
+                url="HTTPS://Example.com/article/?utm_source=newsletter&b=2&a=1#frag",
+                user=user,
+                db=db,
+            )
+
+        item = db.query(ContentItem).filter(ContentItem.id == result["item_id"]).first()
+        assert item is not None
+        assert item.original_url == "https://example.com/article?a=1&b=2"
+
 
 class TestCreateList:
     def test_raises_on_empty_name(self, db, user):

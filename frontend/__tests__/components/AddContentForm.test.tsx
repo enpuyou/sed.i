@@ -212,7 +212,7 @@ describe("AddContentForm", () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/failed to add content. please try again/i),
+          screen.getByText(/couldn't add link. try again/i),
         ).toBeInTheDocument();
       });
     });
@@ -276,6 +276,71 @@ describe("AddContentForm", () => {
           screen.getByText(/too many requests. please slow down/i),
         ).toBeInTheDocument();
       });
+    });
+
+    it("shows duplicate item link from structured 409 error and dismisses on input change", async () => {
+      mockedContentAPI.create.mockRejectedValue(
+        new Error(
+          JSON.stringify({
+            message: "Already in your library",
+            existing_id: "existing-content-123",
+            is_archived: false,
+          }),
+        ),
+      );
+
+      render(<AddContentForm onContentAdded={mockOnContentAdded} />);
+
+      const input = screen.getByPlaceholderText(/Paste article URL/i);
+      await userEvent.type(input, "https://example.com/article");
+
+      fireEvent.click(screen.getByRole("button", { name: "Add to Queue" }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/already in your library\./i)).toBeInTheDocument();
+      });
+
+      const link = screen.getByRole("link", { name: /view it/i });
+      expect(link).toHaveAttribute("href", "/content/existing-content-123");
+      expect(mockOnContentAdded).not.toHaveBeenCalled();
+
+      await userEvent.type(input, "x");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("link", { name: /view it/i })).not.toBeInTheDocument();
+        expect(
+          screen.queryByText(/already in your library\./i),
+        ).not.toBeInTheDocument();
+      });
+    });
+
+    it("shows archived duplicate variant from structured 409 error", async () => {
+      mockedContentAPI.create.mockRejectedValue(
+        new Error(
+          JSON.stringify({
+            message: "Already in your library",
+            existing_id: "archived-content-123",
+            is_archived: true,
+          }),
+        ),
+      );
+
+      render(<AddContentForm onContentAdded={mockOnContentAdded} />);
+
+      const input = screen.getByPlaceholderText(/Paste article URL/i);
+      await userEvent.type(input, "https://example.com/article");
+
+      fireEvent.click(screen.getByRole("button", { name: "Add to Queue" }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/already in your library \(archived\)\./i),
+        ).toBeInTheDocument();
+      });
+      expect(screen.getByRole("link", { name: /view it/i })).toHaveAttribute(
+        "href",
+        "/content/archived-content-123",
+      );
     });
   });
 
