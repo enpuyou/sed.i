@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, TSVECTOR
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from datetime import datetime
@@ -28,6 +28,7 @@ class Highlight(Base):
     embedding = Column(
         Vector(1536), nullable=True
     )  # AI embedding for connection search
+    search_vector = Column(TSVECTOR, nullable=True)  # Full-text search over text + note
     created_at = Column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )

@@ -54,6 +54,24 @@ async function handleSave(payload) {
   return response.json();
 }
 
+// ─── Ephemeral article relay (chrome.storage.session) ────────────────────────
+//
+// The extension cannot write directly to the /read page's sessionStorage
+// (cross-origin restriction). Instead: popup writes payload here, the /read
+// page calls getEphemeralArticle once on mount, we clear it after responding.
+
+async function getSessionStorage(...keys) {
+  return new Promise((resolve) => chrome.storage.session.get(keys, resolve));
+}
+
+async function setSessionStorage(obj) {
+  return new Promise((resolve) => chrome.storage.session.set(obj, resolve));
+}
+
+async function removeSessionStorage(...keys) {
+  return new Promise((resolve) => chrome.storage.session.remove(keys, resolve));
+}
+
 // ─── Message handler ──────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
@@ -84,6 +102,19 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
     case 'setApiBase':
       setStorage({ apiBase: request.apiBase }).then(() => sendResponse({ ok: true }));
+      return true;
+
+    case 'setEphemeralArticle':
+      setSessionStorage({ ephemeralArticle: request.article })
+        .then(() => sendResponse({ ok: true }))
+        .catch((err) => sendResponse({ ok: false, error: err.message }));
+      return true;
+
+    case 'getEphemeralArticle':
+      getSessionStorage('ephemeralArticle').then(({ ephemeralArticle }) => {
+        sendResponse({ article: ephemeralArticle || null });
+        if (ephemeralArticle) removeSessionStorage('ephemeralArticle');
+      });
       return true;
 
     default:

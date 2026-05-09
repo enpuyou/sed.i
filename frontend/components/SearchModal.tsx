@@ -21,6 +21,16 @@ interface SearchResult {
   match_type?: "filter" | "keyword" | "semantic" | "hybrid";
 }
 
+interface HighlightResult {
+  highlight_id: string;
+  text: string;
+  note: string | null;
+  color: string;
+  content_item_id: string;
+  article_title: string;
+  score: number;
+}
+
 interface SearchModalProps {
   initialQuery?: string;
   onClose: () => void;
@@ -42,6 +52,9 @@ export default function SearchModal({
   const [dateOpen, setDateOpen] = useState(false);
   const [customDate, setCustomDate] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [highlightResults, setHighlightResults] = useState<HighlightResult[]>(
+    [],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [page, setPage] = useState(0);
@@ -52,6 +65,7 @@ export default function SearchModal({
     async (q: string, pg: number, af: string, bf: string) => {
       if (q.length < 3) {
         setResults([]);
+        setHighlightResults([]);
         return;
       }
       setLoading(true);
@@ -64,12 +78,16 @@ export default function SearchModal({
           before: bf || undefined,
           mode: "full",
         });
-        setHasMore(data.length > PAGE_SIZE);
-        setResults(data.slice(0, PAGE_SIZE));
+        const articles: SearchResult[] = data.articles ?? data ?? [];
+        const highlights: HighlightResult[] = data.highlights ?? [];
+        setHasMore(articles.length > PAGE_SIZE);
+        setResults(articles.slice(0, PAGE_SIZE));
+        setHighlightResults(highlights);
         setFocusedIndex(0);
       } catch {
         setError(true);
         setResults([]);
+        setHighlightResults([]);
       } finally {
         setLoading(false);
       }
@@ -377,7 +395,6 @@ export default function SearchModal({
                   )}
                 </div>
               </div>
-              {/* Keyboard hint on focused item */}
               {i === focusedIndex && (
                 <span className="text-[10px] font-mono text-[var(--color-text-muted)] shrink-0 self-center">
                   ↵
@@ -385,6 +402,41 @@ export default function SearchModal({
               )}
             </button>
           ))}
+
+          {highlightResults.length > 0 && (
+            <>
+              <div className="px-4 py-1.5 bg-[var(--color-bg-secondary)] border-t border-[var(--color-border-subtle)]">
+                <span className="text-[10px] font-mono text-[var(--color-text-muted)] uppercase tracking-wider">
+                  Highlights
+                </span>
+              </div>
+              {highlightResults.map((h) => (
+                <button
+                  key={h.highlight_id}
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    router.push(
+                      `/content/${h.content_item_id}#${h.highlight_id}`,
+                    );
+                  }}
+                  className="w-full text-left px-4 py-3 flex flex-col gap-0.5 border-b border-[var(--color-border-subtle)] last:border-b-0 hover:bg-[var(--color-bg-secondary)] transition-colors"
+                >
+                  <p className="text-xs font-mono text-[var(--color-text-muted)] truncate">
+                    {h.article_title}
+                  </p>
+                  <p className="text-sm text-[var(--color-text-primary)] line-clamp-2">
+                    &ldquo;{h.text}&rdquo;
+                  </p>
+                  {h.note && (
+                    <p className="text-xs text-[var(--color-text-secondary)] line-clamp-1 mt-0.5 italic">
+                      {h.note}
+                    </p>
+                  )}
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         {/* Pagination footer */}

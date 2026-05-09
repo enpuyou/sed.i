@@ -197,6 +197,50 @@ document.getElementById('btn-login-reset-api-url').addEventListener('click', asy
   fb.classList.remove('hidden');
 });
 
+// ─── Read (ephemeral reader) ──────────────────────────────────────────────────
+
+document.getElementById('btn-read').addEventListener('click', async () => {
+  hideError('save-error');
+  show('view-saving');
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab?.url;
+    if (!url) throw new Error('Could not determine current page URL.');
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['lib/Readability.js', 'content/content.js'],
+    });
+    const extracted = results?.[0]?.result;
+
+    if (!extracted || extracted.error) {
+      throw new Error(extracted?.error || 'Content extraction failed.');
+    }
+
+    // Store payload in chrome.storage.session — the /read page fetches it via messaging
+    await msg('setEphemeralArticle', {
+      article: {
+        url,
+        html:           extracted.html,
+        title:          extracted.title          || '',
+        author:         extracted.author         || '',
+        description:    extracted.description    || '',
+        thumbnail:      extracted.thumbnail      || '',
+        publishedDate:  extracted.publishedDate  || '',
+      },
+    });
+
+    const frontendBase = DEFAULT_FRONTEND_BASE.replace(/\/$/, '');
+    chrome.tabs.create({ url: `${frontendBase}/read` });
+    window.close();
+
+  } catch (err) {
+    show('view-ready');
+    showError('save-error', err.message);
+  }
+});
+
 // ─── Save / Extract ───────────────────────────────────────────────────────────
 
 let _pendingPayload = null;

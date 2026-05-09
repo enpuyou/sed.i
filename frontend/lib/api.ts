@@ -224,7 +224,23 @@ export const contentAPI = {
   },
 
   // Create a new content item (POST /content)
-  create: async (data: { url: string; list_ids?: string[] }) => {
+  create: async (data: {
+    url: string;
+    list_ids?: string[];
+    pre_extracted_html?: string;
+    pre_extracted_title?: string;
+    pre_extracted_author?: string;
+    pre_extracted_description?: string;
+    pre_extracted_thumbnail?: string;
+    pre_extracted_published_date?: string;
+    initial_highlights?: Array<{
+      text: string;
+      note?: string;
+      start_offset: number;
+      end_offset: number;
+      color?: string;
+    }>;
+  }) => {
     return fetchWithAuth(`${API_BASE_URL}/content`, {
       method: "POST",
       body: JSON.stringify(data),

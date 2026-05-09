@@ -23,9 +23,19 @@ interface ReaderProps {
     full_text?: string;
     is_public?: boolean;
   }) => void;
+  onHighlightCreate?: (highlight: {
+    text: string;
+    start_offset: number;
+    end_offset: number;
+    color: string;
+  }) => void;
 }
 
-export default function Reader({ content, onStatusChange }: ReaderProps) {
+export default function Reader({
+  content,
+  onStatusChange,
+  onHighlightCreate,
+}: ReaderProps) {
   // Use global theme context
   useTheme();
 
@@ -695,6 +705,7 @@ export default function Reader({ content, onStatusChange }: ReaderProps) {
             ? () => setShowConnectionsPanel(true)
             : undefined
         }
+        onHighlightCreate={onHighlightCreate}
       />
 
       <KeyboardShortcuts

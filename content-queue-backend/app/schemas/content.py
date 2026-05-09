@@ -4,6 +4,16 @@ from datetime import datetime
 from uuid import UUID
 
 
+class EphemeralHighlight(BaseModel):
+    """A highlight captured in the ephemeral reader before the article is saved."""
+
+    text: str
+    note: Optional[str] = None
+    start_offset: int
+    end_offset: int
+    color: str = "yellow"
+
+
 class ContentItemCreate(BaseModel):
     """Data needed to save a new link"""
 
@@ -19,6 +29,8 @@ class ContentItemCreate(BaseModel):
     pre_extracted_access_restricted: bool = (
         False  # Extension signals paywall/access gate
     )
+    # Ephemeral reader: highlights captured before saving
+    initial_highlights: list[EphemeralHighlight] | None = None
 
 
 class ContentItemResponse(BaseModel):
@@ -36,8 +48,8 @@ class ContentItemResponse(BaseModel):
     auto_tags: list[str] | None = []  # AI-suggested tags
     status: str | None = None  # Reading status (read/unread/in_progress/archived)
 
-    # Full content fields
-    full_text: str | None
+    # Full content fields — full_text intentionally excluded from list responses
+    # (see ContentItemDetail for the reader path)
     word_count: int | None
     reading_time_minutes: int | None
 
@@ -93,9 +105,9 @@ class ContentItemResponse(BaseModel):
 
 
 class ContentItemDetail(ContentItemResponse):
-    """Extended response with full text for single item view"""
+    """Single-item response for the reader — includes full_text."""
 
-    pass  # Same as ContentItemResponse but semantically different
+    full_text: str | None
 
 
 class ContentItemUpdate(BaseModel):

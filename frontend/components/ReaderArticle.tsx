@@ -56,6 +56,13 @@ interface ReaderArticleProps {
       note?: string;
     }>,
   ) => void;
+  // When provided, replaces API call — used by EphemeralReader to capture local highlights
+  onHighlightCreate?: (highlight: {
+    text: string;
+    start_offset: number;
+    end_offset: number;
+    color: string;
+  }) => void;
 }
 
 export interface ReaderArticleHandle {
@@ -96,6 +103,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       focusModeEnabled = false,
       onHighlightsChange,
       onShowConnections,
+      onHighlightCreate,
     },
     ref,
   ) {
@@ -468,8 +476,26 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [content.id]);
 
+    // When showConnections is toggled, update connection highlights without re-fetching
+    // highlights from scratch (which would cause a redundant GET /highlights call).
     useEffect(() => {
-      refreshHighlights();
+      if (!content.id) return;
+      if (!settings.showConnections) {
+        setConnectedHighlightIds(new Set());
+        return;
+      }
+      searchAPI
+        .findArticleConnections(content.id)
+        .then((data) => {
+          const ids = new Set<string>();
+          for (const articleConn of data) {
+            for (const pair of articleConn.highlight_pairs) {
+              ids.add(pair.user_highlight_id);
+            }
+          }
+          setConnectedHighlightIds(ids);
+        })
+        .catch(() => setConnectedHighlightIds(new Set()));
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.showConnections]);
 
@@ -1163,6 +1189,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
             }
           }}
           onHighlightCreated={refreshHighlights}
+          onHighlightCreate={onHighlightCreate}
         />
 
         {/* Article Content */}

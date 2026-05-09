@@ -122,7 +122,7 @@ Browser / Extension
 | `tags` | `ARRAY(String)` | User-confirmed tags. |
 | `auto_tags` | `ARRAY(String)` | AI-suggested tags (pending user accept/dismiss). |
 | `published_date` | DateTime | From OG metadata. |
-| `full_text` | Text | Full HTML from trafilatura or pre-extracted HTML. |
+| `full_text` | Text | Full HTML from trafilatura or pre-extracted HTML. **Excluded from list responses** (`ContentItemResponse`). Only returned by `GET /content/{id}/full` (`ContentItemDetail`). |
 | `word_count` | Integer | Computed from `full_text`. |
 | `reading_time_minutes` | Integer | `max(1, round(word_count / 200))`. |
 | `read_position` | Float (0.0–1.0) | Scroll progress. Auto-marks read at ≥ 0.9. |
@@ -151,10 +151,31 @@ User text selections within a content item.
 | `start_offset`, `end_offset` | Integer | Character position in full_text. |
 | `color` | String | `'yellow'`, `'green'`, etc. |
 | `embedding` | `Vector(1536)` | Populated by Celery for connection search. |
+| `search_vector` | `TSVECTOR` | Full-text index over `text` + `note`. Maintained by trigger (dual english+simple dictionary). Used by highlight search in `/search/semantic`. |
 | `created_at` | DateTime | |
 
 Highlight connections are discovered via the `/search/connections/{highlight_id}`
 endpoint (cosine similarity across all of a user's highlights).
+
+### `content_chunks`
+
+Per-article passage chunks for multi-vector semantic search. Each article is split
+into structure-aware chunks (~350 tokens each) and embedded individually.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID PK | |
+| `content_item_id` | UUID FK → content_items | CASCADE delete. |
+| `user_id` | UUID FK → users | CASCADE delete. |
+| `chunk_index` | Integer | 0-based position within the article. |
+| `text` | Text | Plain text of the chunk (no HTML, no contextual prefix). |
+| `embedding` | `Vector(1536)` | Embedding of the contextual-prefixed chunk text. |
+| `created_at` | DateTime | |
+
+Populated by the `generate_chunk_embeddings` Celery task after `generate_embedding`
+completes. Old chunks are deleted and replaced on each run (idempotent). Articles
+without chunks (ingested before chunking was deployed) fall back to the single
+item-level embedding at search time.
 
 ### `lists`
 
@@ -286,7 +307,7 @@ All routes require `Authorization: Bearer <token>` unless noted.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 20 req/min per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists. |
+| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 20 req/min per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists. Accepts optional `initial_highlights` array — highlight rows are created atomically with the content item in one transaction (used by ephemeral reader save). |
 | GET | `/content` | List items. Filters: `is_read`, `is_archived`, `tag`. Pagination: `skip`, `limit`. |
 | GET | `/content/tags` | All unique tags for current user with occurrence counts. |
 | GET | `/content/recommended` | Scored unread items. Params: `mood` (`quick_read`, `deep_dive`, `light`). |
@@ -334,7 +355,7 @@ runs) so the item is flagged as limited without waiting for the Celery task.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/search/semantic?query=...` | Hybrid search. Classifies query and routes to keyword, filter, semantic, or RRF-fused path. Supports `mode=full` (always runs all three), `offset`, `after`/`before` date operators. |
+| GET | `/search/semantic?query=...` | Hybrid search. Returns `{ articles: [...], highlights: [...] }`. Articles: classifies query and routes to keyword, filter, semantic, or RRF-fused path. Highlights: tsvector keyword search over `highlights.search_vector`. Supports `mode=full`, `offset`, `after`/`before` date operators. |
 | GET | `/search/connections/{highlight_id}` | Highlights in other articles similar to this highlight. Threshold param (default 0.75). |
 | GET | `/search/connections/article/{content_id}` | All cross-article connections for highlights in the given article, grouped by connected article. |
 | GET | `/search/{item_id}/similar` | Articles in user's queue similar to the given item. |
@@ -525,6 +546,18 @@ by `created_at` in Python.
 using dual-dictionary (english + simple) so stemmed words AND acronyms both match.
 Prefix matching (`llm:*`) catches plurals.
 
+**Chunk-level semantic search** — articles are split into ~350-token structure-aware
+chunks stored in `content_chunks`. At query time, an article's score is
+`MAX(cosine_similarity)` across all its chunks — so a 20-section article surfaces
+if *any* section matches, not just if the averaged embedding matches. Articles
+without chunks (pre-deployment) fall back to the single item-level embedding via
+a `UNION ALL` CTE. See `docs/chunking-and-search.md` for the full architecture.
+
+**Highlight search** — every query to `/search/semantic` also runs a tsvector
+keyword search over `highlights.search_vector` (text + note) and returns matching
+highlights alongside articles. Results include `article_title` so the frontend can
+link to the parent article.
+
 **Embedding cache** — `app/core/embedding_cache.py` caches query embeddings in
 Redis (`qemb:{sha256[:16]}`, 1hr TTL) to avoid redundant OpenAI calls.
 
@@ -580,7 +613,8 @@ Optional `mood` filter:
 |-------|------|-------------|
 | `/` | `page.tsx` | Landing / marketing page. |
 | `/dashboard` | `dashboard/page.tsx` | Main queue. Add form, filters, content cards. |
-| `/content/[id]` | `content/[id]/page.tsx` | Reader view. Full text, TOC, bionic reading, highlights, connections. |
+| `/content/[id]` | `content/[id]/page.tsx` | Reader view. Fetches via `GET /content/{id}/full` (detail shape with `full_text`). Caches in `sessionStorage` only when `full_text` is present to prevent blank reader on PATCH-induced cache overwrite. |
+| `/read` | `read/page.tsx` | Ephemeral reader. Loads article from extension relay (`chrome.storage.session` via `getEphemeralArticle` message) or `sessionStorage` fallback. Renders `EphemeralReader` with "Save to Library" banner. No article in storage → "No article to read" empty state. |
 | `/lists` | `lists/page.tsx` | List management. |
 | `/lists/[id]` | `lists/[id]/page.tsx` | Items inside a list. |
 | `/crates` | `crates/` | Vinyl record collection (feature-flagged). |
@@ -599,7 +633,8 @@ Optional `mood` filter:
 | `ContentList` | dashboard | Fetches items, client-side filter, list/index view toggle. Sort field/dir persisted in localStorage. RetroLoader on all loading states. Active sort header highlighted in accent color (no glyph). |
 | `ContentItem` | dashboard / public profile | Card view. Accepts `readOnly?: boolean` — hides all action buttons (read, archive, delete, tag, list) when true. Accepts `navigateTo?: string` to override default `/content/:id` link. Uses `getIngestIssue(...)` mapping to show clearer ingest failure badges (blocked/auth/network/partial) instead of a single generic extraction failure label. Failed-ingest items only use the compact single-line row (status badge + source domain + date + right-aligned delete) when extraction fails before meaningful metadata is available; failed items with usable metadata keep the standard full card layout. |
 | `ContentIndexItem` | dashboard / public profile | Index row. Responsive layout layout: Desktop shows Date \| Title \| Author/Source \| hover menu. Mobile collapses to just Date \| Title to preserve space. Hovering reveals absolute-positioned multi-action tools (Read, Archive, Delete). Delete uses click→"Delete?"→click confirm. Accepts `readOnly` and `navigateTo` props. |
-| `Reader` | content/[id] | Shell: fixed navbar (back, font-size, theme, focus/highlights and optional connections buttons), reading progress bar, optional NowPlaying player, HighlightsPanel + optional ConnectionsPanel sidebars, TOC sidebar, KeyboardShortcuts. Renders `<ReaderArticle>` for the article body. Receives live highlights count via `onHighlightsChange` callback. |
+| `Reader` | content/[id], read/ | Shell: fixed navbar, reading progress bar, optional NowPlaying, HighlightsPanel + optional ConnectionsPanel sidebars, TOC sidebar, KeyboardShortcuts. Renders `<ReaderArticle>`. Accepts `onHighlightCreate` override prop — when provided, highlight creation calls the callback instead of the API (used by `EphemeralReader` to collect local highlights before save). |
+| `EphemeralReader` | read/ | Wraps `Reader` with a sticky "Reading without saving" / "Save to Library" banner. Collects highlights locally via `onHighlightCreate` ref. On save: calls `contentAPI.create` with `initial_highlights`, clears sessionStorage, navigates to `/content/{id}`. |
 | `ReaderArticle` | content/[id], lists/[id] | Reusable article body. Handles highlights, selection toolbar, summary, metadata editing, similar articles, ImageZoomModal, scroll position save/restore. `embedded` prop switches from window scroll to container scroll (used in split-pane list view). `focusModeEnabled` prop controlled by Reader's navbar. Exposes `highlights`, `refreshHighlights`, `scrollToHighlight` via `forwardRef`/`useImperativeHandle` for Reader's sidepanels. Uses `getIngestIssue(...)` fallback copy when full text is unavailable, including source-blocked and partial-extraction states. |
 | `InlineError` | shared | Inline contextual error with optional dismiss/retry. See §16. |
 | `EmptyState` | shared | Empty data state with optional CTA. Variants: `inline`, `bordered`. See §16. |

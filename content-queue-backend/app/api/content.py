@@ -221,6 +221,23 @@ async def create_content_item(
         word_count = len(re.sub(r"<[^>]+>", " ", html).split())
         new_item.word_count = word_count
         new_item.reading_time_minutes = max(1, round(word_count / 200))
+        # Create highlights captured in ephemeral reader (atomic with the article)
+        if item_data.initial_highlights:
+            from app.models.highlight import Highlight
+
+            for hl in item_data.initial_highlights:
+                db.add(
+                    Highlight(
+                        content_item_id=new_item.id,
+                        user_id=current_user.id,
+                        text=hl.text,
+                        note=hl.note,
+                        start_offset=hl.start_offset,
+                        end_offset=hl.end_offset,
+                        color=hl.color,
+                    )
+                )
+
         db.commit()
         # Fill any metadata gaps (e.g. missing thumbnail) and generate embedding.
         from app.tasks.embedding import generate_embedding
@@ -433,7 +450,7 @@ def get_recommended_content(
     return {"items": items, "total": total, "skip": skip, "limit": limit}
 
 
-@router.get("/{item_id}", response_model=ContentItemResponse)
+@router.get("/{item_id}", response_model=ContentItemDetail)
 def get_content_item(
     item_id: UUID,
     current_user: User = Depends(get_current_active_user),

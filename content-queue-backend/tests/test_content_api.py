@@ -765,3 +765,58 @@ class TestContentAuthorization:
         # Should only see own content
         assert data["total"] == 1
         assert data["items"][0]["id"] == str(test_content.id)
+
+
+class TestListResponseShape:
+    """Feature 1: list endpoint omits full_text; single-item /full retains it."""
+
+    def test_list_items_do_not_include_full_text(
+        self, client, auth_headers, test_content
+    ):
+        """GET /content list must NOT return full_text — it's never rendered in the queue."""
+        response = client.get("/content", headers=auth_headers)
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert len(items) >= 1
+        assert "full_text" not in items[0], (
+            "full_text should be stripped from list responses to avoid sending "
+            "megabytes of HTML on every dashboard navigation"
+        )
+
+    def test_single_item_endpoint_includes_full_text(
+        self, client, auth_headers, test_content
+    ):
+        """GET /content/{id} (reader path) MUST return full_text so the reader can render it."""
+        response = client.get(f"/content/{test_content.id}", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "full_text" in data
+        assert data["full_text"] is not None
+
+    def test_full_endpoint_includes_full_text(self, client, auth_headers, test_content):
+        """GET /content/{id}/full MUST return full_text (unchanged)."""
+        response = client.get(f"/content/{test_content.id}/full", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert "full_text" in data
+        assert data["full_text"] is not None
+
+    def test_list_items_still_have_all_queue_fields(
+        self, client, auth_headers, test_content
+    ):
+        """List items must still carry every field the queue UI renders."""
+        response = client.get("/content", headers=auth_headers)
+        item = response.json()["items"][0]
+        for field in (
+            "id",
+            "title",
+            "description",
+            "thumbnail_url",
+            "tags",
+            "reading_status",
+            "word_count",
+            "reading_time_minutes",
+            "created_at",
+            "processing_status",
+        ):
+            assert field in item, f"Queue field '{field}' missing from list response"

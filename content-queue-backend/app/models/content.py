@@ -91,3 +91,6 @@ class ContentItem(Base):
     highlights = relationship(
         "Highlight", back_populates="content_item", cascade="all, delete-orphan"
     )
+    chunks = relationship(
+        "ContentChunk", back_populates="content_item", cascade="all, delete-orphan"
+    )

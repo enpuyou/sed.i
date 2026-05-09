@@ -17,7 +17,13 @@ interface HighlightToolbarProps {
   onClose: () => void;
   onHighlightCreated?: (highlightId?: string) => void;
   onOptimisticCreate?: (color: string) => void;
-  // Note props removed as they are handled inline now
+  // When provided, replaces the API call — used by EphemeralReader to capture local highlights
+  onHighlightCreate?: (highlight: {
+    text: string;
+    start_offset: number;
+    end_offset: number;
+    color: string;
+  }) => void;
 }
 
 const colors = ["yellow", "green", "blue", "pink", "purple"];
@@ -28,6 +34,7 @@ export default function HighlightToolbar({
   onClose,
   onHighlightCreated,
   onOptimisticCreate,
+  onHighlightCreate,
 }: HighlightToolbarProps) {
   const isEditing = !!selection?.existingHighlightId;
   const [isLoading, setIsLoading] = useState(false);
@@ -72,13 +79,23 @@ export default function HighlightToolbar({
         if (!isEditing && onOptimisticCreate) {
           onOptimisticCreate(color);
         }
-        const newHighlight = await highlightsAPI.create(contentId, {
-          text: selection.text,
-          start_offset: selection.startOffset,
-          end_offset: selection.endOffset,
-          color,
-        });
-        highlightId = newHighlight.id;
+        if (onHighlightCreate) {
+          onHighlightCreate({
+            text: selection.text,
+            start_offset: selection.startOffset,
+            end_offset: selection.endOffset,
+            color,
+          });
+          highlightId = undefined;
+        } else {
+          const newHighlight = await highlightsAPI.create(contentId, {
+            text: selection.text,
+            start_offset: selection.startOffset,
+            end_offset: selection.endOffset,
+            color,
+          });
+          highlightId = newHighlight.id;
+        }
       }
 
       // Pass the ID if we want to open the note

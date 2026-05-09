@@ -20,7 +20,13 @@ export default function ContentPage() {
       const cached = sessionStorage.getItem(`contentItemCache_${contentId}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed && parsed.item && Date.now() - parsed.timestamp < 3600000) {
+        // Only use cache if it has full_text — list-shape items don't and would show blank reader
+        if (
+          parsed &&
+          parsed.item &&
+          parsed.item.full_text &&
+          Date.now() - parsed.timestamp < 3600000
+        ) {
           return parsed.item;
         }
       }
@@ -46,7 +52,12 @@ export default function ContentPage() {
       const cached = sessionStorage.getItem(`contentItemCache_${contentId}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed && parsed.item && Date.now() - parsed.timestamp < 3600000) {
+        if (
+          parsed &&
+          parsed.item &&
+          parsed.item.full_text &&
+          Date.now() - parsed.timestamp < 3600000
+        ) {
           setContent(parsed.item);
           setLoading(false);
         }
@@ -67,6 +78,7 @@ export default function ContentPage() {
               if (
                 parsed &&
                 parsed.item &&
+                parsed.item.full_text &&
                 Date.now() - parsed.timestamp < 3600000
               ) {
                 setContent(parsed.item);
@@ -80,7 +92,7 @@ export default function ContentPage() {
         if (!silent) setLoading(true);
         setError(null);
 
-        const data = await contentAPI.getById(contentId);
+        const data = await contentAPI.getFullById(contentId);
         setContent(data);
 
         try {
@@ -130,18 +142,23 @@ export default function ContentPage() {
       // Persist to backend and get updated content with computed reading_status
       const updatedContent = await contentAPI.update(contentId, updates);
 
-      // Update with the full response from backend
-      setContent(updatedContent);
+      // PATCH returns ContentItemResponse (no full_text). Preserve full_text from current state
+      // so the reader body doesn't disappear after a read-position or status update.
+      const mergedContent = {
+        ...updatedContent,
+        full_text: previousContent.full_text,
+      };
+      setContent(mergedContent);
 
       // Update the cached content in sessionStorage so it reflects when navigating back
       try {
         // Update specific item cache
         sessionStorage.setItem(
           `contentItemCache_${contentId}`,
-          JSON.stringify({ item: updatedContent, timestamp: Date.now() }),
+          JSON.stringify({ item: mergedContent, timestamp: Date.now() }),
         );
 
-        // Update list cache
+        // Update list cache (use updatedContent — list shape is correct, no full_text needed there)
         const cachedData = sessionStorage.getItem("contentListCache");
         if (cachedData) {
           const cache = JSON.parse(cachedData);

@@ -328,16 +328,43 @@ def _semantic_search(
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
+        # Use chunk-level embeddings when available (MAX similarity across chunks).
+        # Falls back to item-level embedding for articles without chunks.
         rows = db.execute(
             text(
                 """
-                SELECT id, (1 - (embedding <=> CAST(:q AS vector))) AS similarity
-                FROM content_items
-                WHERE user_id = :uid
-                  AND deleted_at IS NULL
-                  AND embedding IS NOT NULL
-                  AND title IS NOT NULL AND title != ''
-                ORDER BY embedding <=> CAST(:q AS vector)
+                WITH chunk_scores AS (
+                    SELECT cc.content_item_id AS id,
+                           MAX(1 - (cc.embedding <=> CAST(:q AS vector))) AS similarity
+                    FROM content_chunks cc
+                    JOIN content_items ci ON ci.id = cc.content_item_id
+                    WHERE cc.user_id = :uid
+                      AND ci.deleted_at IS NULL
+                      AND cc.embedding IS NOT NULL
+                      AND ci.title IS NOT NULL AND ci.title != ''
+                    GROUP BY cc.content_item_id
+                ),
+                item_scores AS (
+                    SELECT ci.id,
+                           (1 - (ci.embedding <=> CAST(:q AS vector))) AS similarity
+                    FROM content_items ci
+                    WHERE ci.user_id = :uid
+                      AND ci.deleted_at IS NULL
+                      AND ci.embedding IS NOT NULL
+                      AND ci.title IS NOT NULL AND ci.title != ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM content_chunks cc2
+                          WHERE cc2.content_item_id = ci.id AND cc2.embedding IS NOT NULL
+                      )
+                ),
+                combined AS (
+                    SELECT id, similarity FROM chunk_scores
+                    UNION ALL
+                    SELECT id, similarity FROM item_scores
+                )
+                SELECT id, similarity
+                FROM combined
+                ORDER BY similarity DESC
                 LIMIT :lim
             """
             ),
