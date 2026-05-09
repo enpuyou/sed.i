@@ -1469,7 +1469,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                       Abstract
                     </span>
                     <p className="text-[var(--color-text-secondary)] text-base font-serif leading-relaxed">
-                      {content.vertical_metadata?.abstract ||
+                      {(content.vertical_metadata?.abstract as string) ||
                         content.description}
                     </p>
                   </div>

@@ -1,3 +1,13 @@
+"""
+Celery task: generate_auto_tags.
+
+Suggests tags for a ContentItem using pgvector similarity against existing
+user tags (cheap path) with gpt-4o-mini fallback. Stores suggestions in
+ContentItem.auto_tags. User accepts/dismisses from the UI.
+
+Dispatch: generate_auto_tags.delay(item_id)
+"""
+
 from celery import Task
 from sqlalchemy.orm import Session
 from sqlalchemy import func

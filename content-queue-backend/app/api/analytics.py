@@ -1,3 +1,11 @@
+"""
+Analytics endpoints.
+
+Returns aggregate reading stats for the current user: total saved, read,
+archived, in-progress counts, reading streak, and tag breakdown.
+Route: GET /analytics/stats.
+"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func

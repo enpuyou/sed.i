@@ -1,3 +1,14 @@
+"""
+Celery task: extract_metadata.
+
+Entry point for the normal Ingestion path. Fetches the URL, extracts title/
+author/description/full_text via trafilatura, computes word count and reading
+time, triggers embedding + tagging as follow-on tasks. Writes results back to
+the ContentItem row. Sets processing_status to 'completed' or 'failed'.
+
+Dispatch: extract_metadata.delay(item_id)
+"""
+
 import json
 import logging
 import re

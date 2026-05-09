@@ -21,7 +21,7 @@ from unittest.mock import patch
 class TestCreateContent:
     """Tests for POST /content - Submitting new URLs"""
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_create_content_success(self, mock_extract, client, auth_headers):
         """
         Test successfully submitting a URL.
@@ -55,7 +55,7 @@ class TestCreateContent:
         call_args = mock_extract.delay.call_args[0]
         assert call_args[0] == data["id"]  # Content ID passed to celery task
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_create_content_with_list_membership(
         self, mock_extract, client, auth_headers, test_user, db_session
     ):
@@ -102,7 +102,7 @@ class TestCreateContent:
         assert len(list2_content.json()) == 1
         assert list1_content.json()[0]["id"] == content_id
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_create_content_unauthorized(self, mock_extract, client):
         """
         Test submitting URL without authentication.
@@ -116,7 +116,7 @@ class TestCreateContent:
         assert response.status_code == 401
         mock_extract.delay.assert_not_called()
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_create_content_invalid_url(self, mock_extract, client, auth_headers):
         """
         Test validation for invalid URL format.
@@ -134,7 +134,7 @@ class TestCreateContent:
         # Should either accept (and fail during extraction) or reject with 422
         assert response.status_code in [201, 422]
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_create_content_blocks_duplicate_of_legacy_unnormalized_url(
         self, mock_extract, client, auth_headers, test_user, db_session
     ):
@@ -181,7 +181,7 @@ class TestListContent:
         assert data["skip"] == 0
         assert data["limit"] == 50
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_list_content_multiple_items(self, mock_extract, client, auth_headers):
         """
         Test listing multiple content items.
@@ -222,7 +222,7 @@ class TestListContent:
     @pytest.mark.xfail(
         reason="Intermittent failure due to test isolation issue", strict=False
     )
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_list_content_pagination(self, mock_extract, client, auth_headers):
         """
         Test pagination with skip and limit parameters.
@@ -258,7 +258,7 @@ class TestListContent:
         assert len(data["items"]) == 2
         assert data["skip"] == 2
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_list_content_filter_by_read_status(
         self, mock_extract, client, auth_headers, db_session
     ):
@@ -312,7 +312,7 @@ class TestListContent:
         for item in data["items"]:
             assert item["is_read"] is True
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_list_content_filter_by_archived(
         self, mock_extract, client, auth_headers, db_session
     ):
@@ -349,7 +349,7 @@ class TestListContent:
         assert data["total"] == 1
         assert data["items"][0]["is_archived"] is True
 
-    @patch("app.api.content.extract_metadata")
+    @patch("app.tasks.extraction.extract_metadata")
     def test_list_content_excludes_deleted(
         self, mock_extract, client, auth_headers, db_session
     ):

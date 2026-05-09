@@ -74,6 +74,9 @@ describe("ContentItem", () => {
     published_date: "2024-01-01T00:00:00Z",
     is_public: false,
 
+    summary: null,
+    auto_tags: [],
+    read_position: 0,
     is_read: false,
     is_archived: false,
     reading_status: "unread",

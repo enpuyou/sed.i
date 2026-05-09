@@ -1,3 +1,11 @@
+"""
+Highlight CRUD endpoints.
+
+Highlights are user text selections within a ContentItem. Creating a Highlight
+also triggers async embedding generation (for Connection discovery later).
+Nested under /content/{content_id}/highlights.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List

@@ -1,3 +1,10 @@
+"""
+Draft CRUD endpoints.
+
+Drafts are long-form writing pieces associated with a List (one per List).
+Created automatically when a List is created; updated via PATCH.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from uuid import UUID

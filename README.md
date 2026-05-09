@@ -93,7 +93,7 @@ The easiest way to get started is using Docker Compose to run PostgreSQL and Red
 
 2. **Verify services are running:**
    ```bash
-   docker-compose ps
+   docker-compdose ps
    ```
 
 ### Backend Setup

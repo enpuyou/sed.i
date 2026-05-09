@@ -1,3 +1,11 @@
+"""
+List and List-membership endpoints.
+
+Lists are user-defined named collections of ContentItems. Supports create,
+read, update, delete, and content membership management (add/remove items).
+Public list access is in app/api/endpoints/public.py.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
