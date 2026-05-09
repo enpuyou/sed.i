@@ -2,6 +2,18 @@
 // Use environment variable for production, fallback to localhost for development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export class APIError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly detail: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    public readonly body: Record<string, any> | null = null,
+  ) {
+    super(detail);
+    this.name = "APIError";
+  }
+}
+
 // Helper function to get auth token from localStorage
 const getAuthToken = () => {
   if (typeof window !== "undefined") {
@@ -41,19 +53,26 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
       }
     }
 
-    if (response.status === 429) {
-      // Rate limit exceeded
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(
-        errorData.detail || "Too many requests. Please slow down.",
-      );
-    }
-
-    // Parse {detail} from backend (consistent shape)
     const errorData = await response.json().catch(() => null);
-    const detail =
-      errorData?.detail || (typeof errorData === "string" ? errorData : null);
-    throw new Error(detail || `Request failed (${response.status}).`);
+    // If detail is a JSON-encoded string (e.g. structured 409 bodies), parse it
+    // so callers can read err.body.existing_id etc. directly.
+    let parsedBody = errorData;
+    if (typeof errorData?.detail === "string") {
+      try {
+        parsedBody = JSON.parse(errorData.detail);
+      } catch {
+        // detail is a plain string, not JSON — leave parsedBody as-is
+      }
+    }
+    const detail: string =
+      (typeof parsedBody?.message === "string" ? parsedBody.message : null) ||
+      (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+      (typeof errorData === "string" ? errorData : null) ||
+      (response.status === 429
+        ? "Too many requests. Please slow down."
+        : null) ||
+      `Request failed (${response.status}).`;
+    throw new APIError(response.status, detail, parsedBody);
   }
 
   return response.status === 204 ? null : response.json();

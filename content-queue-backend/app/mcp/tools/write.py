@@ -8,9 +8,9 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
-from app.api.content import (
+from app.services.content import (
     normalize_url,
-    _find_existing_active_item_by_normalized_url,
+    find_existing_active_item,
 )
 from app.models.user import User
 from app.models.list import List, content_list_membership
@@ -105,7 +105,7 @@ def add_content(
 
     normalized_url = normalize_url(url)
 
-    existing = _find_existing_active_item_by_normalized_url(
+    existing = find_existing_active_item(
         db=db,
         user_id=user.id,
         normalized_url=normalized_url,

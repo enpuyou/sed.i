@@ -1,3 +1,13 @@
+"""
+Search endpoints.
+
+/search/semantic  — Hybrid search (keyword + filter + semantic + RRF). Delegates
+                    to app/core/hybrid_search.py. Returns SimilarContentResponse list.
+/search/{id}/similar         — pgvector cosine similarity for a ContentItem.
+/search/connections/{hid}    — Highlight-level semantic connections.
+/search/connections/article/ — All cross-article connections for a ContentItem's highlights.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text

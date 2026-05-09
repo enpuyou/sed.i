@@ -1,3 +1,13 @@
+"""
+Celery task: generate_summary.
+
+Calls OpenAI to produce a short summary of a ContentItem's full_text.
+Stores result in ContentItem.summary. No-op if OPENAI_API_KEY is unset
+or full_text is empty.
+
+Dispatch: generate_summary.delay(item_id)
+"""
+
 from celery import Task
 from sqlalchemy.orm import Session
 from app.core.celery_app import celery_app

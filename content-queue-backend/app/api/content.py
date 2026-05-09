@@ -1,6 +1,12 @@
-import json
+"""
+ContentItem CRUD endpoints.
+
+POST /content delegates ingestion logic (normalize, dedup, create, dispatch)
+to app/services/content.py. This layer owns HTTP concerns only: request
+parsing, list membership, extension HTML pre-processing, and error mapping.
+"""
+
 import re
-from urllib.parse import urlparse, parse_qs, urlencode
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -17,121 +23,8 @@ from app.schemas.content import (
     ContentItemList,
     ContentItemDetail,
 )
-from app.tasks.extraction import extract_metadata
+from app.services.content import ingest_url, DuplicateContentError
 from app.tasks.summarization import generate_summary
-
-
-# Tracking/analytics params that never change which article a URL points to.
-_STRIP_PARAMS = {
-    # UTM
-    "utm_source",
-    "utm_medium",
-    "utm_campaign",
-    "utm_term",
-    "utm_content",
-    "utm_id",
-    "utm_source_platform",
-    "utm_creative_format",
-    "utm_marketing_tactic",
-    # Facebook
-    "fbclid",
-    "fb_action_ids",
-    "fb_action_types",
-    "fb_source",
-    "fb_ref",
-    # Google / DoubleClick
-    "gclid",
-    "gclsrc",
-    "dclid",
-    # Twitter / X
-    "twclid",
-    # Microsoft
-    "msclkid",
-    # HubSpot
-    "hsa_acc",
-    "hsa_cam",
-    "hsa_grp",
-    "hsa_ad",
-    "hsa_src",
-    "hsa_tgt",
-    "hsa_kw",
-    "hsa_mt",
-    "hsa_net",
-    "hsa_ver",
-    # Mailchimp / email
-    "mc_cid",
-    "mc_eid",
-    # Generic click-tracking
-    "ref",
-    "source",
-    "campaign",
-    "medium",
-}
-
-
-def normalize_url(url: str) -> str:
-    """Normalize a URL for deduplication.
-
-    - Lowercase scheme + host
-    - Strip trailing slash from path
-    - Remove tracking/analytics query params (UTM, fbclid, gclid, etc.)
-    - Preserve all other query params (sorted for determinism)
-    - Drop fragment
-    """
-    url = url.strip()
-    parsed = urlparse(url)
-    clean_params = {
-        k: v
-        for k, v in parse_qs(parsed.query, keep_blank_values=True).items()
-        if k.lower() not in _STRIP_PARAMS
-    }
-    clean_path = parsed.path.rstrip("/")
-    normalized = parsed._replace(
-        scheme=parsed.scheme.lower(),
-        netloc=parsed.netloc.lower(),
-        path=clean_path,
-        query=urlencode(sorted(clean_params.items()), doseq=True),
-        fragment="",
-    )
-    return normalized.geturl()
-
-
-def _find_existing_active_item_by_normalized_url(
-    *,
-    db: Session,
-    user_id: UUID,
-    normalized_url: str,
-) -> ContentItem | None:
-    """Find an active duplicate by normalized URL.
-
-    Primary lookup uses the indexed exact match on `original_url` for fast path.
-    Fallback scans active items and normalizes each stored URL to catch legacy
-    rows created before URL normalization was consistently applied.
-    """
-    existing = (
-        db.query(ContentItem)
-        .filter(
-            ContentItem.user_id == user_id,
-            ContentItem.original_url == normalized_url,
-            ContentItem.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if existing:
-        return existing
-
-    active_items = (
-        db.query(ContentItem)
-        .filter(
-            ContentItem.user_id == user_id,
-            ContentItem.deleted_at.is_(None),
-        )
-        .all()
-    )
-    for item in active_items:
-        if normalize_url(item.original_url) == normalized_url:
-            return item
-    return None
 
 
 def _clean_extension_html(
@@ -248,36 +141,29 @@ async def create_content_item(
     - Trigger background job to extract metadata/full text
     - Optionally adds to specified lists
     """
-    normalized_url = normalize_url(item_data.url)
+    import json
 
-    # Duplicate check: block re-ingestion of active URLs (deleted items are exempt)
-    existing = _find_existing_active_item_by_normalized_url(
-        db=db,
-        user_id=current_user.id,
-        normalized_url=normalized_url,
-    )
-    if existing:
+    is_extension = bool(item_data.pre_extracted_html)
+
+    try:
+        new_item = ingest_url(
+            url=item_data.url,
+            user=current_user,
+            db=db,
+            submitted_via="extension" if is_extension else "web",
+            dispatch_extraction=not is_extension,
+        )
+    except DuplicateContentError as exc:
         raise HTTPException(
             status_code=409,
             detail=json.dumps(
                 {
                     "message": "Already in your library",
-                    "existing_id": str(existing.id),
-                    "is_archived": existing.is_archived,
+                    "existing_id": exc.existing_id,
+                    "is_archived": exc.is_archived,
                 }
             ),
         )
-
-    # Create content item
-    new_item = ContentItem(
-        user_id=current_user.id,
-        original_url=normalized_url,
-        submitted_via="web",
-        processing_status="pending",
-    )
-    db.add(new_item)
-    db.commit()
-    db.refresh(new_item)
 
     # Add to lists if specified
     if item_data.list_ids:
@@ -327,7 +213,6 @@ async def create_content_item(
             except Exception:
                 pass
         new_item.processing_status = "completed"
-        new_item.submitted_via = "extension"
         if item_data.pre_extracted_access_restricted:
             new_item.processing_error = (
                 "Content appears restricted by a paywall or source access controls"
@@ -337,15 +222,12 @@ async def create_content_item(
         new_item.word_count = word_count
         new_item.reading_time_minutes = max(1, round(word_count / 200))
         db.commit()
-        # Fetch any remaining metadata (e.g. thumbnail if extension didn't send one)
-        # and generate embedding async
-        extract_metadata.delay(str(new_item.id))
+        # Fill any metadata gaps (e.g. missing thumbnail) and generate embedding.
         from app.tasks.embedding import generate_embedding
+        from app.tasks.extraction import extract_metadata
 
-        generate_embedding.delay(str(new_item.id))
-    else:
-        # Normal path: trigger full extraction pipeline
         extract_metadata.delay(str(new_item.id))
+        generate_embedding.delay(str(new_item.id))
 
     return new_item
 

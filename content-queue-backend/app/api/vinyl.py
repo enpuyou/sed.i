@@ -1,3 +1,11 @@
+"""
+Vinyl Record endpoints.
+
+CRUD for the user's vinyl collection. Creating a Record triggers a Celery
+task to fetch metadata from Discogs. The API is always active; the frontend
+gates it with the SHOW_CRATES feature flag.
+"""
+
 from typing import List, Optional
 from app.tasks.discogs import fetch_discogs_metadata
 from fastapi import APIRouter, Depends, HTTPException, Query, status

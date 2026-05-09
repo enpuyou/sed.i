@@ -14,10 +14,26 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import AddContentForm from "../../components/AddContentForm";
-import { contentAPI } from "../../lib/api";
+import { contentAPI, APIError } from "../../lib/api";
 
-// Mock the API module
-jest.mock("../../lib/api");
+// Mock the API module but preserve the real APIError class so instanceof checks work.
+jest.mock("../../lib/api", () => ({
+  ...jest.requireActual("../../lib/api"),
+  contentAPI: {
+    create: jest.fn(),
+    getAll: jest.fn(),
+    getById: jest.fn(),
+    getFullById: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    summarize: jest.fn(),
+    getTags: jest.fn(),
+    filterByTag: jest.fn(),
+    acceptTags: jest.fn(),
+    dismissTags: jest.fn(),
+    getRecommended: jest.fn(),
+  },
+}));
 const mockedContentAPI = contentAPI as jest.Mocked<typeof contentAPI>;
 
 describe("AddContentForm", () => {
@@ -280,13 +296,11 @@ describe("AddContentForm", () => {
 
     it("shows duplicate item link from structured 409 error and dismisses on input change", async () => {
       mockedContentAPI.create.mockRejectedValue(
-        new Error(
-          JSON.stringify({
-            message: "Already in your library",
-            existing_id: "existing-content-123",
-            is_archived: false,
-          }),
-        ),
+        new APIError(409, "Already in your library", {
+          message: "Already in your library",
+          existing_id: "existing-content-123",
+          is_archived: false,
+        }),
       );
 
       render(<AddContentForm onContentAdded={mockOnContentAdded} />);
@@ -297,7 +311,9 @@ describe("AddContentForm", () => {
       fireEvent.click(screen.getByRole("button", { name: "Add to Queue" }));
 
       await waitFor(() => {
-        expect(screen.getByText(/already in your library\./i)).toBeInTheDocument();
+        expect(
+          screen.getByText(/already in your library\./i),
+        ).toBeInTheDocument();
       });
 
       const link = screen.getByRole("link", { name: /view it/i });
@@ -307,7 +323,9 @@ describe("AddContentForm", () => {
       await userEvent.type(input, "x");
 
       await waitFor(() => {
-        expect(screen.queryByRole("link", { name: /view it/i })).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole("link", { name: /view it/i }),
+        ).not.toBeInTheDocument();
         expect(
           screen.queryByText(/already in your library\./i),
         ).not.toBeInTheDocument();
@@ -316,13 +334,11 @@ describe("AddContentForm", () => {
 
     it("shows archived duplicate variant from structured 409 error", async () => {
       mockedContentAPI.create.mockRejectedValue(
-        new Error(
-          JSON.stringify({
-            message: "Already in your library",
-            existing_id: "archived-content-123",
-            is_archived: true,
-          }),
-        ),
+        new APIError(409, "Already in your library", {
+          message: "Already in your library",
+          existing_id: "archived-content-123",
+          is_archived: true,
+        }),
       );
 
       render(<AddContentForm onContentAdded={mockOnContentAdded} />);

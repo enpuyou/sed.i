@@ -22,6 +22,51 @@ from app.models.user import User
 _DATE_OPERATOR_RE = re.compile(r"\b(after|before):\d{4}-\d{2}-\d{2}", re.IGNORECASE)
 
 
+def hydrate_items(
+    rows: list,
+    db: Session,
+    *,
+    scores: dict[str, float] | None = None,
+    include_full_text: bool = False,
+) -> list[dict]:
+    """
+    Bulk-load ContentItems for a list of DB rows that have an .id attribute.
+
+    Fetches all items in a single query (no N+1), then applies _format_item.
+    Optionally merges a scores dict keyed by str(id).
+
+    Args:
+        rows: Raw SQL rows with an .id attribute (UUID or str).
+        db: Database session.
+        scores: Optional {str(id): float} map; merged as 'score' on each result.
+        include_full_text: Passed through to _format_item.
+
+    Returns:
+        List of item dicts in the same order as rows, skipping missing items.
+    """
+    from app.mcp.tools.content import _format_item
+
+    row_ids = [row.id for row in rows]
+    if not row_ids:
+        return []
+
+    items_by_id = {
+        str(item.id): item
+        for item in db.query(ContentItem).filter(ContentItem.id.in_(row_ids)).all()
+    }
+
+    results = []
+    for row in rows:
+        item = items_by_id.get(str(row.id))
+        if not item:
+            continue
+        d = _format_item(item, include_full_text=include_full_text)
+        if scores is not None:
+            d["score"] = float(scores.get(str(row.id), 0.0))
+        results.append(d)
+    return results
+
+
 def _strip_date_operators(query: str) -> str:
     """Remove after:/before: operators from a query string."""
     return _DATE_OPERATOR_RE.sub("", query).strip()
@@ -91,8 +136,6 @@ def keyword_search(
         List of dicts with standard item fields + 'score' (ts_rank_cd float).
         Empty list if no matches.
     """
-    from app.mcp.tools.content import _format_item
-
     limit = min(limit, 50)
 
     # Build a prefix query for the simple dictionary so "llm" matches "llms", "api" matches "apis", etc.
@@ -142,14 +185,8 @@ def keyword_search(
         params,
     ).fetchall()
 
-    results = []
-    for row in rows:
-        item = db.query(ContentItem).filter(ContentItem.id == row.id).first()
-        if item:
-            d = _format_item(item, include_full_text=False)
-            d["score"] = float(row.rank)
-            results.append(d)
-    return results
+    scores = {str(row.id): float(row.rank) for row in rows}
+    return hydrate_items(rows, db, scores=scores)
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +293,6 @@ def _semantic_search(
     Returns [] on any failure (missing API key, network error, no embeddings).
     Never raises.
     """
-    from app.mcp.tools.content import _format_item
     from app.core.embedding_cache import get_or_create_query_embedding
 
     try:
@@ -308,14 +344,8 @@ def _semantic_search(
             {"q": embedding_str, "uid": user.id, "lim": limit},
         ).fetchall()
 
-        results = []
-        for row in rows:
-            item = db.query(ContentItem).filter(ContentItem.id == row.id).first()
-            if item:
-                d = _format_item(item, include_full_text=False)
-                d["score"] = float(row.similarity)
-                results.append(d)
-        return results
+        scores = {str(row.id): float(row.similarity) for row in rows}
+        return hydrate_items(rows, db, scores=scores)
 
     except Exception:
         return []

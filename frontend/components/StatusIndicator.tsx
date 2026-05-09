@@ -1,5 +1,5 @@
 interface StatusIndicatorProps {
-  readingStatus: "unread" | "in_progress" | "read" | "archived";
+  readingStatus: string;
   className?: string;
 }
 

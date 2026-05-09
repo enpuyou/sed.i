@@ -47,6 +47,9 @@ class ContentItemResponse(BaseModel):
     author: str | None = None
     published_date: datetime | None = None
 
+    content_vertical: str | None = "general"
+    vertical_metadata: dict[str, Any] | None = None
+
     is_read: bool
     is_archived: bool
     is_public: bool

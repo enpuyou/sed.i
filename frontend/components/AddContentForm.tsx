@@ -2,7 +2,7 @@
 
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
-import { contentAPI } from "@/lib/api";
+import { contentAPI, APIError } from "@/lib/api";
 import { ContentItem } from "@/types";
 import InlineError from "./InlineError";
 
@@ -42,20 +42,24 @@ export default function AddContentForm({
       setUrl("");
       onContentAdded(newItem);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      try {
-        const body = JSON.parse(message);
-        if (body?.existing_id) {
-          setDuplicateInfo({
-            id: body.existing_id,
-            isArchived: body.is_archived ?? false,
-          });
-          return;
-        }
-      } catch {
-        // not a structured 409 — fall through to generic error
+      if (
+        err instanceof APIError &&
+        err.status === 409 &&
+        err.body?.existing_id
+      ) {
+        setDuplicateInfo({
+          id: err.body.existing_id,
+          isArchived: err.body.is_archived ?? false,
+        });
+        return;
       }
-      setError(message || "Couldn't add link. Try again.");
+      setError(
+        err instanceof APIError
+          ? err.detail
+          : err instanceof Error && err.message
+            ? err.message
+            : "Couldn't add link. Try again.",
+      );
     } finally {
       setLoading(false);
     }

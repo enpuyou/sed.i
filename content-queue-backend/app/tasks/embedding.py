@@ -1,3 +1,14 @@
+"""
+Celery tasks: generate_embedding, generate_highlight_embeddings_batch,
+process_all_missing_embeddings.
+
+Calls OpenAI text-embedding-3-small to produce a 1536-dim vector and stores
+it on the ContentItem or Highlight. No-op if OPENAI_API_KEY is unset.
+
+Dispatch: generate_embedding.delay(content_item_id)
+          generate_highlight_embeddings_batch.delay(user_id)
+"""
+
 from celery import Task
 from sqlalchemy.orm import Session
 from app.core.celery_app import celery_app

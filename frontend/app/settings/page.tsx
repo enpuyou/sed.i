@@ -10,7 +10,7 @@ import {
   useReadingSettings,
   ReadingSettings,
 } from "@/contexts/ReadingSettingsContext";
-import api from "@/lib/api";
+import api, { APIError } from "@/lib/api";
 import InlineError from "@/components/InlineError";
 
 // ── Setting configs ────────────────────────────────────
@@ -622,13 +622,9 @@ function DangerZone() {
       logout();
       router.push("/");
     } catch (err) {
-      // fetchWithAuth throws Error with message like "API error: 400 - {"detail":"..."}"
-      let msg = "Could not delete account.";
-      if (err instanceof Error) {
-        const match = err.message.match(/"detail"\s*:\s*"([^"]+)"/);
-        if (match) msg = match[1];
-      }
-      setError(msg);
+      setError(
+        err instanceof APIError ? err.detail : "Could not delete account.",
+      );
     } finally {
       setIsDeleting(false);
     }

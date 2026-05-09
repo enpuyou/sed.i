@@ -155,17 +155,17 @@ def find_similar(
         },
     ).fetchall()
 
-    results = []
-    for row in rows:
-        item = db.query(ContentItem).filter(ContentItem.id == row.id).first()
-        if item:
-            results.append(
-                {
-                    "item": _format_item(item, include_full_text=False),
-                    "similarity_score": float(row.similarity),
-                }
-            )
-    return results
+    from app.core.hybrid_search import hydrate_items
+
+    scores = {str(row.id): float(row.similarity) for row in rows}
+    hydrated = hydrate_items(rows, db, scores=scores)
+    return [
+        {
+            "item": {k: v for k, v in d.items() if k != "score"},
+            "similarity_score": d["score"],
+        }
+        for d in hydrated
+    ]
 
 
 def _format_item(item: ContentItem, *, include_full_text: bool) -> dict:

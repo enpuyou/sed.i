@@ -566,7 +566,7 @@ export default function RecordDetail({
                           onClick={() =>
                             handlePlayTrack({
                               videoId: vid,
-                              title: video.title,
+                              title: video.title ?? null,
                               uri: video.uri,
                               duration: video.duration ?? undefined,
                             })
@@ -580,7 +580,7 @@ export default function RecordDetail({
                           onClick={() =>
                             handleQueueTrack({
                               videoId: vid,
-                              title: video.title,
+                              title: video.title ?? null,
                               uri: video.uri,
                               duration: video.duration ?? undefined,
                             })

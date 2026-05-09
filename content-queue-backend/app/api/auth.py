@@ -1,3 +1,11 @@
+"""
+Authentication endpoints.
+
+Handles registration, login (JWT), email verification, and password reset.
+JWTs expire after ACCESS_TOKEN_EXPIRE_MINUTES (default 7 days). Registration
+seeds onboarding content for new users.
+"""
+
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
