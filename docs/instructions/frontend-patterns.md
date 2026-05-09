@@ -76,9 +76,28 @@ const res = await fetch('/content', { ... });
 
 ## Backend error shape
 
-All backend errors follow `{ detail: string }`. `fetchWithAuth` extracts `detail` and
-throws it as `err.message`. Some endpoints return structured JSON in `detail` — parse with
-`JSON.parse(err.message)` and check for expected keys before using.
+All backend errors follow `{ detail: string }`. `fetchWithAuth` throws `APIError`
+(exported from `lib/api.ts`) with three fields: `status` (HTTP code), `detail`
+(human-readable message), and `body` (the full parsed response object).
+
+If the backend encodes a structured payload as a JSON string inside `detail` (e.g. 409
+duplicate responses), `fetchWithAuth` automatically parses it — callers read structured
+fields directly from `err.body`.
+
+```ts
+import { APIError } from "@/lib/api";
+
+try {
+  await contentAPI.create({ url });
+} catch (err) {
+  if (err instanceof APIError && err.status === 409 && err.body?.existing_id) {
+    // structured duplicate response
+    setDuplicateId(err.body.existing_id);
+  } else {
+    setError(err instanceof APIError ? err.detail : "Couldn't add link. Try again.");
+  }
+}
+```
 
 ---
 

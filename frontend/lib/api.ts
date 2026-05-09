@@ -54,14 +54,25 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     }
 
     const errorData = await response.json().catch(() => null);
+    // If detail is a JSON-encoded string (e.g. structured 409 bodies), parse it
+    // so callers can read err.body.existing_id etc. directly.
+    let parsedBody = errorData;
+    if (typeof errorData?.detail === "string") {
+      try {
+        parsedBody = JSON.parse(errorData.detail);
+      } catch {
+        // detail is a plain string, not JSON — leave parsedBody as-is
+      }
+    }
     const detail: string =
+      (typeof parsedBody?.message === "string" ? parsedBody.message : null) ||
       (typeof errorData?.detail === "string" ? errorData.detail : null) ||
       (typeof errorData === "string" ? errorData : null) ||
       (response.status === 429
         ? "Too many requests. Please slow down."
         : null) ||
       `Request failed (${response.status}).`;
-    throw new APIError(response.status, detail, errorData);
+    throw new APIError(response.status, detail, parsedBody);
   }
 
   return response.status === 204 ? null : response.json();
