@@ -3,21 +3,13 @@
  *
  * Flow:
  *   login  → credentials
- *   ready  → title shown, Read + Save available immediately
- *   (save clicked) → extracts inline, shows signals, button becomes "Send"
- *   (send clicked) → fires to service worker + closes popup
- *   result → shown only on error (popup stays open)
+ *   ready  → title + og/meta shown immediately; Read and Save to sed.i available
+ *   (save clicked) → extracts inline, fires to service worker; button shows
+ *                    animated dots then "sent ✓"; errors shown inline
+ *   (read clicked) → injects reader overlay into tab, popup closes
  */
 
 const DEFAULT_API_BASE = 'https://api.read-sedi.com';
-const DEFAULT_FRONTEND_BASE = 'https://www.read-sedi.com';
-
-async function getFrontendBase() {
-  const { apiBase } = await msg('getApiBase');
-  const base = (apiBase || DEFAULT_API_BASE).replace(/\/$/, '');
-  if (base.includes('localhost')) return base.replace(/:\d+$/, ':3000');
-  return DEFAULT_FRONTEND_BASE;
-}
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -169,10 +161,15 @@ async function setupReadyView() {
       }
 
       if (meta.thumbnail) {
-        const el = document.getElementById('page-thumbnail');
-        el.src = meta.thumbnail;
-        el.classList.remove('hidden');
-        el.onerror = () => el.classList.add('hidden');
+        try {
+          const u = new URL(meta.thumbnail);
+          if (u.protocol === 'https:' || u.protocol === 'http:') {
+            const el = document.getElementById('page-thumbnail');
+            el.src = meta.thumbnail;
+            el.classList.remove('hidden');
+            el.onerror = () => el.classList.add('hidden');
+          }
+        } catch {}
       }
 
       if (meta.author) {
@@ -307,6 +304,8 @@ document.getElementById('btn-read').addEventListener('click', async () => {
 
   try {
     if (!_tab?.id) throw new Error('No active tab.');
+    const scheme = _tab.url ? new URL(_tab.url).protocol : '';
+    if (scheme !== 'https:' && scheme !== 'http:') throw new Error('Reader only works on http/https pages.');
 
     await chrome.scripting.executeScript({
       target: { tabId: _tab.id },
@@ -387,6 +386,8 @@ saveBtn.addEventListener('click', async () => {
 
   try {
     if (!_tab?.id) throw new Error('No active tab.');
+    const scheme = _tab.url ? new URL(_tab.url).protocol : '';
+    if (scheme !== 'https:' && scheme !== 'http:') throw new Error('Save only works on http/https pages.');
 
     const results = await chrome.scripting.executeScript({
       target: { tabId: _tab.id },
