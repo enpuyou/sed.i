@@ -496,8 +496,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
           setConnectedHighlightIds(ids);
         })
         .catch(() => setConnectedHighlightIds(new Set()));
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settings.showConnections]);
+    }, [settings.showConnections, content.id]);
 
     // Track scroll position and save periodically (embedded-aware)
     useEffect(() => {

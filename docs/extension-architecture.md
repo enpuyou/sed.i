@@ -94,42 +94,40 @@ The backend detects `pre_extracted_html` → skips its own fetch/trafilatura pip
 
 ---
 
-## Flow 2 — Read without saving (ephemeral reader)
+## Flow 2 — Read without saving (in-tab overlay)
 
-The "read first, save later" flow. **This requires the extension to write to the `/read` tab's `sessionStorage`** — which the extension cannot do directly (service worker has no DOM, popup is a different origin).
+The "read first, save later" flow. Instead of opening a new tab or relying on the frontend app, the extension implements read mode as a direct DOM swap on the current page — instant, no navigation, no cross-origin restrictions.
 
-> **Current state:** The frontend `/read` route and `EphemeralReader` component are built and ready. The extension side (the "Read" button in popup.js and the `sessionStorage` write) has not been added yet. The section below describes the intended design.
-
-### Intended flow
+### Implemented flow
 
 ```
 User clicks "Read" button in popup
     ↓
-popup.js: chrome.scripting.executeScript
-  → injects content.js into the active tab (same extraction as Save)
+popup.js: sets window.__SEDI_SKIP_IMAGE_INLINE = true on the active tab
+  → skips async waitForSelector calls — extraction is instant
     ↓
-content.js returns { html, title, author, … }
+popup.js: chrome.scripting.executeScript (Readability.js + content.js)
+  → content.js returns { html, title, author, … }
     ↓
-popup.js: opens new tab: chrome.tabs.create({ url: frontendBase + "/read" })
+popup.js: passes article as window.__sediArticle__ via executeScript func
     ↓
-popup.js: waits for the new tab to finish loading
-  (chrome.tabs.onUpdated until status === "complete")
+popup.js: injects content/reader-overlay.js into the active tab
     ↓
-popup.js: chrome.scripting.executeScript on the NEW tab:
-  → injects a tiny script that writes to sessionStorage:
-    sessionStorage.setItem("sedi_ephemeral_article", JSON.stringify({
-      url, html, title, author, description, thumbnail, publishedDate
-    }))
+window.close() — popup closes immediately
     ↓
-frontend /read page: reads sessionStorage on mount → renders EphemeralReader
+reader-overlay.js runs on the page:
+  → saves document.body reference as window.__sediOriginalBody__
+  → replaces document.body with a new reader DOM (title, byline, article, TOC)
+  → injects CSS with all theme variables, typography, navbar, progress bar
+  → Esc key or "← esc" button restores original body
 ```
 
-### Why sessionStorage and not a URL parameter or chrome.storage?
+### Why DOM swap instead of a new tab or iframe?
 
-- **URL params:** HTML blobs are often 100KB+. URLs have a ~2KB limit.
-- `chrome.storage.local` is accessible from the extension but not from the frontend web app (different origin).
-- `sessionStorage` is scoped to the tab and origin. The extension can write to it by injecting a script into the tab with `chrome.scripting.executeScript`. The frontend reads it on mount.
-- Session storage clears when the tab closes — no cleanup needed.
+- **New tab + sessionStorage:** extension and frontend app are different origins — extension cannot write to the frontend's sessionStorage.
+- **New tab + URL hash:** HTML blobs are 100KB+; URLs have a ~2KB limit.
+- **iframe:** Chrome 98+ blocks public-origin pages from loading localhost in iframes. Avoided for dev/prod parity.
+- **DOM swap:** The page origin doesn't change, so images and fonts load normally. The original body is restored on toggle — no navigation, no network, instant.
 
 ---
 

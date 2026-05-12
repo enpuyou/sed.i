@@ -1,4 +1,4 @@
-# Changelog — 2026-05-09: Four Features
+# Changelog — 2026-05-09: Highlight Search, Multi-Chunk Embeddings, Ephemeral Reader
 
 ## 1. Strip `full_text` from list responses
 
@@ -6,7 +6,7 @@
 
 **What changed:**
 - Split `ContentItemResponse` (list shape, no `full_text`) from `ContentItemDetail` (reader shape, includes `full_text`)
-- `GET /content` and `GET /content/{id}` now return `ContentItemResponse`; only `GET /content/{id}/full` returns `ContentItemDetail`
+- `GET /content` (list) returns `ContentItemResponse`; `GET /content/{id}` and `GET /content/{id}/full` both return `ContentItemDetail`
 - Reader page (`frontend/app/content/[id]/page.tsx`) updated: cache checks require `full_text` to be present before using a cached item; PATCH response is merged with existing `full_text` to prevent flicker after status updates
 
 **Impact:** List payloads no longer carry article bodies. Status updates no longer wipe `full_text` from reader state.
@@ -46,9 +46,10 @@
 **Intention:** Users could only save articles to the queue from the extension — there was no way to read immediately without saving, and no path to capture highlights before deciding to save.
 
 **What changed:**
-- **Extension:** Added "Read" button alongside "Save" in `popup.html/css`. `btn-read` click handler in `popup.js` runs content extraction, writes payload to `chrome.storage.session` via a new `setEphemeralArticle` message, then opens `{frontendBase}/read` in a new tab. Service worker handles `setEphemeralArticle` and `getEphemeralArticle` (one-time pickup, auto-clears after sending)
-- **Frontend `/read` route:** New `app/read/page.tsx` — tries extension relay first (via `chrome.runtime.sendMessage`), falls back to `sessionStorage` for dev. Renders `EphemeralReader`
-- **`EphemeralReader` component:** Wraps `Reader` with a sticky save-or-discard banner. Highlights created during ephemeral reading are collected via `onHighlightCreate` callback (threaded through `Reader` → `ReaderArticle` → `HighlightToolbar`). On save: calls `contentAPI.create` with all pre-extracted fields + `initial_highlights` array for atomic article+highlight creation
-- **`POST /content`:** Updated to accept `initial_highlights` — creates highlights atomically after article insert
+- **Extension:** Added "Read" button alongside "Save" in `popup.html/css`. `btn-read` click handler in `popup.js` sets `window.__SEDI_SKIP_IMAGE_INLINE` (skips async selector waits for instant extraction), runs content extraction while the popup is still alive, passes the article payload via `window.__sediArticle__`, then injects `content/reader-overlay.js` into the active tab. The popup closes and the overlay takes over — no new tab, no navigation.
+- **`reader-overlay.js`:** In-tab DOM swap. Saves the original `document.body` reference, replaces it with a full reader UI (navbar with font size / theme toggle / save button, TOC sidebar, progress bar, article typography). Esc or the "← esc" button restores the original body. Theme cycles light → dark → true-black; font size has small/medium/large — both persist to `sessionStorage`. "Save to sed.i" sends via `chrome.runtime.sendMessage` to the service worker.
+- **Frontend `/read` route:** New `app/read/page.tsx` — reads article from `sessionStorage` (set by the web app's own save flow) or URL hash. Renders `EphemeralReader`. Used for the "save and navigate to reader" path, not the extension overlay path.
+- **`EphemeralReader` component:** Wraps `Reader` with a sticky save-or-discard banner. Highlights created during ephemeral reading are collected via `onHighlightCreate` callback (threaded through `Reader` → `ReaderArticle` → `HighlightToolbar`). On save: calls `contentAPI.create` with all pre-extracted fields + `initial_highlights` array for atomic article+highlight creation.
+- **`POST /content`:** Updated to accept `initial_highlights` — creates highlights atomically after article insert.
 
-**Impact:** Users can read and annotate before deciding to save. Highlights made during ephemeral reading are preserved on save. The `chrome.storage.session` relay avoids the cross-origin sessionStorage restriction (extension ↔ frontend app on separate origins). 3 new tests cover `initial_highlights` atomicity, the relay message protocol, and the save flow.
+**Impact:** Users can read instantly on the current page without saving — no tab opened, no loading. Highlights made during ephemeral reading are preserved on save. 3 new tests cover `initial_highlights` atomicity and the save flow.

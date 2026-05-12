@@ -8,6 +8,8 @@ Search endpoints.
 /search/connections/article/ — All cross-article connections for a ContentItem's highlights.
 """
 
+import re as _re
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -84,9 +86,12 @@ def _search_highlights(
     query: str, user_id, db: Session, limit: int = 10
 ) -> list[HighlightSearchResult]:
     """Keyword search over highlight text and notes using tsvector."""
-    # Build a safe tsquery: use websearch_to_tsquery for multi-word, prefix for single
+    # to_tsquery raises a syntax error on special chars (e.g. "c++", "foo-bar").
+    # Only use prefix-match form for single safe alphanumeric tokens; everything
+    # else goes through websearch_to_tsquery which handles arbitrary input safely.
+    _safe_token = _re.compile(r"^[A-Za-z0-9_]+$")
     words = query.strip().split()
-    if len(words) == 1:
+    if len(words) == 1 and _safe_token.match(words[0]):
         tsq_expr = "to_tsquery('simple', :tsq_simple)"
         tsq_val = words[0] + ":*"
     else:

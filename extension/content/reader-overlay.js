@@ -2,7 +2,9 @@
  * reader-overlay.js — sed.i read mode
  *
  * Replaces the page body with Readability-extracted content + injected CSS.
- * The original body is cloned and restored on toggle, so it's lossless.
+ * The original body node (not a clone) is stored and swapped back on toggle.
+ * Event listeners and JS state on the original body are preserved; dynamic DOM
+ * mutations made after the overlay activates are not (intentional tradeoff).
  * No iframes, no network requests, no auth — instant DOM swap.
  *
  * The article payload (already extracted by popup.js before injecting this
@@ -41,8 +43,8 @@
     try { return sessionStorage.getItem(SIZE_KEY) || 'medium'; } catch { return 'medium'; }
   })();
 
-  // ── Save original body ────────────────────────────────────────────────────
-  window.__sediOriginalBody__ = document.body.cloneNode(true);
+  // ── Save original body (reference, not clone — preserves event listeners) ──
+  window.__sediOriginalBody__ = document.body;
   document.documentElement.setAttribute(ACTIVE_ATTR, '');
 
   // ── CSS: all vars + layout + typography ──────────────────────────────────

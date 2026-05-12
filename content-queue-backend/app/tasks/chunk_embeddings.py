@@ -54,9 +54,10 @@ def split_article_into_chunks(html: str) -> list[str]:
         return []
 
     # Step 1: split at header boundaries using the original HTML
-    # Insert a sentinel before each header so we can split cleanly
+    # Insert a sentinel before each header so we can split cleanly.
+    # Use \g<0> to re-insert the full matched tag after the sentinel.
     sectioned = re.sub(
-        r"<h[1-4][^>]*>", "\n\n__HEADER__\n\n<h", html, flags=re.IGNORECASE
+        r"(<h[1-4][^>]*>)", r"\n\n__HEADER__\n\n\g<1>", html, flags=re.IGNORECASE
     )
     raw_sections = re.split(r"\n\n__HEADER__\n\n", sectioned)
     sections = [html_to_plain(s) for s in raw_sections if html_to_plain(s).strip()]
@@ -195,8 +196,7 @@ def generate_chunk_embeddings(content_item_id: str, db: Session | None = None) -
 
     except Exception as e:
         logger.error(f"Failed to generate chunks for {content_item_id}: {e}")
-        if own_db:
-            db.rollback()
+        db.rollback()
         return {"status": "failed", "error": str(e)}
     finally:
         if own_db:
