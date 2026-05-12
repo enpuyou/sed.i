@@ -81,54 +81,39 @@
         <div id="api-url-feedback" class="hint hidden"></div>
         <hr class="dev-divider" />
       </div>
-      <button id="btn-logout" class="btn-secondary btn-danger">Disconnect</button>
+      <div class="setting-row">
+        <span class="setting-label">theme</span>
+        <div class="theme-toggle-row">
+          <button id="btn-theme-light" class="theme-btn active" data-theme="light">light</button>
+          <button id="btn-theme-dark" class="theme-btn" data-theme="dark">dark</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">account</span>
+        <button id="btn-logout" class="theme-btn disconnect-btn">disconnect</button>
+      </div>
     </div>
 
+    <img id="page-thumbnail" class="page-thumbnail hidden" src="" alt="" />
+
     <div class="page-info">
-      <span class="prompt">&gt;</span>
+      <div id="page-source" class="page-source hidden">
+        <img id="page-favicon" class="favicon" src="" alt="" />
+        <span id="page-domain"></span>
+      </div>
       <span id="page-title" class="page-title"></span>
+      <p id="page-desc" class="page-desc hidden"></p>
+      <div class="page-byline">
+        <span id="page-author" class="page-author hidden"></span>
+        <span id="page-date" class="page-date hidden"></span>
+      </div>
     </div>
 
     <div id="save-error" class="error hidden"></div>
 
     <div class="action-row">
       <button id="btn-read" class="btn-secondary">Read</button>
-      <button id="btn-save" class="btn-primary">Save</button>
-    </div>
-  </div>
-
-  <!-- Result view -->
-  <div id="view-result" class="view hidden">
-    <div class="result-icon" id="result-icon"></div>
-    <p id="result-message"></p>
-    <div id="result-actions"></div>
-    <button id="btn-back" class="btn-secondary">← Back</button>
-  </div>
-
-  <!-- Saving overlay (shown on top of ready view) -->
-  <div id="view-saving" class="view hidden">
-    <div class="saving-indicator">
-      <span class="blink">▐</span> Extracting...
-    </div>
-  </div>
-
-  <!-- Preview view — shown after extraction, before sending to backend -->
-  <div id="view-preview" class="view hidden">
-    <div class="header-row">
-      <span class="logo-small">sed.i</span>
-      <span class="preview-label">preview</span>
-    </div>
-    <div id="preview-signals" class="signal-row"></div>
-    <div id="preview-snippet" class="preview-snippet"></div>
-    <div id="preview-error" class="error hidden"></div>
-    <button id="btn-confirm-save" class="btn-primary">Send to sed.i</button>
-    <button id="btn-preview-cancel" class="btn-secondary">← Back</button>
-  </div>
-
-  <!-- Sending overlay -->
-  <div id="view-sending" class="view hidden">
-    <div class="saving-indicator">
-      <span class="blink">▐</span> Sending...
+      <button id="btn-save" class="btn-primary">Save to sed.i</button>
     </div>
   </div>
 
