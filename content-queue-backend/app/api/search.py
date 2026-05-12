@@ -8,6 +8,8 @@ Search endpoints.
 /search/connections/article/ — All cross-article connections for a ContentItem's highlights.
 """
 
+import re as _re
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -61,11 +63,83 @@ class ArticleConnection(BaseModel):
     total_similarity: float
 
 
+class HighlightSearchResult(BaseModel):
+    """A highlight or note that matched a search query."""
+
+    highlight_id: str
+    text: str
+    note: str | None
+    color: str
+    content_item_id: str
+    article_title: str
+    score: float
+
+
+class SearchResponse(BaseModel):
+    """Unified search response with article and highlight results."""
+
+    articles: list[SimilarContentResponse]
+    highlights: list[HighlightSearchResult]
+
+
+def _search_highlights(
+    query: str, user_id, db: Session, limit: int = 10
+) -> list[HighlightSearchResult]:
+    """Keyword search over highlight text and notes using tsvector."""
+    # to_tsquery raises a syntax error on special chars (e.g. "c++", "foo-bar").
+    # Only use prefix-match form for single safe alphanumeric tokens; everything
+    # else goes through websearch_to_tsquery which handles arbitrary input safely.
+    _safe_token = _re.compile(r"^[A-Za-z0-9_]+$")
+    words = query.strip().split()
+    if len(words) == 1 and _safe_token.match(words[0]):
+        tsq_expr = "to_tsquery('simple', :tsq_simple)"
+        tsq_val = words[0] + ":*"
+    else:
+        tsq_expr = "websearch_to_tsquery('simple', :tsq_simple)"
+        tsq_val = query
+
+    sql = text(
+        f"""
+        SELECT h.id::text           AS highlight_id,
+               h.text               AS text,
+               h.note               AS note,
+               h.color              AS color,
+               h.content_item_id::text AS content_item_id,
+               c.title              AS article_title,
+               ts_rank_cd(h.search_vector, {tsq_expr}) AS score
+        FROM highlights h
+        JOIN content_items c ON c.id = h.content_item_id
+        WHERE h.user_id = :user_id
+          AND c.deleted_at IS NULL
+          AND h.search_vector IS NOT NULL
+          AND h.search_vector @@ {tsq_expr}
+        ORDER BY score DESC
+        LIMIT :limit
+    """
+    )
+
+    rows = db.execute(
+        sql, {"user_id": user_id, "tsq_simple": tsq_val, "limit": limit}
+    ).fetchall()
+    return [
+        HighlightSearchResult(
+            highlight_id=row.highlight_id,
+            text=row.text,
+            note=row.note,
+            color=row.color,
+            content_item_id=row.content_item_id,
+            article_title=row.article_title or "",
+            score=float(row.score),
+        )
+        for row in rows
+    ]
+
+
 # IMPORTANT: Specific literal paths MUST come before generic path parameters
 # Otherwise /{item_id}/similar will match /semantic, /connections/..., etc.
 
 
-@router.get("/semantic", response_model=list[SimilarContentResponse])
+@router.get("/semantic", response_model=SearchResponse)
 def semantic_search(
     query: str = Query(..., min_length=3),
     limit: int = Query(10, ge=1, le=50),
@@ -124,7 +198,6 @@ def semantic_search(
             "content_type": item.content_type,
             "summary": item.summary,
             "tags": item.tags,
-            "full_text": item.full_text,
             "word_count": item.word_count,
             "reading_time_minutes": item.reading_time_minutes,
             "read_position": item.read_position,
@@ -148,7 +221,9 @@ def semantic_search(
             }
         )
 
-    return search_results
+    highlight_results = _search_highlights(query, current_user.id, db, limit=10)
+
+    return SearchResponse(articles=search_results, highlights=highlight_results)
 
 
 @router.get(
@@ -411,7 +486,6 @@ def find_similar_content(
             content_type,
             summary,
             tags,
-            full_text,
             word_count,
             reading_time_minutes,
             read_position,
@@ -457,7 +531,6 @@ def find_similar_content(
             "content_type": row.content_type,
             "summary": row.summary,
             "tags": row.tags,
-            "full_text": row.full_text,
             "word_count": row.word_count,
             "reading_time_minutes": row.reading_time_minutes,
             "read_position": row.read_position,

@@ -77,6 +77,26 @@ ON content_items
 FOR EACH ROW EXECUTE FUNCTION content_items_search_vector_update();
 """
 
+_HIGHLIGHTS_SEARCH_VECTOR_TRIGGER_SQL = """
+CREATE OR REPLACE FUNCTION highlights_search_vector_update()
+RETURNS trigger AS $$
+BEGIN
+    NEW.search_vector :=
+        to_tsvector('english', COALESCE(NEW.text, '')) ||
+        to_tsvector('simple',  COALESCE(NEW.text, '')) ||
+        to_tsvector('english', COALESCE(NEW.note, '')) ||
+        to_tsvector('simple',  COALESCE(NEW.note, ''));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS highlights_tsvector_update ON highlights;
+CREATE TRIGGER highlights_tsvector_update
+BEFORE INSERT OR UPDATE OF text, note
+ON highlights
+FOR EACH ROW EXECUTE FUNCTION highlights_search_vector_update();
+"""
+
 
 @pytest.fixture(scope="session")
 def setup_database():
@@ -85,11 +105,12 @@ def setup_database():
     """
     # Create tables
     Base.metadata.create_all(bind=engine)
-    # Install search_vector trigger (not created by create_all — trigger lives in migration)
+    # Install search_vector triggers (not created by create_all — triggers live in migrations)
     from sqlalchemy import text as sa_text
 
     with engine.connect() as conn:
         conn.execute(sa_text(_SEARCH_VECTOR_TRIGGER_SQL))
+        conn.execute(sa_text(_HIGHLIGHTS_SEARCH_VECTOR_TRIGGER_SQL))
         conn.commit()
     yield
     # Drop all at the end of session

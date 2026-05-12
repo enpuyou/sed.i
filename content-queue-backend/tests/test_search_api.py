@@ -15,10 +15,14 @@ class TestSearchEndpoint:
         resp = client.get("/search/semantic?query=ab", headers=auth_headers)
         assert resp.status_code == 422  # Validation error
 
-    def test_returns_list(self, client, auth_headers):
+    def test_returns_articles_and_highlights(self, client, auth_headers):
         resp = client.get("/search/semantic?query=test query", headers=auth_headers)
         assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+        data = resp.json()
+        assert "articles" in data
+        assert "highlights" in data
+        assert isinstance(data["articles"], list)
+        assert isinstance(data["highlights"], list)
 
     def test_filter_query_works(self, client, auth_headers, test_content):
         resp = client.get(
@@ -26,8 +30,8 @@ class TestSearchEndpoint:
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        results = resp.json()
-        assert isinstance(results, list)
+        data = resp.json()
+        assert "articles" in data
 
     def test_keyword_query_works(self, client, auth_headers, test_content):
         resp = client.get(

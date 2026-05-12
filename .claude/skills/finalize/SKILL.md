@@ -81,9 +81,9 @@ cd frontend && npx eslint . --max-warnings=0 2>&1 | head -50
 ```
 **Backend (if backend files changed):**
 ```bash
-cd content-queue-backend && .venv/bin/ruff check app/ 2>&1 | head -50
+cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/ 2>&1 | head -50
 ```
-- Auto-fix safe issues: `npx eslint . --fix` / `.venv/bin/ruff check --fix app/`
+- Auto-fix safe issues: `npx eslint . --fix` / `PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check --fix app/`
 - Report any issues that need manual attention.
 
 ### 2c. Tests
@@ -143,8 +143,11 @@ the actual code and evaluate it against these criteria.
 - Do all error messages follow the established tone? ("Couldn't [action]. Try again.")
 - Do all empty states use the shared `EmptyState` component?
 - Do all inline errors use the shared `InlineError` component?
-- Are CSS patterns consistent? (rounded-none, var(--color-*), font-serif for headings)
-- Are new patterns documented or do they match existing patterns?
+- Are CSS patterns consistent? (`rounded-none`, `var(--color-*)`, `font-serif` for headings, `font-mono` for UI labels)
+- No raw hex/Tailwind colors (`text-gray-500`, `bg-white`, etc.) — all via `var(--color-*)`.
+- No `shadow-*` anywhere.
+- Buttons match the `compact-touch font-mono text-xs rounded-none border` pattern.
+- See `docs/instructions/design-language.md` for the full design checklist.
 
 ### 3c. Security
 - No secrets, tokens, or credentials in the diff.

@@ -201,17 +201,22 @@ async function extractAndInlineContent() {
     'article',
   ];
 
-  // Race all specific selectors in parallel — avoids serial 5s waits on non-matching sites
-  const foundSpecific = await Promise.race(
-    specificSelectors.map(sel => waitForSelector(sel, 2000))
-  );
-
-  // Only fall back to generic selectors if no specific one appeared
-  if (!foundSpecific) {
-    for (const sel of genericSelectors) {
-      const found = await waitForSelector(sel, 1000);
-      if (found) break;
+  // Skip selector waiting entirely for the read path — page is already loaded,
+  // Readability works on whatever DOM is present. Waiting is only useful for
+  // SPAs still rendering content, which is irrelevant for an already-viewed page.
+  let foundSpecific = false;
+  if (!window.__SEDI_SKIP_IMAGE_INLINE) {
+    foundSpecific = await Promise.race(
+      specificSelectors.map(sel => waitForSelector(sel, 2000))
+    );
+    if (!foundSpecific) {
+      for (const sel of genericSelectors) {
+        const found = await waitForSelector(sel, 1000);
+        if (found) break;
+      }
     }
+  } else {
+    foundSpecific = specificSelectors.some(sel => !!document.querySelector(sel));
   }
 
   // Capture debug info about what we found before Readability strips it
@@ -372,45 +377,62 @@ async function extractAndInlineContent() {
     });
   }
 
-  // Process images in parallel — fetch all data URIs concurrently instead of serially.
-  // This is the main latency driver; parallelising cuts wall-clock time ~10x for 10 images.
+  // Process images — convert to data URIs so they survive cross-origin display.
+  // Skipped when __SEDI_SKIP_IMAGE_INLINE is set (ephemeral read path) because
+  // the browser tab can load images directly from their original URLs.
   const images = Array.from(container.querySelectorAll('img')).slice(0, MAX_IMAGES);
 
-  await Promise.all(images.map(async (img) => {
-    // Prefer highest-resolution source from srcset
-    let src = '';
-    const srcsetVal = img.getAttribute('srcset');
-    if (srcsetVal) src = bestSrcFromSrcset(srcsetVal);
+  if (window.__SEDI_SKIP_IMAGE_INLINE) {
+    // Just resolve relative srcs to absolute — no fetch needed
+    images.forEach((img) => {
+      const srcsetVal = img.getAttribute('srcset');
+      let src = srcsetVal ? bestSrcFromSrcset(srcsetVal) : '';
+      if (!src) src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || '';
+      if (!src) { img.remove(); return; }
+      if (src.startsWith('data:')) return;
+      img.src = new URL(src, location.href).href;
+      img.removeAttribute('srcset');
+      img.removeAttribute('data-src');
+      img.removeAttribute('data-lazy-src');
+      img.removeAttribute('data-original');
+    });
+  } else {
+    await Promise.all(images.map(async (img) => {
+      // Prefer highest-resolution source from srcset
+      let src = '';
+      const srcsetVal = img.getAttribute('srcset');
+      if (srcsetVal) src = bestSrcFromSrcset(srcsetVal);
 
-    // Fall back through lazy-load attributes
-    if (!src) {
-      src =
-        img.getAttribute('src') ||
-        img.getAttribute('data-src') ||
-        img.getAttribute('data-lazy-src') ||
-        img.getAttribute('data-original') ||
-        '';
-    }
+      // Fall back through lazy-load attributes
+      if (!src) {
+        src =
+          img.getAttribute('src') ||
+          img.getAttribute('data-src') ||
+          img.getAttribute('data-lazy-src') ||
+          img.getAttribute('data-original') ||
+          '';
+      }
 
-    if (!src) { img.remove(); return; }
-    if (src.startsWith('data:')) return;
+      if (!src) { img.remove(); return; }
+      if (src.startsWith('data:')) return;
 
-    // Skip tiny images (icons, tracking pixels) — use naturalWidth if available
-    if (img.naturalWidth > 0 && img.naturalWidth < MIN_IMAGE_SIZE) { img.remove(); return; }
-    if (img.naturalHeight > 0 && img.naturalHeight < MIN_IMAGE_SIZE) { img.remove(); return; }
+      // Skip tiny images (icons, tracking pixels) — use naturalWidth if available
+      if (img.naturalWidth > 0 && img.naturalWidth < MIN_IMAGE_SIZE) { img.remove(); return; }
+      if (img.naturalHeight > 0 && img.naturalHeight < MIN_IMAGE_SIZE) { img.remove(); return; }
 
-    // Make sure src is absolute
-    const absoluteSrc = new URL(src, location.href).href;
-    img.src = absoluteSrc;
-    img.removeAttribute('srcset');
-    img.removeAttribute('data-src');
-    img.removeAttribute('data-lazy-src');
-    img.removeAttribute('data-original');
+      // Make sure src is absolute
+      const absoluteSrc = new URL(src, location.href).href;
+      img.src = absoluteSrc;
+      img.removeAttribute('srcset');
+      img.removeAttribute('data-src');
+      img.removeAttribute('data-lazy-src');
+      img.removeAttribute('data-original');
 
-    const dataUri = await imageToDataUri(absoluteSrc);
-    if (dataUri) img.src = dataUri;
-    // On failure, keep the absolute src — backend can still display it
-  }));
+      const dataUri = await imageToDataUri(absoluteSrc);
+      if (dataUri) img.src = dataUri;
+      // On failure, keep the absolute src — backend can still display it
+    }));
+  }
 
   const html = container.innerHTML;
   const wordCount = html.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length;

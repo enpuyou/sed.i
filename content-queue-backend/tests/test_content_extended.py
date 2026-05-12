@@ -164,7 +164,11 @@ def test_extension_path_stores_cleaned_html(client, auth_headers):
         )
 
     assert response.status_code == 201
-    full_text = response.json().get("full_text", "")
+    item_id = response.json()["id"]
+    # full_text is not in the create response — fetch via detail endpoint
+    detail = client.get(f"/content/{item_id}", headers=auth_headers)
+    assert detail.status_code == 200
+    full_text = detail.json().get("full_text", "")
     # Title H1 should be cleaned from content body
     assert "<h1>My Article</h1>" not in full_text
     assert "Body text." in full_text

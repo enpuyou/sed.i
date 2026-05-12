@@ -223,6 +223,20 @@ input::placeholder {
   border-color: var(--accent);
 }
 
+/* ─── Action row (Read + Save side by side) ─────────── */
+
+.action-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.action-row .btn-primary,
+.action-row .btn-secondary {
+  margin-top: 0;
+  flex: 1;
+}
+
 /* ─── Page info ──────────────────────────────────────── */
 
 .page-info {

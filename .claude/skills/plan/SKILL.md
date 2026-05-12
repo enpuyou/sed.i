@@ -27,9 +27,12 @@ error feedback to every user action". Bad: "add InlineError component".
 Before designing anything, check what already exists:
 
 1. **Past plans**: Search `docs/plans/` for related work. Don't re-solve solved problems.
-2. **Past retros**: Search `docs/retros/` for lessons from similar features.
+2. **Past retros**: Search `docs/retros/` for lessons from similar features. If a retro
+   called out a specific risk or process improvement relevant to this work, reference it.
 3. **Existing patterns**: Grep the codebase for similar components/hooks/utilities.
 4. **ARCHITECTURE.md**: Read the relevant sections to understand current structure.
+5. **Design language** (frontend work): Read `docs/instructions/design-language.md`.
+   The plan must explain how the new UI will follow the established aesthetic.
 
 If prior art exists, reference it explicitly in the plan and explain how this
 work builds on or differs from it.

@@ -39,7 +39,7 @@ export default function SearchBar() {
       setLoading(true);
       setSearchError(false);
       const data = await searchAPI.semantic(q, { limit: INLINE_LIMIT });
-      setResults(data);
+      setResults(data.articles ?? data);
       setShowResults(true);
     } catch {
       setResults([]);

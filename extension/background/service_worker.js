@@ -6,6 +6,13 @@
  */
 
 const DEFAULT_API_BASE = 'https://api.read-sedi.com';
+const DEFAULT_FRONTEND_BASE = 'https://www.read-sedi.com';
+
+function deriveFrontendBase(apiBase) {
+  const base = (apiBase || DEFAULT_API_BASE).replace(/\/$/, '');
+  if (base.includes('localhost')) return base.replace(/:\d+$/, ':3000');
+  return DEFAULT_FRONTEND_BASE;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,6 +91,12 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
     case 'setApiBase':
       setStorage({ apiBase: request.apiBase }).then(() => sendResponse({ ok: true }));
+      return true;
+
+    case 'getFrontendBase':
+      getStorage('apiBase').then(({ apiBase }) =>
+        sendResponse({ frontendBase: deriveFrontendBase(apiBase) })
+      );
       return true;
 
     default:
