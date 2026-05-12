@@ -16,49 +16,28 @@ interface EphemeralArticle {
 
 const STORAGE_KEY = "sedi_ephemeral_article";
 
-// Ask the extension service worker for the ephemeral article it stored in
-// chrome.storage.session. Returns null if not in an extension context or no
-// article is waiting.
-function fetchFromExtension(): Promise<EphemeralArticle | null> {
-  return new Promise((resolve) => {
-    try {
-      if (typeof window === "undefined" || !("chrome" in window)) {
-        resolve(null);
-        return;
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cr = (window as any).chrome;
-      if (!cr?.runtime?.sendMessage) {
-        resolve(null);
-        return;
-      }
-      cr.runtime.sendMessage(
-        { action: "getEphemeralArticle" },
-        (resp: { article: EphemeralArticle | null }) => {
-          if (cr.runtime.lastError) {
-            resolve(null);
-            return;
-          }
-          resolve(resp?.article ?? null);
-        },
-      );
-    } catch {
-      resolve(null);
-    }
-  });
+function isInIframe() {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
 }
 
 export default function ReadPage() {
   const [article, setArticle] = useState<EphemeralArticle | null>(null);
   const [loading, setLoading] = useState(true);
+  const inIframe = typeof window !== "undefined" && isInIframe();
 
   useEffect(() => {
-    async function load() {
+    function load() {
       try {
-        // 1. Try extension relay (production path from extension popup)
-        const fromExtension = await fetchFromExtension();
-        if (fromExtension) {
-          setArticle(fromExtension);
+        // 1. Read from URL hash (set by extension popup / overlay)
+        const hash = window.location.hash.slice(1);
+        if (hash) {
+          const parsed = JSON.parse(decodeURIComponent(hash));
+          history.replaceState(null, "", window.location.pathname);
+          setArticle(parsed);
           return;
         }
 
@@ -66,7 +45,7 @@ export default function ReadPage() {
         const raw = sessionStorage.getItem(STORAGE_KEY);
         if (raw) setArticle(JSON.parse(raw));
       } catch {
-        // malformed data — show error state
+        // malformed data — show empty state
       } finally {
         setLoading(false);
       }
@@ -100,12 +79,14 @@ export default function ReadPage() {
           <p className="text-[var(--color-text-secondary)] mb-6">
             Open this page from the sed.i browser extension to read an article.
           </p>
-          <Link
-            href="/dashboard"
-            className="inline-block bg-[var(--color-accent)] text-white px-6 py-2 hover:bg-[var(--color-accent-hover)] transition-colors"
-          >
-            Back to Dashboard
-          </Link>
+          {!inIframe && (
+            <Link
+              href="/dashboard"
+              className="inline-block bg-[var(--color-accent)] text-white px-6 py-2 hover:bg-[var(--color-accent-hover)] transition-colors"
+            >
+              Back to Dashboard
+            </Link>
+          )}
         </div>
       </div>
     );

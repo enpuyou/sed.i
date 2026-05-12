@@ -194,9 +194,24 @@ For each improvement identified in Phase 4:
 
 ---
 
+## Phase 7 · Seed the next plan
+
+The retro closes the loop. End by prompting the user:
+
+> "Based on this retro, here are the top 3 follow-up areas worth planning next:
+> 1. [Area A] — because [finding]
+> 2. [Area B] — because [finding]
+> 3. [Area C] — because [finding]
+>
+> Want me to run `/plan` on any of these?"
+
+This makes the plan → execute → retro cycle explicit and self-sustaining.
+
+---
+
 ## Cross-references
 
 - Feed process improvements into CLAUDE.md and skill updates (Phase 6).
 - If retro identifies structural debt, use `/improve` to plan the cleanup.
 - If retro identifies performance issues, use `/perf-audit` to measure them.
-- Before the next feature, use `/plan` — check this retro's lessons first.
+- Before the next feature, use `/plan` — the `/plan` skill reads `docs/retros/` for prior lessons.

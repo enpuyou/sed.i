@@ -77,16 +77,29 @@ cd frontend && npx eslint . --max-warnings=0 2>&1 | head -50
 ```
 Auto-fix safe issues first: `npx eslint . --fix`
 
-### 3c. Tests
-```bash
-cd frontend && npx jest --ci --passWithNoTests 2>&1 | tail -30
-```
+### 3c. Tests — targeted, not full suite
+
+**Do not run the full test suite here.** Run only the tests directly related to what changed.
+
+- If you wrote or modified a frontend test file: `cd frontend && npx jest <test-file> --no-coverage`
+- If you modified a component: `cd frontend && npx jest __tests__/components/<ComponentName>.test.tsx`
+- If no tests are relevant to this change: skip entirely and note it in the report.
+
+The full test suite runs in `/finalize` before any PR — not during development.
 
 ### 3d. Backend (if backend files changed)
+
+**Lint always:**
 ```bash
 cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/ 2>&1 | head -50
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q 2>&1 | tail -30
 ```
+
+**Tests — targeted only:**
+```bash
+# Run only the test file for the module you changed, e.g.:
+cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/test_content_api.py -x -q 2>&1 | tail -20
+```
+Full backend test suite (`pytest tests/ -x -q`) runs in `/finalize` only.
 
 ---
 
@@ -103,7 +116,24 @@ For each failing check:
 
 ---
 
-## Phase 5 · Commit handoff (manual)
+## Phase 5 · Frontend design audit (if frontend files changed)
+
+Before committing, verify the new UI matches the project's design language
+(`docs/instructions/design-language.md`). Check each changed component for:
+
+- [ ] No raw hex colors — all colors via `var(--color-*)`.
+- [ ] No `rounded-*` — always `rounded-none`.
+- [ ] No `shadow-*`.
+- [ ] Buttons use `compact-touch`, `font-mono text-xs`, `rounded-none`.
+- [ ] Headings use `font-serif`, UI text uses `font-mono`.
+- [ ] State rendering order: Loading → Error → Empty → Data.
+- [ ] No `<img>` — only `next/image`.
+
+If any violation is found, fix it before handing off.
+
+---
+
+## Phase 6 · Commit handoff (manual)
 
 1. **Prepare commit checklist for the user**:
    - review staged changes with `git diff --cached` and `git status`.
@@ -113,12 +143,13 @@ For each failing check:
    - Commented-out code.
    - `.env` or credentials (never commit these).
 3. **Suggest commit message** that focuses on *why*, matching existing style.
+   Commit at a **feature boundary** — a complete, working unit. Partial work stays unstaged.
 4. **Do not run** `pre-commit`, `git commit`, or `git push` in this skill.
-   The user executes those manually.
+   The user executes commits. **Only the user creates PRs.**
 
 ---
 
-## Phase 6 · Report
+## Phase 7 · Report
 
 Present results:
 ```

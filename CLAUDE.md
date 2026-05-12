@@ -54,22 +54,31 @@ These apply in every session, every file, no exceptions:
 
 Use skills in this order for significant work:
 
-| Phase    | Skill             | When                                               |
-| -------- | ----------------- | -------------------------------------------------- |
-| Plan     | `/plan <goal>`    | Before any feature — analyze, design, phase        |
-| Build    | `/pre-commit-dev` | During dev — write tests, run checks, commit       |
-| Finalize | `/finalize`       | Branch ready to merge — full audit + ship          |
-| Retro    | `/retro`          | After merging — extract process improvements       |
-| Improve  | `/improve`        | Between features — find duplication, god components|
-| Perf     | `/perf-audit`     | App feels slow — bundle, rendering, data fetching  |
+| Phase     | Skill                    | When                                               |
+| --------- | ------------------------ | -------------------------------------------------- |
+| Plan      | `/plan <goal>`           | Before any feature — analyze, design, phase        |
+| Build     | `/pre-commit-dev`        | After a complete logical unit of work — checkpoint |
+| Debug     | `/diagnose`              | Bug reported or test failing unexpectedly          |
+| Finalize  | `/finalize`              | Branch ready to merge — full audit + ship          |
+| Retro     | `/retro`                 | After merging — extract process improvements       |
+| Improve   | `/improve`               | Between features — duplication, god components     |
+| Perf      | `/perf-audit`            | App feels slow — bundle, rendering, data fetching  |
+| Handoff   | `/handoff`               | Session ending mid-work — pack context for next    |
+| Zoom      | `/zoom-out`              | Unfamiliar code — get a module map before editing  |
 
 Plans → `docs/plans/`. Retros → `docs/retros/`.
 
-**After every implementation, write an impact report** in `docs/plans/` named
-`<feature>-impact-report.md`. Executive level only: what measurably changed
-(query count, test count, config coverage, etc.) and why it matters. No
-implementation details, no invented benchmarks — only claims you can back with
-a number from the actual run.
+## Commit discipline
+
+- **Commit at feature boundaries**, not every file save. A commit should represent a complete, coherent unit: a working feature, a fixed bug, a finished refactor. Partial work stays unstaged.
+- **Only the user creates PRs.** Never run `gh pr create` or push to a PR-ready branch without explicit user request.
+- **Impact reports** go in `docs/changelog/` as `YYYY-MM-DD-<topic>.md`. Write one only when the user asks, or when prompted after all planned work for a session is done. Never write mid-session.
+
+## Test discipline
+
+- **Run tests when**: fixing a bug (confirm it's fixed), before `/finalize`, when a PR is being prepared.
+- **Skip full test suite during**: regular feature development unless a test broke. Use targeted file-level runs (`pytest tests/test_foo.py`) to check only what changed.
+- **Full suite always runs in `/finalize`** — no exceptions.
 
 ---
 
@@ -78,6 +87,7 @@ a number from the actual run.
 | Working on                          | Read                                       |
 | ----------------------------------- | ------------------------------------------ |
 | Any frontend UI / component work    | `docs/instructions/frontend-patterns.md`   |
+| Any frontend page or component      | `docs/instructions/design-language.md`     |
 | Any backend API / DB / Celery work  | `docs/instructions/backend-patterns.md`    |
 | Writing or running tests            | `docs/instructions/testing-standards.md`   |
 | MCP tools or OAuth                  | `docs/mcp-wiki.md` and `docs/mcp-server.md`|

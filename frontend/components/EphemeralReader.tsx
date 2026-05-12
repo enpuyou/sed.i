@@ -64,11 +64,20 @@ function buildFakeContentItem(article: EphemeralArticle): ContentItem {
   };
 }
 
+function isInIframe() {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 export default function EphemeralReader({ article }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const inIframe = typeof window !== "undefined" && isInIframe();
 
   // Collect highlights created during ephemeral reading
   const ephemeralHighlights = useRef<EphemeralHighlight[]>([]);
@@ -111,16 +120,15 @@ export default function EphemeralReader({ article }: Props) {
       });
 
       setSaved(true);
-
-      // Clean up session storage — article is now saved
       try {
         sessionStorage.removeItem(STORAGE_KEY);
       } catch {}
 
-      // Navigate to the real article
-      setTimeout(() => {
-        router.push(`/content/${result.id}`);
-      }, 800);
+      // In iframe (overlay mode) we can't navigate — just show confirmation.
+      // In standalone tab mode, navigate to the saved article.
+      if (!inIframe) {
+        setTimeout(() => router.push(`/content/${result.id}`), 800);
+      }
     } catch {
       setSaveError("Couldn't save article. Try again.");
     } finally {

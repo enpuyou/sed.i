@@ -14,6 +14,19 @@ const DEFAULT_API_BASE = 'https://api.read-sedi.com';
 // The frontend app URL (separate from the API — hosted on Vercel)
 const DEFAULT_FRONTEND_BASE = 'https://www.read-sedi.com';
 
+// Derive the frontend base from the stored API base URL:
+//   api.read-sedi.com  → www.read-sedi.com  (production)
+//   localhost:8000     → localhost:3000      (local dev)
+//   anything else      → DEFAULT_FRONTEND_BASE
+async function getFrontendBase() {
+  const { apiBase } = await msg('getApiBase');
+  const base = (apiBase || DEFAULT_API_BASE).replace(/\/$/, '');
+  if (base.includes('localhost')) {
+    return base.replace(/:\d+$/, ':3000');
+  }
+  return DEFAULT_FRONTEND_BASE;
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function msg(action, data = {}) {
@@ -208,31 +221,41 @@ document.getElementById('btn-read').addEventListener('click', async () => {
     const url = tab?.url;
     if (!url) throw new Error('Could not determine current page URL.');
 
+    // Extract while popup is still alive (scripting is reliable here).
+    // Skip image inlining — the iframe displays images from their original URLs.
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => { window.__SEDI_SKIP_IMAGE_INLINE = true; },
+    });
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ['lib/Readability.js', 'content/content.js'],
     });
     const extracted = results?.[0]?.result;
-
     if (!extracted || extracted.error) {
       throw new Error(extracted?.error || 'Content extraction failed.');
     }
 
-    // Store payload in chrome.storage.session — the /read page fetches it via messaging
-    await msg('setEphemeralArticle', {
-      article: {
-        url,
-        html:           extracted.html,
-        title:          extracted.title          || '',
-        author:         extracted.author         || '',
-        description:    extracted.description    || '',
-        thumbnail:      extracted.thumbnail      || '',
-        publishedDate:  extracted.publishedDate  || '',
-      },
+    const article = {
+      url,
+      html:          extracted.html,
+      title:         extracted.title         || '',
+      author:        extracted.author        || '',
+      description:   extracted.description   || '',
+      thumbnail:     extracted.thumbnail     || '',
+      publishedDate: extracted.publishedDate || '',
+    };
+    // Pass article to tab, then inject the overlay (DOM swap — no iframe, instant)
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (a) => { window.__sediArticle__ = a; },
+      args: [article],
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content/reader-overlay.js'],
     });
 
-    const frontendBase = DEFAULT_FRONTEND_BASE.replace(/\/$/, '');
-    chrome.tabs.create({ url: `${frontendBase}/read` });
     window.close();
 
   } catch (err) {
@@ -386,9 +409,9 @@ function showResult(success, pageTitle) {
     const link = document.createElement('a');
     link.href = '#';
     link.textContent = 'Open sed.i →';
-    link.addEventListener('click', (e) => {
+    link.addEventListener('click', async (e) => {
       e.preventDefault();
-      const frontendBase = DEFAULT_FRONTEND_BASE.replace(/\/$/, '');
+      const frontendBase = await getFrontendBase();
       chrome.tabs.create({ url: `${frontendBase}/dashboard` });
     });
     actionsEl.appendChild(link);
