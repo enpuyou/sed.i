@@ -913,15 +913,16 @@ every file.
 
 ## 23. Chrome Extension (`extension/`)
 
-MV3 extension with three components:
+MV3 extension — version `0.1.2`. Four components:
 
 | File | Role |
 |------|------|
-| `content/content.js` | Injected into every page. Runs Readability, extracts HTML/metadata, and calls `detectAccessRestriction()` (JSON-LD `isAccessibleForFree: false`, `content_tier` meta, paywall DOM selectors). |
-| `popup/popup.js` | Save button UI. Sends payload to service worker. Displays article preview (word count, read time, author, publish date, access-restriction signal). |
-| `background/service_worker.js` | Calls `POST /content`. Maps `accessRestricted` → `pre_extracted_access_restricted`. Reads API base URL from `chrome.storage.local` (default: `https://api.sedi.read`). |
+| `content/content.js` | Injected on demand via `chrome.scripting.executeScript`. Runs Readability, extracts HTML/metadata, calls `detectAccessRestriction()` (JSON-LD `isAccessibleForFree: false`, `content_tier` meta, paywall DOM selectors). |
+| `content/reader-overlay.js` | Ephemeral reader. Swaps `document.body` with a clean reader DOM (CSS hard-reset via `all:initial!important` to prevent page style leakage). Features: progress bar, auto-hide navbar, TOC with scroll-spy, focus mode, theme toggle, reading settings panel (font/size/line-height/letter-spacing/width), "Save to sed.i" button. Metadata byline mirrors `ReaderArticle.tsx` exactly: two-zone layout (attribution row + reader-info row), font-mono tracking-tight, three color levels (--fg2/--fgm/--fgt). Strips `iframe/frame/object/embed/script` from injected HTML before render. |
+| `popup/popup.js` | Two-button popup: **Read** (launches reader-overlay) and **Save to sed.i** (extracts + sends to service worker). On open, shows page title + favicon/domain immediately, then runs an inline `executeScript` to read og/meta tags (`og:image`, `og:description`, `og:site_name`, `article:author`, `article:published_time`) — no content script needed, under 10ms. Save button shows animated dot loading (`sending` → `sending...`) then `sent ✓` in green. Parses structured 409 errors (nested JSON `detail`) into human-readable messages. Theme (`light`/`dark`) persisted via `chrome.storage.local`. |
+| `background/service_worker.js` | Calls `POST /content` with `pre_extracted_html` payload. Maps `accessRestricted` → `pre_extracted_access_restricted`. Reads API base URL from `chrome.storage.local` (default: `https://api.read-sedi.com`). |
 
-**Dev mode:** Long-press (2s) on the extension logo reveals an API URL field for pointing the extension at localhost. The URL is saved to `chrome.storage.local` and reset on button click.
+**Dev mode:** Long-press (≥2s) on the extension logo reveals an API URL field for pointing the extension at localhost. The URL is saved to `chrome.storage.local` and persists across sessions.
 
 **Dev worker hot-reload:** `content-queue-backend/scripts/dev_worker.sh` starts Celery with `watchfiles` monitoring `app/` — worker auto-restarts on any Python file change, eliminating the need to manually restart after editing tasks.
 

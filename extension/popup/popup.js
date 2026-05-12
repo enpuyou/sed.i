@@ -1,31 +1,15 @@
 /**
- * popup.js — sed.i browser extension popup controller
+ * popup.js — sed.i extension popup
  *
  * Flow:
- *   login  → user enters credentials
- *   ready  → shows page title + article meta, save button
- *   saving → extracting content (overlay)
- *   preview → shows extraction signals + scrollable text snippet; user confirms or cancels
- *   sending → posting to backend (overlay)
- *   result → shows success/error after saving
+ *   login  → credentials
+ *   ready  → title + og/meta shown immediately; Read and Save to sed.i available
+ *   (save clicked) → extracts inline, fires to service worker; button shows
+ *                    animated dots then "sent ✓"; errors shown inline
+ *   (read clicked) → injects reader overlay into tab, popup closes
  */
 
 const DEFAULT_API_BASE = 'https://api.read-sedi.com';
-// The frontend app URL (separate from the API — hosted on Vercel)
-const DEFAULT_FRONTEND_BASE = 'https://www.read-sedi.com';
-
-// Derive the frontend base from the stored API base URL:
-//   api.read-sedi.com  → www.read-sedi.com  (production)
-//   localhost:8000     → localhost:3000      (local dev)
-//   anything else      → DEFAULT_FRONTEND_BASE
-async function getFrontendBase() {
-  const { apiBase } = await msg('getApiBase');
-  const base = (apiBase || DEFAULT_API_BASE).replace(/\/$/, '');
-  if (base.includes('localhost')) {
-    return base.replace(/:\d+$/, ':3000');
-  }
-  return DEFAULT_FRONTEND_BASE;
-}
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -55,12 +39,7 @@ function hideError(id) {
 
 async function init() {
   const { token } = await msg('getToken');
-
-  if (!token) {
-    show('view-login');
-    return;
-  }
-
+  if (!token) { show('view-login'); return; }
   await setupReadyView();
 }
 
@@ -78,7 +57,7 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
 
   const btn = document.getElementById('btn-login');
   btn.disabled = true;
-  btn.textContent = '▐ Connecting...';
+  btn.textContent = '▐ connecting...';
 
   try {
     const base = apiBase.replace(/\/$/, '');
@@ -109,44 +88,153 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
 
 // ─── Ready view ───────────────────────────────────────────────────────────────
 
+let _tab = null;
+let _savePhase = 'idle'; // idle | extracting | sending
+
 async function setupReadyView() {
   show('view-ready');
+  _savePhase = 'idle';
 
+  // Reset save button
+  const saveBtn = document.getElementById('btn-save');
+  saveBtn.disabled = false;
+  saveBtn.textContent = 'Send to sed.i';
+  saveBtn.classList.remove('btn-sent');
+  hideError('save-error');
+
+  // Show title + source line immediately — no extraction needed
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const titleEl = document.getElementById('page-title');
-  if (tab?.title) titleEl.textContent = tab.title;
+  _tab = tab;
 
+  document.getElementById('page-title').textContent = tab?.title || '';
+  document.getElementById('page-thumbnail').classList.add('hidden');
+  document.getElementById('page-desc').classList.add('hidden');
+  document.getElementById('page-author').classList.add('hidden');
+  document.getElementById('page-date').classList.add('hidden');
+
+  // Source line: favicon + fallback domain
+  try {
+    const u = new URL(tab?.url || '');
+    const domain = u.hostname.replace(/^www\./, '');
+    const faviconEl = document.getElementById('page-favicon');
+    if (tab?.favIconUrl) {
+      faviconEl.src = tab.favIconUrl;
+      faviconEl.style.display = 'inline';
+    } else {
+      faviconEl.style.display = 'none';
+    }
+    document.getElementById('page-domain').textContent = domain;
+    document.getElementById('page-source').classList.remove('hidden');
+  } catch {
+    document.getElementById('page-source').classList.add('hidden');
+  }
+
+  // Inject a tiny inline function to read og/meta tags — instant, no Readability
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const m = (s) => {
+          for (const sel of s) {
+            const v = document.querySelector(sel)?.getAttribute('content') || '';
+            if (v.trim()) return v.trim();
+          }
+          return '';
+        };
+        return {
+          siteName:    m(['meta[property="og:site_name"]']),
+          description: m(['meta[property="og:description"]', 'meta[name="description"]']),
+          thumbnail:   m(['meta[property="og:image"]', 'meta[name="twitter:image"]']),
+          author:      m(['meta[name="author"]', 'meta[property="article:author"]', 'meta[name="twitter:creator"]']),
+          published:   m(['meta[property="article:published_time"]']),
+        };
+      },
+    });
+    const meta = res?.result;
+    if (meta) {
+      if (meta.siteName) document.getElementById('page-domain').textContent = meta.siteName;
+
+      if (meta.description) {
+        const el = document.getElementById('page-desc');
+        el.textContent = meta.description.length > 110 ? meta.description.slice(0, 110) + '…' : meta.description;
+        el.classList.remove('hidden');
+      }
+
+      if (meta.thumbnail) {
+        try {
+          const u = new URL(meta.thumbnail);
+          if (u.protocol === 'https:' || u.protocol === 'http:') {
+            const el = document.getElementById('page-thumbnail');
+            el.src = meta.thumbnail;
+            el.classList.remove('hidden');
+            el.onerror = () => el.classList.add('hidden');
+          }
+        } catch {}
+      }
+
+      if (meta.author) {
+        const el = document.getElementById('page-author');
+        el.textContent = meta.author;
+        el.classList.remove('hidden');
+      }
+      if (meta.published) {
+        try {
+          const d = new Date(meta.published);
+          if (!isNaN(d)) {
+            const el = document.getElementById('page-date');
+            el.textContent = d.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
+            el.classList.remove('hidden');
+          }
+        } catch {}
+      }
+    }
+  } catch {}
 }
 
-// Settings toggle
+// ─── Settings ─────────────────────────────────────────────────────────────────
+
 document.getElementById('btn-settings-toggle').addEventListener('click', () => {
   document.getElementById('settings-drawer').classList.toggle('hidden');
 });
 
-// Close button
-document.getElementById('btn-close').addEventListener('click', () => {
-  window.close();
-});
+document.getElementById('btn-close').addEventListener('click', () => window.close());
 
-// Logout
 document.getElementById('btn-logout').addEventListener('click', async () => {
   await msg('clearToken');
   show('view-login');
 });
 
-// ─── Dev mode (long-press any logo ≥ 2s) ────────────────────────────────────
+// ─── Popup theme toggle ───────────────────────────────────────────────────────
 
-let _logoHoldTimer = null;
+const POPUP_THEME_KEY = '__sedi_popup_theme__';
+
+function applyPopupTheme(theme, persist = true) {
+  document.documentElement.setAttribute('data-popup-theme', theme);
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.theme === theme);
+  });
+  if (persist) chrome.storage.local.set({ [POPUP_THEME_KEY]: theme });
+}
+
+chrome.storage.local.get([POPUP_THEME_KEY], (result) => {
+  const saved = result[POPUP_THEME_KEY];
+  if (saved === 'dark' || saved === 'light') applyPopupTheme(saved, false);
+});
+
+document.querySelectorAll('.theme-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyPopupTheme(btn.dataset.theme));
+});
+
+// ─── Dev mode (long-press logo ≥ 2s) ─────────────────────────────────────────
+
+let _logoTimer = null;
 
 function attachLongPress(el, onTrigger) {
-  function start() {
-    // Cancel any in-flight timer before starting a new one (idempotent)
-    if (_logoHoldTimer) { clearTimeout(_logoHoldTimer); }
-    _logoHoldTimer = setTimeout(() => { _logoHoldTimer = null; onTrigger(); }, 2000);
-  }
-  function cancel() {
-    if (_logoHoldTimer) { clearTimeout(_logoHoldTimer); _logoHoldTimer = null; }
-  }
+  const start = () => {
+    if (_logoTimer) clearTimeout(_logoTimer);
+    _logoTimer = setTimeout(() => { _logoTimer = null; onTrigger(); }, 2000);
+  };
+  const cancel = () => { if (_logoTimer) { clearTimeout(_logoTimer); _logoTimer = null; } };
   el.addEventListener('mousedown', start);
   el.addEventListener('mouseup', cancel);
   el.addEventListener('mouseleave', cancel);
@@ -163,18 +251,15 @@ async function showDevFields(inputId, feedbackId, revealEl) {
   document.getElementById(feedbackId).classList.add('hidden');
 }
 
-// Ready view: long-press logo-row in the header
 attachLongPress(document.querySelector('#view-ready .logo-row'), async () => {
   document.getElementById('settings-drawer').classList.remove('hidden');
   await showDevFields('input-api-url', 'api-url-feedback', document.getElementById('dev-fields'));
 });
 
-// Login view: long-press the login logo-row
 attachLongPress(document.getElementById('login-logo-row'), async () => {
   await showDevFields('input-login-api-url', 'login-api-url-feedback', document.getElementById('login-dev-fields'));
 });
 
-// Dev field actions — ready view
 document.getElementById('btn-save-api-url').addEventListener('click', async () => {
   const val = document.getElementById('input-api-url').value.trim();
   if (!val) return;
@@ -192,7 +277,6 @@ document.getElementById('btn-reset-api-url').addEventListener('click', async () 
   fb.classList.remove('hidden');
 });
 
-// Dev field actions — login view
 document.getElementById('btn-login-save-api-url').addEventListener('click', async () => {
   const val = document.getElementById('input-login-api-url').value.trim();
   if (!val) return;
@@ -214,85 +298,106 @@ document.getElementById('btn-login-reset-api-url').addEventListener('click', asy
 
 document.getElementById('btn-read').addEventListener('click', async () => {
   hideError('save-error');
-  show('view-saving');
+  const readBtn = document.getElementById('btn-read');
+  readBtn.disabled = true;
+  readBtn.textContent = '...';
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const url = tab?.url;
-    if (!url) throw new Error('Could not determine current page URL.');
+    if (!_tab?.id) throw new Error('No active tab.');
+    const scheme = _tab.url ? new URL(_tab.url).protocol : '';
+    if (scheme !== 'https:' && scheme !== 'http:') throw new Error('Reader only works on http/https pages.');
 
-    // Extract while popup is still alive (scripting is reliable here).
-    // Skip image inlining — the iframe displays images from their original URLs.
     await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: _tab.id },
       func: () => { window.__SEDI_SKIP_IMAGE_INLINE = true; },
     });
     const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: _tab.id },
       files: ['lib/Readability.js', 'content/content.js'],
     });
     const extracted = results?.[0]?.result;
-    if (!extracted || extracted.error) {
-      throw new Error(extracted?.error || 'Content extraction failed.');
-    }
+    if (!extracted || extracted.error) throw new Error(extracted?.error || 'Extraction failed.');
 
     const article = {
-      url,
-      html:          extracted.html,
-      title:         extracted.title         || '',
-      author:        extracted.author        || '',
-      description:   extracted.description   || '',
-      thumbnail:     extracted.thumbnail     || '',
+      url: _tab.url,
+      html: extracted.html,
+      title: extracted.title || '',
+      author: extracted.author || '',
+      description: extracted.description || '',
+      thumbnail: extracted.thumbnail || '',
       publishedDate: extracted.publishedDate || '',
     };
-    // Pass article to tab, then inject the overlay (DOM swap — no iframe, instant)
     await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: _tab.id },
       func: (a) => { window.__sediArticle__ = a; },
       args: [article],
     });
     await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: _tab.id },
       files: ['content/reader-overlay.js'],
     });
-
     window.close();
-
   } catch (err) {
-    show('view-ready');
+    readBtn.disabled = false;
+    readBtn.textContent = 'Read';
     showError('save-error', err.message);
   }
 });
 
-// ─── Save / Extract ───────────────────────────────────────────────────────────
+// ─── Save ─────────────────────────────────────────────────────────────────────
 
-let _pendingPayload = null;
-let _pendingTabTitle = '';
+const saveBtn = document.getElementById('btn-save');
 
-document.getElementById('btn-save').addEventListener('click', async () => {
+// Parse structured API errors into human-readable messages.
+function parseApiError(raw) {
+  if (!raw) return "Couldn't save. Try again.";
+  try {
+    // Backend wraps detail as a JSON string on 409
+    const outer = JSON.parse(raw.replace(/^API error \d+: /, ''));
+    const detail = typeof outer.detail === 'string' ? JSON.parse(outer.detail) : outer.detail;
+    if (detail?.message === 'Already in your library') {
+      return detail.is_archived
+        ? 'Already in your library (archived). Restore it from your queue.'
+        : 'Already in your library.';
+    }
+    if (detail?.message) return detail.message;
+    if (outer.detail) return String(outer.detail);
+  } catch {}
+  // Trim raw API error prefix for display
+  return raw.replace(/^API error \d+: /, '').slice(0, 120);
+}
+
+let _dotTimer = null;
+function startDots(btn) {
+  const frames = ['sending', 'sending.', 'sending..', 'sending...'];
+  let i = 0;
+  btn.textContent = frames[0];
+  _dotTimer = setInterval(() => { i = (i + 1) % frames.length; btn.textContent = frames[i]; }, 400);
+}
+function stopDots() { clearInterval(_dotTimer); _dotTimer = null; }
+
+saveBtn.addEventListener('click', async () => {
+  if (_savePhase !== 'idle') return;
+
   hideError('save-error');
-
-  show('view-saving');
+  _savePhase = 'sending';
+  saveBtn.disabled = true;
+  startDots(saveBtn);
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const url = tab?.url;
-    if (!url) throw new Error('Could not determine current page URL.');
-
-    _pendingTabTitle = tab?.title || url;
+    if (!_tab?.id) throw new Error('No active tab.');
+    const scheme = _tab.url ? new URL(_tab.url).protocol : '';
+    if (scheme !== 'https:' && scheme !== 'http:') throw new Error('Save only works on http/https pages.');
 
     const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: _tab.id },
       files: ['lib/Readability.js', 'content/content.js'],
     });
     const extracted = results?.[0]?.result;
+    if (!extracted || extracted.error) throw new Error(extracted?.error || 'Extraction failed.');
 
-    if (!extracted || extracted.error) {
-      throw new Error(extracted?.error || 'Content extraction failed.');
-    }
-
-    _pendingPayload = {
-      url,
+    const payload = {
+      url:              _tab.url,
       html:             extracted.html,
       title:            extracted.title,
       author:           extracted.author        || '',
@@ -301,127 +406,29 @@ document.getElementById('btn-save').addEventListener('click', async () => {
       publishedDate:    extracted.publishedDate || '',
       accessRestricted: extracted.accessRestricted || false,
     };
-    showPreview(extracted);
+
+    chrome.runtime.sendMessage({ action: 'saveContent', payload }, (resp) => {
+      stopDots();
+      if (chrome.runtime.lastError || !resp?.ok) {
+        _savePhase = 'idle';
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Send to sed.i';
+        showError('save-error', parseApiError(resp?.error));
+        return;
+      }
+      _savePhase = 'idle';
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'sent ✓';
+      saveBtn.classList.add('btn-sent');
+    });
 
   } catch (err) {
-    show('view-ready');
+    stopDots();
+    _savePhase = 'idle';
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Send to sed.i';
     showError('save-error', err.message);
   }
-});
-
-// ─── Preview ──────────────────────────────────────────────────────────────────
-
-function showPreview(extracted) {
-  show('view-preview');
-  hideError('preview-error');
-
-  const { wordCount, debugInfo, html, accessRestricted, author, publishedDate } = extracted;
-  const signals = document.getElementById('preview-signals');
-  signals.innerHTML = '';
-
-  function sig(label, level) {
-    const s = document.createElement('span');
-    s.className = `signal ${level}`;
-    s.textContent = label;
-    signals.appendChild(s);
-  }
-
-  // Access restriction — show first, it's the most important signal
-  if (accessRestricted) {
-    sig('access restricted', 'bad');
-  }
-
-  // Word count
-  if (wordCount > 300) sig(`${wordCount} words`, 'ok');
-  else if (wordCount > 80) sig(`${wordCount} words`, 'warn');
-  else sig(`${wordCount} words`, 'bad');
-
-  // Estimated reading time
-  const readMins = Math.max(1, Math.round(wordCount / 200));
-  sig(`~${readMins} min read`, 'ok');
-
-  // Author
-  if (author) sig(author.length > 25 ? author.slice(0, 25) + '…' : author, 'ok');
-
-  // Published date — show just the year/month if available
-  if (publishedDate) {
-    try {
-      const d = new Date(publishedDate);
-      if (!isNaN(d.getTime())) {
-        sig(d.toLocaleDateString('en', { month: 'short', year: 'numeric' }), 'ok');
-      }
-    } catch {}
-  }
-
-  // Extraction quality
-  if (!accessRestricted) {
-    if (debugInfo?.foundSpecific) {
-      sig('subscriber content', 'ok');
-    }
-  }
-
-  // Snippet — show more text (800 chars), scrollable via CSS
-  const snippet = (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800);
-  document.getElementById('preview-snippet').textContent = snippet || '(no text extracted)';
-}
-
-document.getElementById('btn-confirm-save').addEventListener('click', async () => {
-  if (!_pendingPayload) return;
-  hideError('preview-error');
-  show('view-sending');
-  await sendPayload();
-});
-
-document.getElementById('btn-preview-cancel').addEventListener('click', () => {
-  _pendingPayload = null;
-  setupReadyView();
-});
-
-// ─── Send ─────────────────────────────────────────────────────────────────────
-
-async function sendPayload() {
-  try {
-    const result = await msg('saveContent', { payload: _pendingPayload });
-    if (!result.ok) throw new Error(result.error || 'Save failed');
-    _pendingPayload = null;
-    showResult(true, _pendingTabTitle);
-  } catch (err) {
-    show('view-preview');
-    showError('preview-error', err.message);
-  }
-}
-
-// ─── Result view ──────────────────────────────────────────────────────────────
-
-function showResult(success, pageTitle) {
-  show('view-result');
-
-  document.getElementById('result-icon').textContent = success ? '✓' : '✕';
-
-  document.getElementById('result-message').textContent = success
-    ? `"${pageTitle}" saved to your queue.`
-    : 'Something went wrong.';
-
-  const actionsEl = document.getElementById('result-actions');
-  actionsEl.innerHTML = '';
-
-  if (success) {
-    const link = document.createElement('a');
-    link.href = '#';
-    link.textContent = 'Open sed.i →';
-    link.addEventListener('click', async (e) => {
-      e.preventDefault();
-      const frontendBase = await getFrontendBase();
-      chrome.tabs.create({ url: `${frontendBase}/dashboard` });
-    });
-    actionsEl.appendChild(link);
-  }
-}
-
-// Back from result
-document.getElementById('btn-back').addEventListener('click', async () => {
-  _pendingPayload = null;
-  await setupReadyView();
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
