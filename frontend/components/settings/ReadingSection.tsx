@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { BionicText } from "@/components/BionicText";
 import {
   useReadingSettings,
@@ -220,31 +220,40 @@ export default function ReadingSection({ isActive }: { isActive: boolean }) {
     (o) => o.value === getValue(config.key),
   );
 
-  const applyOption = (key: keyof ReadingSettings, value: string) => {
-    if (key === "bionicReading") {
-      updateSetting("bionicReading", value === "true");
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      updateSetting(key, value as any);
-    }
-  };
+  const applyOption = useCallback(
+    (key: keyof ReadingSettings, value: string) => {
+      if (key === "bionicReading") {
+        updateSetting("bionicReading", value === "true");
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        updateSetting(key, value as any);
+      }
+    },
+    [updateSetting],
+  );
 
-  const prevSetting = () =>
-    setSettingIdx(
-      (i) => (i - 1 + SETTING_CONFIGS.length) % SETTING_CONFIGS.length,
-    );
-  const nextSetting = () =>
-    setSettingIdx((i) => (i + 1) % SETTING_CONFIGS.length);
+  const prevSetting = useCallback(
+    () =>
+      setSettingIdx(
+        (i) => (i - 1 + SETTING_CONFIGS.length) % SETTING_CONFIGS.length,
+      ),
+    [],
+  );
+  const nextSetting = useCallback(
+    () => setSettingIdx((i) => (i + 1) % SETTING_CONFIGS.length),
+    [],
+  );
 
-  const prevOption = () => {
+  const prevOption = useCallback(() => {
     const newIdx =
       (currentOptIdx - 1 + config.options.length) % config.options.length;
     applyOption(config.key, config.options[newIdx].value);
-  };
-  const nextOption = () => {
+  }, [currentOptIdx, config, applyOption]);
+
+  const nextOption = useCallback(() => {
     const newIdx = (currentOptIdx + 1) % config.options.length;
     applyOption(config.key, config.options[newIdx].value);
-  };
+  }, [currentOptIdx, config, applyOption]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -270,7 +279,7 @@ export default function ReadingSection({ isActive }: { isActive: boolean }) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  });
+  }, [isActive, prevSetting, nextSetting, prevOption, nextOption]);
 
   const currentLabel =
     config.options[currentOptIdx]?.label ?? getValue(config.key);

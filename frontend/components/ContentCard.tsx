@@ -42,7 +42,6 @@ export default function ContentCard({
     armed: confirmDelete,
     arm: armDelete,
     cancel: cancelDelete,
-    trigger: triggerDelete,
     toggle: toggleDelete,
   } = useConfirmAction(() => onDelete(content.id));
   const [mounted, setMounted] = useState(false);
@@ -451,7 +450,7 @@ export default function ContentCard({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    triggerDelete();
+                    toggleDelete();
                   }}
                   className="font-mono text-xs px-2 py-0.5 border border-red-400 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
                 >

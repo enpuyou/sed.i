@@ -27,7 +27,7 @@ export function useTagEditor({
         .then((tags: Array<{ tag: string; count: number }>) => {
           setAvailableTags(tags.map((t) => t.tag));
         })
-        .catch((err) => console.error("Failed to load tags:", err));
+        .catch(() => setTagError("Couldn't load suggestions. Try again."));
     }
   }, [isEditingTags]);
 
@@ -46,10 +46,9 @@ export function useTagEditor({
       onUpdate?.({ ...content, tags: newTags } as ContentItem);
       const updated = await contentAPI.update(content.id, { tags: newTags });
       onUpdate?.(updated);
-    } catch (err) {
-      console.error("Failed to add tag:", err);
+    } catch {
       onUpdate?.(content);
-      setTagError("Couldn't save tags.");
+      setTagError("Couldn't save tags. Try again.");
     }
   };
 
@@ -71,10 +70,9 @@ export function useTagEditor({
         auto_tags: newAutoTags,
       });
       onUpdate?.(updated);
-    } catch (err) {
-      console.error("Failed to remove tag:", err);
+    } catch {
       onUpdate?.(content);
-      setTagError("Couldn't save tags.");
+      setTagError("Couldn't save tags. Try again.");
     }
   };
 
