@@ -2,7 +2,7 @@
 # Encodes the pyenv shim workaround so agents and humans don't need to rediscover it.
 # Requires: pyenv at /usr/local/opt/pyenv, Python 3.11.7, Poetry 2.x, pnpm, docker
 
-.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend lint ruff tsc generate-types help
+.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend lint ruff tsc generate-types safari-sync safari-open help
 
 PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run
 
@@ -66,6 +66,20 @@ tsc:
 ## Regenerate frontend types from backend OpenAPI schema (backend must be running)
 generate-types:
 	cd frontend && pnpm generate-types 2>/dev/null || echo "Note: run 'make backend' first, then retry"
+
+# ── Safari extension ───────────────────────────────────────────────────────────
+
+SAFARI_RESOURCES = safari-extension/sed.i/sed.i Extension/Resources
+SAFARI_PROJECT   = safari-extension/sed.i/sed.i.xcodeproj
+
+## Sync Chrome extension changes into Safari Resources folder
+safari-sync:
+	cp -r extension/background extension/content extension/icons extension/lib extension/popup extension/manifest.json "$(SAFARI_RESOURCES)/"
+	@echo "Synced extension/ → $(SAFARI_RESOURCES). Rebuild in Xcode (⌘B) to apply."
+
+## Open the Safari extension Xcode project
+safari-open:
+	open "$(SAFARI_PROJECT)"
 
 # ── Help ───────────────────────────────────────────────────────────────────────
 

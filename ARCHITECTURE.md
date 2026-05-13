@@ -926,6 +926,28 @@ MV3 extension — version `0.1.2`. Four components:
 
 **Dev worker hot-reload:** `content-queue-backend/scripts/dev_worker.sh` starts Celery with `watchfiles` monitoring `app/` — worker auto-restarts on any Python file change, eliminating the need to manually restart after editing tasks.
 
+### Safari port (`safari-extension/`)
+
+Generated from the Chrome extension using Apple's `safari-web-extension-converter` (Xcode 26). No JavaScript changes required — Safari 15.4+ supports MV3 and aliases `chrome.*` to `browser.*`.
+
+| Path | Contents |
+| --- | --- |
+| `safari-extension/sed.i/sed.i.xcodeproj` | Xcode project — open this to build |
+| `safari-extension/sed.i/sed.i Extension/Resources/` | Copy of extension files (mirrored from `extension/`) |
+| `safari-extension/sed.i/sed.i/Assets.xcassets/` | App icon (all macOS sizes generated from `icons/icon128.png`) |
+
+**Build configuration notes:**
+
+- Both targets have `ENABLE_APP_SANDBOX = YES` + `ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES` (required so the extension's `fetch()` calls can reach the API).
+- Bundle IDs: app = `com.sedi.sed-i`, extension = `com.sedi.sed-i.Extension` (must share prefix with parent app).
+- `MACOSX_DEPLOYMENT_TARGET = 10.14` on the extension target (Safari Web Extensions require macOS 10.14+).
+
+**To sync Chrome changes to Safari:** `make safari-sync` copies `extension/` into the Resources folder; then rebuild in Xcode (⌘B).
+
+**To open the Xcode project:** `make safari-open`
+
+**Manual steps required before first build:** Set the developer Team on both targets in Xcode (Signing & Capabilities). A free Apple ID personal team is sufficient for local testing. See `docs/plans/safari-extension-plan.md` for the full step-by-step.
+
 ---
 
 ## 22. Engineering workflow standard

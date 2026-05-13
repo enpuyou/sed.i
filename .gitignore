@@ -5,6 +5,12 @@
 # Extension builds
 sedi-extension-*.zip
 
+# Safari extension Xcode build artifacts
+safari-extension/*/DerivedData/
+safari-extension/*/*.xcodeproj/xcuserdata/
+safari-extension/*/*.xcodeproj/project.xcworkspace/xcuserdata/
+safari-extension/*/build/
+
 __pycache__/
 *.py[cod]
 *$py.class
