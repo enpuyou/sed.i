@@ -5,6 +5,7 @@ import { VinylRecord } from "@/types";
 import { vinylAPI } from "@/lib/api";
 import { usePlayer, QueueTrack } from "@/contexts/PlayerContext";
 import InlineError from "./InlineError";
+import { useConfirmAction } from "@/hooks/useConfirmAction";
 
 interface RecordDetailProps {
   record: VinylRecord | null;
@@ -21,7 +22,20 @@ export default function RecordDetail({
   onDelete,
   onUpdate,
 }: RecordDetailProps) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    armed: confirmDelete,
+    cancel: cancelDelete,
+    toggle: toggleDelete,
+  } = useConfirmAction(async () => {
+    try {
+      setActionError(null);
+      await vinylAPI.delete(record!.id);
+      onDelete(record!.id);
+    } catch {
+      setActionError("Couldn't delete record. Try again.");
+    }
+  });
   const [visible, setVisible] = useState(false);
   const [editingCover, setEditingCover] = useState(false);
   const [coverInput, setCoverInput] = useState("");
@@ -32,7 +46,6 @@ export default function RecordDetail({
   const { addToQueue, addMultipleToQueue, play, queue, currentIndex } =
     usePlayer();
   const [justQueued, setJustQueued] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   // Animate in/out + lock body scroll
   useEffect(() => {
@@ -53,22 +66,22 @@ export default function RecordDetail({
     setEditingCover(false);
     setEditingStyles(false);
     setAddingVideo(false);
-    setConfirmDelete(false);
+    cancelDelete();
     setActionError(null);
-  }, [record?.id]);
+  }, [record?.id, cancelDelete]);
 
   // Keyboard: Escape to close
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setConfirmDelete(false);
+        cancelDelete();
         setEditingCover(false);
         setEditingStyles(false);
         setAddingVideo(false);
         onClose();
       }
     },
-    [onClose],
+    [onClose, cancelDelete],
   );
 
   useEffect(() => {
@@ -121,21 +134,6 @@ export default function RecordDetail({
   }, [queue, currentIndex, record, onUpdate]);
 
   if (!isOpen || !record) return null;
-
-  const handleDelete = async () => {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
-    try {
-      setActionError(null);
-      await vinylAPI.delete(record.id);
-      onDelete(record.id);
-    } catch {
-      setActionError("Couldn't delete record. Try again.");
-    }
-    setConfirmDelete(false);
-  };
 
   const handleStatusToggle = async () => {
     const newStatus = record.status === "wantlist" ? "collection" : "wantlist";
@@ -311,7 +309,7 @@ export default function RecordDetail({
       <div
         className={`fixed inset-0 z-50 bg-black/40 transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}
         onClick={() => {
-          setConfirmDelete(false);
+          cancelDelete();
           setEditingCover(false);
           setEditingStyles(false);
           setAddingVideo(false);
@@ -708,7 +706,7 @@ export default function RecordDetail({
               <div className="flex-1" />
 
               <button
-                onClick={handleDelete}
+                onClick={toggleDelete}
                 className={`compact-touch font-mono text-[10px] uppercase tracking-wider px-2 py-1 border transition-colors ${
                   confirmDelete
                     ? "border-red-400 text-red-400"

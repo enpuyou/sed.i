@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 import { ContentItem as ContentItemType } from "@/types";
 import StatusIndicator from "./StatusIndicator";
 import MobileActionsMenu from "./MobileActionsMenu";
-import { contentAPI } from "@/lib/api";
 import RetroLoader from "./RetroLoader";
 import { getIngestIssue } from "@/lib/ingestErrors";
+import { useTagEditor } from "@/hooks/useTagEditor";
+import { useConfirmAction } from "@/hooks/useConfirmAction";
 
 interface ContentCardProps {
   content: ContentItemType;
@@ -37,99 +38,28 @@ export default function ContentCard({
   isRemoving = false,
 }: ContentCardProps) {
   const [isEditingTags, setIsEditingTags] = useState(false);
-  const [tagInput, setTagInput] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const {
+    armed: confirmDelete,
+    arm: armDelete,
+    cancel: cancelDelete,
+    trigger: triggerDelete,
+    toggle: toggleDelete,
+  } = useConfirmAction(() => onDelete(content.id));
   const [mounted, setMounted] = useState(false);
-  const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const router = useRouter();
+  const {
+    tagInput,
+    setTagInput,
+    availableTags,
+    showSuggestions,
+    setShowSuggestions,
+    handleAddTag,
+    handleRemoveTag,
+  } = useTagEditor({ content, isEditingTags, onUpdate });
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  // Load available tags when editing starts
-  useEffect(() => {
-    if (isEditingTags) {
-      contentAPI
-        .getTags()
-        .then((tags: Array<{ tag: string; count: number }>) => {
-          setAvailableTags(tags.map((t) => t.tag));
-        })
-        .catch((err) => {
-          console.error("Failed to load tags:", err);
-        });
-    }
-  }, [isEditingTags]);
-
-  const handleAddTag = async () => {
-    if (!tagInput.trim()) return;
-
-    try {
-      const currentTags = content.tags || [];
-      if (currentTags.includes(tagInput.trim())) {
-        return;
-      }
-
-      const updatedTags = [...currentTags, tagInput.trim()];
-
-      // Optimistic update
-      const optimisticContent = {
-        ...content,
-        tags: updatedTags,
-      };
-      if (onUpdate) {
-        onUpdate(optimisticContent);
-      }
-
-      const updated = await contentAPI.update(content.id, {
-        tags: updatedTags,
-      });
-      if (onUpdate) {
-        onUpdate(updated);
-      }
-      setTagInput("");
-    } catch (error) {
-      console.error("Failed to add tag:", error);
-      // Revert optimistic update
-      if (onUpdate) {
-        onUpdate(content);
-      }
-    }
-  };
-
-  const handleRemoveTag = async (tagToRemove: string) => {
-    try {
-      const updatedTags = (content.tags || []).filter((t) => t !== tagToRemove);
-      const updatedAutoTags = (content.auto_tags || []).filter(
-        (t) => t !== tagToRemove,
-      );
-
-      // Optimistic update
-      const optimisticContent = {
-        ...content,
-        tags: updatedTags,
-        auto_tags: updatedAutoTags,
-      };
-      if (onUpdate) {
-        onUpdate(optimisticContent);
-      }
-
-      const updated = await contentAPI.update(content.id, {
-        tags: updatedTags,
-        auto_tags: updatedAutoTags,
-      });
-      if (onUpdate) {
-        onUpdate(updated);
-      }
-    } catch (error) {
-      console.error("Failed to remove tag:", error);
-      // Revert optimistic update
-      if (onUpdate) {
-        onUpdate(content);
-      }
-    }
-  };
 
   const handleCardClick = (e: React.MouseEvent) => {
     // Don't navigate if clicking on action buttons or links
@@ -222,12 +152,7 @@ export default function ContentCard({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (!confirmDelete) {
-                setConfirmDelete(true);
-                return;
-              }
-              setConfirmDelete(false);
-              onDelete(content.id);
+              toggleDelete();
             }}
             className={`text-xs px-2 py-1 rounded-none border transition-colors whitespace-nowrap ${
               confirmDelete
@@ -268,7 +193,7 @@ export default function ContentCard({
             })
           }
           onAddTag={() => setIsEditingTags(true)}
-          onDelete={() => setConfirmDelete(true)}
+          onDelete={armDelete}
           onAddToList={
             availableLists && availableLists.length > 0 && onAddToList
               ? (listId) => onAddToList(listId)
@@ -471,23 +396,8 @@ export default function ContentCard({
                             key={tag}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setTagInput(tag);
+                              handleAddTag(tag);
                               setShowSuggestions(false);
-                              // Auto-add the tag
-                              setTimeout(() => {
-                                const newTags = [...(content.tags || []), tag];
-                                contentAPI
-                                  .update(content.id, {
-                                    tags: newTags,
-                                  })
-                                  .then((updated) => {
-                                    if (onUpdate) onUpdate(updated);
-                                    setTagInput("");
-                                  })
-                                  .catch((err) =>
-                                    console.error("Failed to add tag:", err),
-                                  );
-                              }, 0);
                             }}
                             className="w-full text-left px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] last:border-b-0"
                           >
@@ -541,8 +451,7 @@ export default function ContentCard({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setConfirmDelete(false);
-                    onDelete(content.id);
+                    triggerDelete();
                   }}
                   className="font-mono text-xs px-2 py-0.5 border border-red-400 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
                 >
@@ -551,7 +460,7 @@ export default function ContentCard({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    setConfirmDelete(false);
+                    cancelDelete();
                   }}
                   className="font-mono text-xs px-2 py-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
                 >

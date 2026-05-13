@@ -10,7 +10,8 @@ import MobileActionsMenu from "./MobileActionsMenu";
 import RetroLoader from "./RetroLoader";
 import InlineError from "./InlineError";
 import { useAuth } from "@/contexts/AuthContext";
-import { contentAPI } from "@/lib/api";
+import { useTagEditor } from "@/hooks/useTagEditor";
+import { useConfirmAction } from "@/hooks/useConfirmAction";
 import { getIngestIssue } from "@/lib/ingestErrors";
 
 /**
@@ -69,31 +70,32 @@ export default function ContentItem({
    * Server and client would calculate different "now" times, causing mismatch
    */
   const [mounted, setMounted] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const {
+    armed: confirmDelete,
+    arm: armDelete,
+    cancel: cancelDelete,
+    trigger: triggerDelete,
+    toggle: toggleDelete,
+  } = useConfirmAction(() => onDelete(content.id));
   const [showListDropdown, setShowListDropdown] = useState(false);
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
-  const [tagInput, setTagInput] = useState("");
-  const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [tagError, setTagError] = useState<string | null>(null);
   const router = useRouter();
+  const {
+    tagInput,
+    setTagInput,
+    availableTags,
+    showSuggestions,
+    setShowSuggestions,
+    tagError,
+    setTagError,
+    handleAddTag,
+    handleRemoveTag,
+  } = useTagEditor({ content, isEditingTags, onUpdate });
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  // Load available tags when editing starts
-  useEffect(() => {
-    if (isEditingTags) {
-      contentAPI
-        .getTags()
-        .then((tags: Array<{ tag: string; count: number }>) => {
-          setAvailableTags(tags.map((t) => t.tag));
-        })
-        .catch((err) => console.error("Failed to load tags:", err));
-    }
-  }, [isEditingTags]);
 
   /**
    * Handle status change with retro effect for archiving
@@ -135,71 +137,6 @@ export default function ContentItem({
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
     return date.toISOString().split("T")[0];
-  };
-
-  /**
-   * Handle adding/removing tags
-   */
-  const handleUpdateTags = async (
-    newTags: string[],
-    newAutoTags?: string[],
-  ) => {
-    try {
-      setTagError(null);
-      // Optimistic update
-      const optimisticContent = {
-        ...content,
-        tags: newTags,
-        ...(newAutoTags !== undefined ? { auto_tags: newAutoTags } : {}),
-      };
-      if (onUpdate) {
-        onUpdate(optimisticContent);
-      }
-
-      const payload: { tags?: string[]; auto_tags?: string[] } = {
-        tags: newTags,
-      };
-      if (newAutoTags !== undefined) {
-        payload.auto_tags = newAutoTags;
-      }
-
-      const updatedContent = await contentAPI.update(content.id, payload);
-
-      // Confirm with server state
-      if (onUpdate) {
-        onUpdate(updatedContent);
-      }
-    } catch (error) {
-      console.error("Failed to update tags:", error);
-      // Revert optimistic update
-      if (onUpdate) {
-        onUpdate(content);
-      }
-      setTagError("Couldn't save tags.");
-    }
-  };
-
-  const handleAddTag = () => {
-    if (!tagInput.trim()) return;
-
-    const currentTags = content.tags || [];
-    if (currentTags.includes(tagInput.trim())) {
-      return;
-    }
-
-    const newTags = [...currentTags, tagInput.trim()];
-    handleUpdateTags(newTags);
-    setTagInput("");
-    setIsEditingTags(false);
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    const currentTags = content.tags || [];
-    const newTags = currentTags.filter((tag) => tag !== tagToRemove);
-    const newAutoTags = (content.auto_tags || []).filter(
-      (tag) => tag !== tagToRemove,
-    );
-    handleUpdateTags(newTags, newAutoTags);
   };
 
   const handleContainerClick = (e: React.MouseEvent) => {
@@ -300,12 +237,7 @@ export default function ContentItem({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (!confirmDelete) {
-                  setConfirmDelete(true);
-                  return;
-                }
-                setConfirmDelete(false);
-                onDelete(content.id);
+                toggleDelete();
               }}
               className={`text-xs px-2 py-1 rounded-none border transition-colors whitespace-nowrap ${
                 confirmDelete
@@ -551,12 +483,7 @@ export default function ContentItem({
                                 <button
                                   key={tag}
                                   onClick={() => {
-                                    const newTags = [
-                                      ...(content.tags || []),
-                                      tag,
-                                    ];
-                                    handleUpdateTags(newTags);
-                                    setTagInput("");
+                                    handleAddTag(tag);
                                     setShowSuggestions(false);
                                   }}
                                   className="w-full text-left px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] last:border-b-0"
@@ -615,7 +542,7 @@ export default function ContentItem({
                     })
                   }
                   onAddTag={() => setIsEditingTags(true)}
-                  onDelete={() => setConfirmDelete(true)}
+                  onDelete={armDelete}
                   onAddToList={
                     availableLists && availableLists.length > 0 && onAddToList
                       ? (listId) => onAddToList(listId)
@@ -715,14 +642,7 @@ export default function ContentItem({
                 ) : (
                   /* Delete button — inline confirm (only show if not in list context) */
                   <button
-                    onClick={() => {
-                      if (!confirmDelete) {
-                        setConfirmDelete(true);
-                        return;
-                      }
-                      setConfirmDelete(false);
-                      onDelete(content.id);
-                    }}
+                    onClick={toggleDelete}
                     className={`text-xs px-2 py-1 rounded-none border transition-colors ${
                       confirmDelete
                         ? "border-red-400 text-red-500 dark:text-red-400"
@@ -771,8 +691,7 @@ export default function ContentItem({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setConfirmDelete(false);
-                onDelete(content.id);
+                triggerDelete();
               }}
               className="font-mono text-xs px-2 py-0.5 border border-red-400 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
             >
@@ -781,7 +700,7 @@ export default function ContentItem({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setConfirmDelete(false);
+                cancelDelete();
               }}
               className="font-mono text-xs px-2 py-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
             >

@@ -640,12 +640,16 @@ Optional `mood` filter:
 | `EmptyState` | shared | Empty data state with optional CTA. Variants: `inline`, `bordered`. See §16. |
 | `Sidebar` | layout | List navigation with counts. |
 | `CratesClient` | crates | Grid of records, search/sort/filter, Now Digging bar. |
-| `RecordDetail` | crates | Gatefold panel: art + metadata + tracklist + videos. |
+| `RecordDetail` | crates | Gatefold panel: art + metadata + tracklist + videos. Uses `useConfirmAction` hook for delete arm/trigger flow. |
 | `ListeningMode` | crates | Full-screen music player overlay. `z-[80]` > RecordDetail `z-50`. |
 | `VinylCard` | crates | Individual record card. |
 | `YouTubePlayer` | crates | Invisible div hosting YouTube IFrame API. Plays queue sequentially. |
 | `Navbar` | layout | Mini-player on mobile (hidden when Crates/audio feature is disabled). `mounted` guard avoids SSR hydration mismatch. Supports writing-mode controls (`Export`, `Close`) and fullscreen-aware auto-hide behavior (listens to editor scroll container instead of window). |
-| `ProfileSettings` | settings | Public profile toggles (is_public, is_queue_public, is_crates_public), username, full name. Inline "Saved." state replaces alert(). Preview link to `/{username}` shown when public. |
+| `settings/ReadingSection` | settings | Keyboard-navigable carousel over 7 reading settings with live `PreviewBox`. Arrow keys cycle settings (←/→) and options (↑/↓). |
+| `settings/FeatureVisibilitySection` | settings | CircleToggle rows for `showConnections` and `showCrates` feature flags. |
+| `settings/PublicProfileSection` | settings | Username input + public profile visibility toggles. Calls `PUT /auth/me`. |
+| `settings/DangerZone` | settings | Confirm-delete flow for account deletion. Uses `InlineError` for error feedback. |
+| `settings/CircleToggle` | settings | Shared SVG circle toggle button used by Feature and Profile sections. |
 
 ### React Contexts
 
@@ -655,7 +659,7 @@ Optional `mood` filter:
 | `ListsContext` | List counts shown in sidebar. |
 | `ToastContext` | Legacy — replaced by inline `InlineError` feedback. Context still exists but is unused. |
 | `PlayerContext` | Vinyl player: `QueueTrack[]`, `currentIndex`, play/pause, `YT.Player` ref. Queue persisted in `localStorage['sedi-player']`. |
-| `ReadingSettingsContext` | Reader preferences (`theme`, typography, bionic reading) plus local feature visibility toggles (`showConnections`, `showCrates`). Persisted in `localStorage['sedi-reading-settings']`. Initializes with `DEFAULTS` on server; loads saved values in `useLayoutEffect` after mount. Exposes `hydrated: boolean` — components that render settings-dependent UI (`PreviewBox`, `SettingsCarousel`, `SettingsPreview`) return `null` until `hydrated` to avoid an SSR flash of defaults. |
+| `ReadingSettingsContext` | Reader preferences (`theme`, typography, bionic reading) plus local feature visibility toggles (`showConnections`, `showCrates`). Persisted in `localStorage['sedi-reading-settings']`. Initializes with `DEFAULTS` on server; loads saved values in `useLayoutEffect` after mount. Exposes `hydrated: boolean` — `PreviewBox` (inside `ReadingSection`) returns `null` until `hydrated` to avoid an SSR flash of defaults. |
 
 ### Feature flags (`frontend/lib/flags.ts`)
 
@@ -676,6 +680,13 @@ Environment variable driven — all default to `true` unless explicitly disabled
 | `blockParser.ts` | `parseHtmlToBlocks` | Converts HTML to `ContentBlock[]` for the block editor. Maps h1–h6 and p/ul/ol to block types. SSR guard included. |
 | `flags.ts` | Feature flag booleans | See table above. |
 | `ingestErrors.ts` | `getIngestIssue` | Classifies ingestion failures (`processing_status` + `processing_error`) into user-facing categories (`blocked`, `unauthorized`, `network`, `paywall_partial`, `partial`, `unknown`) used by queue cards and reader fallback messaging. |
+
+### Custom hooks (`frontend/hooks/`)
+
+| Hook | Purpose |
+|------|---------|
+| `useTagEditor` | Encapsulates tag state, available-tag loading, add/remove with optimistic updates, and inline error for `ContentItem` and `ContentCard`. Accepts `explicitTag` param on `handleAddTag` so suggestion dropdowns bypass state-sync issues. |
+| `useConfirmAction` | Generic arm-then-trigger delete confirmation. Returns `{ armed, arm, cancel, trigger, toggle }`. All methods are stable (`useCallback`). `toggle()` arms on first call, triggers on second. |
 
 ---
 
