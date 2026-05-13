@@ -59,18 +59,28 @@ Use skills in this order for significant work:
 | Plan      | `/plan <goal>`           | Before any feature — analyze, design, phase        |
 | Build     | `/pre-commit-dev`        | After a complete logical unit of work — checkpoint |
 | Debug     | `/diagnose`              | Bug reported or test failing unexpectedly          |
-| Finalize  | `/finalize`              | Branch ready to merge — full audit + ship          |
+| Finalize  | `/finalize`              | **Mandatory before every PR** — full audit + ship  |
 | Retro     | `/retro`                 | After merging — extract process improvements       |
 | Improve   | `/improve`               | Between features — duplication, god components     |
 | Perf      | `/perf-audit`            | App feels slow — bundle, rendering, data fetching  |
-| Handoff   | `/handoff`               | Session ending mid-work — pack context for next    |
+| Handoff   | `/handoff`               | **Auto-triggered** when context is getting long or session is ending mid-work — do not wait for user to ask |
 | Zoom      | `/zoom-out`              | Unfamiliar code — get a module map before editing  |
 
 Plans → `docs/plans/`. Retros → `docs/retros/`.
 
+### Automatic handoff rule
+
+If a session has completed significant work and either:
+- the context is getting long (many tool calls, large diffs read, multiple files edited), **or**
+- the user signals they are done or stepping away
+
+…invoke `/handoff` proactively without waiting to be asked. The goal is to pack context before the window exhausts so the next session resumes cleanly rather than cold-starting from a summarized snapshot.
+
 ## Commit discipline
 
-- **Commit at feature boundaries**, not every file save. A commit should represent a complete, coherent unit: a working feature, a fixed bug, a finished refactor. Partial work stays unstaged.
+- **One feature = one commit.** Each commit is a single working unit: one feature, one bug fix, one refactor. Never bundle multiple independent features into one commit.
+- **`/pre-commit-dev` after each feature unit.** Do not accumulate uncommitted work across features.
+- **`/finalize` before every PR — no exceptions.** It checks ARCHITECTURE.md, runs lint/types/tests, and does a self-review. Review comments that appear after a PR was opened are a sign `/finalize` was skipped.
 - **Only the user creates PRs.** Never run `gh pr create` or push to a PR-ready branch without explicit user request.
 - **Impact reports** go in `docs/changelog/` as `YYYY-MM-DD-<topic>.md`. Write one only when the user asks, or when prompted after all planned work for a session is done. Never write mid-session.
 
