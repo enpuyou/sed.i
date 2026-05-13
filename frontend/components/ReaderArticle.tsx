@@ -832,7 +832,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
         setSimilarError(
           isEmbeddingError
             ? "This article is still being processed. Please wait a moment and try again."
-            : "Failed to find related articles. Please try again later.",
+            : "Couldn't find related articles. Try again.",
         );
         setSimilarArticles([]);
         setShowSimilar(true);

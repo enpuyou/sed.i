@@ -160,7 +160,7 @@ export default function ListDetailPage() {
       } catch (err) {
         console.error("Failed to fetch list:", err);
         setError(
-          "Failed to load list. It may not exist or you may not have access.",
+          "Couldn't load list. It may not exist or you may not have access.",
         );
       } finally {
         if (!silent) setLoading(false);

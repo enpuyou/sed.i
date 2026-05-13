@@ -25,7 +25,9 @@ export default function PickForMe() {
       router.push(`/content/${item.id}`);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to pick article";
+        err instanceof Error
+          ? err.message
+          : "Couldn't pick an article. Try again.";
       setError(message);
     } finally {
       setLoading(false);

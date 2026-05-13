@@ -25,9 +25,7 @@ export default function AddRecordForm({ onRecordAdded }: AddRecordFormProps) {
       onRecordAdded(newRecord);
     } catch (err) {
       const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "Failed to add record. Please try again.";
+        err instanceof Error ? err.message : "Couldn't add record. Try again.";
       setError(errorMessage);
     } finally {
       setLoading(false);

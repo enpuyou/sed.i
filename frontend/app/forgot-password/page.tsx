@@ -23,7 +23,7 @@ export default function ForgotPasswordPage() {
       setSent(true);
     } catch (err: unknown) {
       const e = err as { message?: string };
-      setError(e.message || "Failed to send reset email.");
+      setError(e.message || "Couldn't send reset email. Try again.");
     } finally {
       setIsLoading(false);
     }

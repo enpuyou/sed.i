@@ -8,34 +8,15 @@ or full_text is empty.
 Dispatch: generate_summary.delay(item_id)
 """
 
-from celery import Task
-from sqlalchemy.orm import Session
 from app.core.celery_app import celery_app
-from app.core.database import SessionLocal
-from app.models.content import ContentItem
 from app.core.config import settings
-from app.tasks.base import html_to_plain
+from app.models.content import ContentItem
+from app.tasks.base import DatabaseTask, html_to_plain
 from uuid import UUID
 import logging
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
-
-
-class DatabaseTask(Task):
-    """Base task with database session"""
-
-    _db: Session = None
-
-    def after_return(self, *args, **kwargs):
-        if self._db is not None:
-            self._db.close()
-
-    @property
-    def db(self) -> Session:
-        if self._db is None:
-            self._db = SessionLocal()
-        return self._db
 
 
 @celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
