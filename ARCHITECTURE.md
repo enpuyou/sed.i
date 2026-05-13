@@ -917,14 +917,36 @@ MV3 extension — version `0.1.2`. Four components:
 
 | File | Role |
 |------|------|
-| `content/content.js` | Injected on demand via `chrome.scripting.executeScript`. Runs Readability, extracts HTML/metadata, calls `detectAccessRestriction()` (JSON-LD `isAccessibleForFree: false`, `content_tier` meta, paywall DOM selectors). |
-| `content/reader-overlay.js` | Ephemeral reader. Swaps `document.body` with a clean reader DOM (CSS hard-reset via `all:initial!important` to prevent page style leakage). Features: progress bar, auto-hide navbar, TOC with scroll-spy, focus mode, theme toggle, reading settings panel (font/size/line-height/letter-spacing/width), "Save to sed.i" button. Metadata byline mirrors `ReaderArticle.tsx` exactly: two-zone layout (attribution row + reader-info row), font-mono tracking-tight, three color levels (--fg2/--fgm/--fgt). Strips `iframe/frame/object/embed/script` from injected HTML before render. |
-| `popup/popup.js` | Two-button popup: **Read** (launches reader-overlay) and **Save to sed.i** (extracts + sends to service worker). On open, shows page title + favicon/domain immediately, then runs an inline `executeScript` to read og/meta tags (`og:image`, `og:description`, `og:site_name`, `article:author`, `article:published_time`) — no content script needed, under 10ms. Save button shows animated dot loading (`sending` → `sending...`) then `sent ✓` in green. Parses structured 409 errors (nested JSON `detail`) into human-readable messages. Theme (`light`/`dark`) persisted via `chrome.storage.local`. |
+| `content/content.js` | Injected on demand via `chrome.scripting.executeScript({ files })`. Runs Readability, extracts HTML/metadata, calls `detectAccessRestriction()`. Exposes `window.__sediExtractAndInlineContent` as a global so `popup.js` can call it via `executeScript({ func })` and properly await the result (required for Safari). |
+| `content/reader-overlay.js` | Ephemeral reader. Appends a `position:fixed` shadow-DOM overlay div to the existing body instead of swapping it. Shadow DOM isolates all reader CSS from page stylesheets — external rules cannot match shadow elements. All layout values use `px` (not `rem`) so the page's `html { font-size }` cannot affect reader typography. Close is instant: `host.remove()` with a 0.12s fade-out animation. Features: progress bar, auto-hide navbar, TOC with scroll-spy, focus mode, theme toggle, reading settings panel (font/size/line-height/letter-spacing/width), "Save to sed.i" button. Scroll tracking on the overlay div (not `window`). Metadata byline mirrors `ReaderArticle.tsx` exactly. Strips `iframe/frame/object/embed/script` from injected HTML before render. |
+| `popup/popup.js` | Two-button popup: **Read** (launches reader-overlay) and **Save to sed.i** (extracts + sends to service worker). Extraction uses `executeScript({ files })` to inject Readability + content.js, then a separate `executeScript({ func })` call to invoke `window.__sediExtractAndInlineContent()` and await the result. On open, shows page title + favicon/domain immediately, then reads og/meta tags via inline `executeScript` — no content script needed, under 10ms. Save button shows animated dot loading then `sent ✓`. Parses structured 409 errors into human-readable messages. Theme (`light`/`dark`) persisted via `chrome.storage.local`. |
 | `background/service_worker.js` | Calls `POST /content` with `pre_extracted_html` payload. Maps `accessRestricted` → `pre_extracted_access_restricted`. Reads API base URL from `chrome.storage.local` (default: `https://api.read-sedi.com`). |
 
 **Dev mode:** Long-press (≥2s) on the extension logo reveals an API URL field for pointing the extension at localhost. The URL is saved to `chrome.storage.local` and persists across sessions.
 
 **Dev worker hot-reload:** `content-queue-backend/scripts/dev_worker.sh` starts Celery with `watchfiles` monitoring `app/` — worker auto-restarts on any Python file change, eliminating the need to manually restart after editing tasks.
+
+### Safari port (`safari-extension/`)
+
+Generated from the Chrome extension using Apple's `safari-web-extension-converter` (Xcode 26). No API namespace rewrites required — Safari 15.4+ supports MV3 and aliases `chrome.*` to `browser.*`. One JS adaptation: `content.js` exposes the extractor as a global function so `popup.js` can invoke it via `executeScript({ func })`, which Safari properly awaits (unlike `files:` injections).
+
+| Path | Contents |
+| --- | --- |
+| `safari-extension/sed.i/sed.i.xcodeproj` | Xcode project — open this to build |
+| `safari-extension/sed.i/sed.i Extension/Resources/` | Copy of extension files (mirrored from `extension/`) |
+| `safari-extension/sed.i/sed.i/Assets.xcassets/` | App icon (all macOS sizes generated from `icons/icon128.png`) |
+
+**Build configuration notes:**
+
+- Both targets have `ENABLE_APP_SANDBOX = YES` + `ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES` (required so the extension's `fetch()` calls can reach the API).
+- Bundle IDs: app = `com.sedi.sed-i`, extension = `com.sedi.sed-i.Extension` (must share prefix with parent app).
+- `MACOSX_DEPLOYMENT_TARGET = 10.14` on the extension target (Safari Web Extensions require macOS 10.14+).
+
+**To sync Chrome changes to Safari:** `make safari-sync` copies `extension/` into the Resources folder; then rebuild in Xcode (⌘B).
+
+**To open the Xcode project:** `make safari-open`
+
+**Manual steps required before first build:** Set the developer Team on both targets in Xcode (Signing & Capabilities). A free Apple ID personal team is sufficient for local testing. See `docs/plans/safari-extension-plan.md` for the full step-by-step.
 
 ---
 
