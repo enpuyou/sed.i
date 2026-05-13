@@ -1,28 +1,10 @@
-from celery import Task
-from sqlalchemy.orm import Session
 from app.core.celery_app import celery_app
-from app.core.database import SessionLocal
 from app.models.content import ContentItem
+from app.tasks.base import DatabaseTask
 from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-class DatabaseTask(Task):
-    """Base task with database session"""
-
-    _db: Session = None
-
-    def after_return(self, *args, **kwargs):
-        if self._db is not None:
-            self._db.close()
-
-    @property
-    def db(self) -> Session:
-        if self._db is None:
-            self._db = SessionLocal()
-        return self._db
 
 
 @celery_app.task(base=DatabaseTask, bind=True)

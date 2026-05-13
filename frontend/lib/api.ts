@@ -187,7 +187,9 @@ export const authAPI = {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || "Failed to send password reset email");
+      throw new Error(
+        error.detail || "Couldn't send password reset email. Try again.",
+      );
     }
     return response.json();
   },
@@ -590,7 +592,7 @@ export const publicAPI = {
     if (!response.ok) {
       if (response.status === 404) throw new Error("Profile not found");
       if (response.status === 403) throw new Error("Profile is private");
-      throw new Error("Failed to load profile");
+      throw new Error("Couldn't load profile.");
     }
     return response.json();
   },
@@ -600,14 +602,14 @@ export const publicAPI = {
     const response = await fetch(
       `${API_BASE_URL}/public/u/${username}/content`,
     );
-    if (!response.ok) throw new Error("Failed to load public content");
+    if (!response.ok) throw new Error("Couldn't load public content.");
     return response.json();
   },
 
   // Get public vinyl records for a user
   getPublicVinyl: async (username: string) => {
     const response = await fetch(`${API_BASE_URL}/public/u/${username}/vinyl`);
-    if (!response.ok) throw new Error("Failed to load public crates");
+    if (!response.ok) throw new Error("Couldn't load public crates.");
     return response.json();
   },
 

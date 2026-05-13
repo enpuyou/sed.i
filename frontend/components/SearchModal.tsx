@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { searchAPI } from "@/lib/api";
 import RetroLoader from "./RetroLoader";
+import InlineError from "./InlineError";
 
 interface SearchResult {
   item: {
@@ -56,7 +57,7 @@ export default function SearchModal({
     [],
   );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -69,7 +70,7 @@ export default function SearchModal({
         return;
       }
       setLoading(true);
-      setError(false);
+      setError(null);
       try {
         const data = await searchAPI.semantic(q, {
           limit: PAGE_SIZE + 1, // fetch one extra to know if there's a next page
@@ -85,7 +86,7 @@ export default function SearchModal({
         setHighlightResults(highlights);
         setFocusedIndex(0);
       } catch {
-        setError(true);
+        setError("Couldn't search. Try again.");
         setResults([]);
         setHighlightResults([]);
       } finally {
@@ -336,8 +337,12 @@ export default function SearchModal({
         {/* Results */}
         <div ref={resultsRef} className="overflow-y-auto flex-1">
           {error && (
-            <div className="px-4 py-6 text-sm text-[var(--color-text-muted)] text-center">
-              Search failed. Try again.
+            <div className="px-4 py-4">
+              <InlineError
+                message={error}
+                onDismiss={() => setError(null)}
+                onRetry={() => runSearch(query, page, after, before)}
+              />
             </div>
           )}
 

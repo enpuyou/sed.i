@@ -88,7 +88,7 @@ export default function ListModal({
       onSuccess();
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to save list";
+        err instanceof Error ? err.message : "Couldn't save list. Try again.";
       setError(errorMessage);
       console.error(err);
     } finally {

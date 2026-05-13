@@ -24,7 +24,9 @@ export default function RecommendedSection({ mood }: RecommendedSectionProps) {
       setItems(data.items || []);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to load recommendations";
+        err instanceof Error
+          ? err.message
+          : "Couldn't load recommendations. Try again.";
       setError(message);
     } finally {
       setLoading(false);

@@ -105,7 +105,7 @@ export default function ContentPage() {
         console.error("Failed to fetch content:", err);
         if (!silent)
           setError(
-            "Failed to load article. It may not exist or you may not have access.",
+            "Couldn't load article. It may not exist or you may not have access.",
           );
       } finally {
         if (!silent) setLoading(false);
