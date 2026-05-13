@@ -62,7 +62,7 @@ Known compatibility notes for this extension:
 | CSP in popup HTML | Strict | Strict | None (no inline scripts) |
 | `"web_accessible_resources"` | N/A | N/A | Not used |
 
-**No JavaScript changes are required.** The only work is:
+**No API namespace rewrites are required** (Safari aliases `chrome.*` to `browser.*`). One small JS adaptation was needed: `content.js` exposes the extractor as `window.__sediExtractAndInlineContent` so `popup.js` can call it via `executeScript({ func })`, which Safari properly awaits (unlike `files:` injections). The only remaining work is:
 1. Run the Apple converter to scaffold the Xcode project.
 2. Build and sign the app with a personal (free) Apple developer certificate.
 3. Enable unsigned extensions in Safari Developer settings.

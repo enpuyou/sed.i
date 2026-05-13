@@ -74,7 +74,12 @@ SAFARI_PROJECT   = safari-extension/sed.i/sed.i.xcodeproj
 
 ## Sync Chrome extension changes into Safari Resources folder
 safari-sync:
-	cp -r extension/background extension/content extension/icons extension/lib extension/popup extension/manifest.json "$(SAFARI_RESOURCES)/"
+	rsync -a --delete extension/background/ "$(SAFARI_RESOURCES)/background/"
+	rsync -a --delete extension/content/    "$(SAFARI_RESOURCES)/content/"
+	rsync -a --delete extension/icons/      "$(SAFARI_RESOURCES)/icons/"
+	rsync -a --delete extension/lib/        "$(SAFARI_RESOURCES)/lib/"
+	rsync -a --delete extension/popup/      "$(SAFARI_RESOURCES)/popup/"
+	cp extension/manifest.json "$(SAFARI_RESOURCES)/manifest.json"
 	@echo "Synced extension/ → $(SAFARI_RESOURCES). Rebuild in Xcode (⌘B) to apply."
 
 ## Open the Safari extension Xcode project

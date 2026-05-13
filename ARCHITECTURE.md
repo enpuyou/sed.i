@@ -928,7 +928,7 @@ MV3 extension — version `0.1.2`. Four components:
 
 ### Safari port (`safari-extension/`)
 
-Generated from the Chrome extension using Apple's `safari-web-extension-converter` (Xcode 26). No JavaScript changes required — Safari 15.4+ supports MV3 and aliases `chrome.*` to `browser.*`.
+Generated from the Chrome extension using Apple's `safari-web-extension-converter` (Xcode 26). No API namespace rewrites required — Safari 15.4+ supports MV3 and aliases `chrome.*` to `browser.*`. One JS adaptation: `content.js` exposes the extractor as a global function so `popup.js` can invoke it via `executeScript({ func })`, which Safari properly awaits (unlike `files:` injections).
 
 | Path | Contents |
 | --- | --- |

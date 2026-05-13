@@ -328,6 +328,11 @@ document.getElementById('btn-read').addEventListener('click', async () => {
         return { error: 'Content script not loaded.' };
       },
     });
+    // Reset flag so a subsequent Save on the same tab gets full image inlining
+    await chrome.scripting.executeScript({
+      target: { tabId: _tab.id },
+      func: () => { window.__SEDI_SKIP_IMAGE_INLINE = false; },
+    });
     const extracted = results?.[0]?.result;
     if (!extracted || extracted.error) throw new Error(extracted?.error || 'Extraction failed.');
 
@@ -339,6 +344,7 @@ document.getElementById('btn-read').addEventListener('click', async () => {
       description: extracted.description || '',
       thumbnail: extracted.thumbnail || '',
       publishedDate: extracted.publishedDate || '',
+      accessRestricted: extracted.accessRestricted || false,
     };
     await chrome.scripting.executeScript({
       target: { tabId: _tab.id },

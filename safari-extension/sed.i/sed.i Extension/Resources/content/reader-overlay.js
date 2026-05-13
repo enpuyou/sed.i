@@ -563,7 +563,10 @@
     let done = false;
     const finish = () => { if (done) return; done = true; cleanup(); };
     host.addEventListener('animationend', finish, { once: true });
-    requestAnimationFrame(() => requestAnimationFrame(finish));
+    // Fallback: fire after animation duration in case animationend doesn't fire
+    // (prefers-reduced-motion, animation disabled). Double-rAF (~33ms) is too
+    // short — it fires before the 0.12s animation completes.
+    setTimeout(finish, 150);
   }
 
   function handleSave(btn, art) {
