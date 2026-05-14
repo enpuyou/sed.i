@@ -12,13 +12,23 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.security import (
+    verify_password,
+    get_password_hash,
+    create_access_token,
+    create_refresh_token,
+    hash_token,
+    refresh_token_expires,
+)
 from app.core.deps import get_current_active_user
 from app.models.user import User
+from app.models.refresh_token import RefreshToken
 from app.schemas.user import (
     UserCreate,
     UserResponse,
     Token,
+    RefreshRequest,
+    LogoutRequest,
     UserUpdate,
     DeleteAccountRequest,
 )
@@ -267,19 +277,108 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.email},  # "sub" is standard JWT claim for subject (user)
-        expires_delta=access_token_expires,
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    raw_refresh, token_hash = create_refresh_token()
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=refresh_token_expires(),
+        )
+    )
+    db.commit()
 
     try:
         posthog.capture(str(user.id), "user_logged_in")
     except Exception:
         pass
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "refresh_token": raw_refresh,
+    }
+
+
+@router.post("/refresh", response_model=Token)
+def refresh_token_endpoint(body: RefreshRequest, db: Session = Depends(get_db)):
+    """
+    Exchange a valid refresh token for a new access token + rotated refresh token.
+
+    The old refresh token is immediately revoked. If the token is already revoked
+    (possible theft replay), all refresh tokens for that user are revoked.
+    """
+    token_hash = hash_token(body.refresh_token)
+    record = (
+        db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
+    )
+
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
+
+    # Detect theft: token was already rotated — revoke all user tokens
+    if record.revoked_at is not None:
+        db.query(RefreshToken).filter(
+            RefreshToken.user_id == record.user_id,
+            RefreshToken.revoked_at.is_(None),
+        ).update({"revoked_at": datetime.now(timezone.utc)})
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token already used",
+        )
+
+    if datetime.now(timezone.utc) > record.expires_at.astimezone(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired"
+        )
+
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
+
+    # Rotate: revoke old, issue new pair
+    record.revoked_at = datetime.now(timezone.utc)
+    new_access = create_access_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    raw_refresh, new_hash = create_refresh_token()
+    db.add(
+        RefreshToken(
+            user_id=user.id,
+            token_hash=new_hash,
+            expires_at=refresh_token_expires(),
+        )
+    )
+    db.commit()
+
+    return {
+        "access_token": new_access,
+        "token_type": "bearer",
+        "refresh_token": raw_refresh,
+    }
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(body: LogoutRequest, db: Session = Depends(get_db)):
+    """Revoke a refresh token server-side. No-op if token is absent or already revoked."""
+    if not body.refresh_token:
+        return
+    token_hash = hash_token(body.refresh_token)
+    record = (
+        db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
+    )
+    if record and record.revoked_at is None:
+        record.revoked_at = datetime.now(timezone.utc)
+        db.commit()
 
 
 @router.get("/verify-email", response_model=GenericMessage)

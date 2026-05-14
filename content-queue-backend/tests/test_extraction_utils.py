@@ -6,6 +6,7 @@ These tests are pure-unit (no DB, no HTTP) and cover:
 - _detect_content_type(): Content-Type header + URL fallback
 - compute_reading_status(): Reading progress state machine (from content.py)
 - xml_to_html(): Trafilatura XML → HTML conversion pipeline
+- _extract_metadata(): Author extraction fallback chain
 """
 
 # ============================================================================
@@ -428,3 +429,85 @@ class TestDetectLimitedExtensionContentReason:
         )
         reason = self._fn(html, description)
         assert reason is None
+
+
+# ============================================================================
+# _extract_metadata — author extraction fallback chain
+# ============================================================================
+
+
+class TestExtractMetadataAuthors:
+    """Tests for the author extraction fallback chain in _extract_metadata()."""
+
+    def _fn(self, html: str) -> dict:
+        from bs4 import BeautifulSoup
+        from app.tasks.extraction import _extract_page_metadata as _extract_metadata
+
+        soup = BeautifulSoup(html, "html.parser")
+        return _extract_metadata(soup, "https://example.com/article")
+
+    def test_og_article_author(self):
+        """article:author Open Graph tags are used (standard blogs/news)."""
+        html = '<meta property="article:author" content="Jane Doe"/>'
+        assert self._fn(html)["author"] == "Jane Doe"
+
+    def test_multiple_og_article_authors(self):
+        """Multiple article:author tags are joined in order."""
+        html = (
+            '<meta property="article:author" content="Alice"/>'
+            '<meta property="article:author" content="Bob"/>'
+        )
+        assert self._fn(html)["author"] == "Alice, Bob"
+
+    def test_og_author_url_skipped(self):
+        """article:author tags containing URLs are skipped (profile links, not names)."""
+        html = (
+            '<meta property="article:author" content="https://example.com/alice"/>'
+            '<meta name="author" content="Alice"/>'
+        )
+        assert self._fn(html)["author"] == "Alice"
+
+    def test_dc_creator_fallback(self):
+        """Dublin Core dc.creator tags are used when OG/JSON-LD are absent (e.g. Nature)."""
+        html = (
+            '<meta name="dc.creator" content="Cai, Xiangbin"/>'
+            '<meta name="dc.creator" content="Pan, Haiyang"/>'
+        )
+        meta = self._fn(html)
+        assert meta["author"] == "Cai, Xiangbin, Pan, Haiyang"
+
+    def test_dc_creator_uppercase_variant(self):
+        """DC.creator (uppercase) is also recognised."""
+        html = '<meta name="DC.creator" content="Smith, John"/>'
+        assert self._fn(html)["author"] == "Smith, John"
+
+    def test_citation_author_fallback(self):
+        """Highwire Press citation_author tags are used when earlier methods fail."""
+        html = (
+            '<meta name="citation_author" content="Doe, Jane"/>'
+            '<meta name="citation_author" content="Smith, John"/>'
+        )
+        meta = self._fn(html)
+        assert meta["author"] == "Doe, Jane, Smith, John"
+
+    def test_og_takes_precedence_over_dc_creator(self):
+        """OG article:author wins when both OG and dc.creator are present."""
+        html = (
+            '<meta property="article:author" content="OG Author"/>'
+            '<meta name="dc.creator" content="DC Author"/>'
+        )
+        assert self._fn(html)["author"] == "OG Author"
+
+    def test_no_author_tags_returns_no_key(self):
+        """Pages with no author signals produce no 'author' key."""
+        html = "<p>No author metadata here.</p>"
+        assert "author" not in self._fn(html)
+
+    def test_deduplication(self):
+        """Duplicate author names are deduplicated preserving order."""
+        html = (
+            '<meta property="article:author" content="Alice"/>'
+            '<meta property="article:author" content="Alice"/>'
+            '<meta property="article:author" content="Bob"/>'
+        )
+        assert self._fn(html)["author"] == "Alice, Bob"

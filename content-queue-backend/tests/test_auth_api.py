@@ -294,3 +294,81 @@ def test_delete_account_cascades_content(client, test_user, auth_headers, db_ses
         db_session.query(VinylRecord).filter(VinylRecord.user_id == user_id).count()
         == 0
     )
+
+
+# ---------------------------------------------------------------------------
+# Refresh tokens
+# ---------------------------------------------------------------------------
+
+
+def test_login_returns_refresh_token(client, test_user):
+    """Login response includes a refresh_token alongside the access_token."""
+    resp = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    assert "refresh_token" in data
+    assert data["refresh_token"] is not None
+
+
+def test_refresh_issues_new_token_pair(client, test_user):
+    """POST /auth/refresh returns a new access + refresh token."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    refresh_token = login.json()["refresh_token"]
+
+    resp = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    assert "refresh_token" in data
+    # Rotated — new token must differ from old
+    assert data["refresh_token"] != refresh_token
+
+
+def test_refresh_rotates_old_token(client, test_user):
+    """Using a refresh token a second time (replay) returns 401."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    old_token = login.json()["refresh_token"]
+
+    client.post("/auth/refresh", json={"refresh_token": old_token})
+
+    # Replaying the consumed token must fail
+    replay = client.post("/auth/refresh", json={"refresh_token": old_token})
+    assert replay.status_code == 401
+
+
+def test_refresh_invalid_token_rejected(client):
+    """Random string is not a valid refresh token."""
+    resp = client.post("/auth/refresh", json={"refresh_token": "not-a-real-token"})
+    assert resp.status_code == 401
+
+
+def test_logout_revokes_refresh_token(client, test_user):
+    """After logout, the refresh token can no longer be used."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    refresh_token = login.json()["refresh_token"]
+
+    logout = client.post("/auth/logout", json={"refresh_token": refresh_token})
+    assert logout.status_code == 204
+
+    # Revoked token must no longer work
+    resp = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    assert resp.status_code == 401
+
+
+def test_logout_no_token_is_noop(client):
+    """Logout with no token returns 204 without error."""
+    resp = client.post("/auth/logout", json={})
+    assert resp.status_code == 204
