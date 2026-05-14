@@ -766,7 +766,7 @@ def _process_pdf(item: ContentItem, pdf_bytes: bytes, url: str):
         ).strip()
         if not item.description:
             item.description = desc_text
-        abstract_paragraph.decompose()
+        # Keep abstract in body — it's critical content (especially for academic papers)
 
     # ── Thumbnail from first figure image ─────────────────────────────────────
     # PDFs have no og:image. Use the first figure image as thumbnail and remove
@@ -829,23 +829,18 @@ def _extract_page_metadata(soup: BeautifulSoup, url: str) -> dict:
     if thumbnail:
         metadata["thumbnail"] = thumbnail
 
-    # Author — collect all article:author tags (handles multiple authors)
-    author_metas = soup.find_all("meta", property="article:author")
-    if not author_metas:
-        author_metas = soup.find_all("meta", attrs={"name": "author"})
+    # Author — try sources in priority order, stop at first that yields names
     author_names = []
-    for m in author_metas:
+    for m in soup.find_all("meta", property="article:author"):
         val = (m.get("content") or "").strip()
-        if not val:
-            continue
-        # Skip if the value looks like a URL (profile page link, not a name)
-        if (
-            val.startswith("http://")
-            or val.startswith("https://")
-            or val.startswith("/")
-        ):
-            continue
-        author_names.append(val)
+        if val and not val.startswith(("http://", "https://", "/")):
+            author_names.append(val)
+    # Plain <meta name="author"> — used when article:author is absent or all URLs
+    if not author_names:
+        for m in soup.find_all("meta", attrs={"name": "author"}):
+            val = (m.get("content") or "").strip()
+            if val and not val.startswith(("http://", "https://", "/")):
+                author_names.append(val)
     # Also try JSON-LD for structured author data
     if not author_names:
         for script in soup.find_all("script", type="application/ld+json"):
@@ -872,6 +867,21 @@ def _extract_page_metadata(soup: BeautifulSoup, url: str) -> dict:
                     break
             except Exception:
                 pass
+    # Dublin Core creator tags — used by Nature, many academic publishers
+    if not author_names:
+        for dc_name in ("dc.creator", "DC.creator", "dc.contributor", "DC.contributor"):
+            for m in soup.find_all("meta", attrs={"name": dc_name}):
+                val = (m.get("content") or "").strip()
+                if val and not val.startswith(("http://", "https://", "/")):
+                    author_names.append(val)
+            if author_names:
+                break
+    # Highwire Press citation_author tags — used by PubMed, Springer, many journals
+    if not author_names:
+        for m in soup.find_all("meta", attrs={"name": "citation_author"}):
+            val = (m.get("content") or "").strip()
+            if val and not val.startswith(("http://", "https://", "/")):
+                author_names.append(val)
     if author_names:
         metadata["author"] = ", ".join(
             dict.fromkeys(author_names)
