@@ -13,6 +13,7 @@ import logging
 import re as _re
 from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -67,6 +68,32 @@ class ArticleConnection(BaseModel):
     highlight_pairs: list[dict]  # {user_highlight, connected_highlight, similarity}
     total_similarity: float
     shared_tags: list[str] = []
+
+
+class HighlightArticleConnection(BaseModel):
+    """One connected article with its metadata and matched passages."""
+
+    article_id: str
+    article_title: str
+    article_author: str | None = None
+    article_domain: str
+    shared_tags: list[str]
+    passages: list[str]
+
+
+class ConnectionsForHighlightResponse(BaseModel):
+    """Wrapper returned by GET /search/connections/{highlight_id}."""
+
+    source_note: str | None = None
+    connections: list[HighlightArticleConnection]
+
+
+class HighlightWithConnections(BaseModel):
+    """One source highlight with its article connections — used in Mode 2."""
+
+    highlight_id: str
+    highlight_text: str
+    connections: list[HighlightArticleConnection]
 
 
 class HighlightSearchResult(BaseModel):
@@ -150,6 +177,100 @@ class SearchTelemetryEvent(BaseModel):
 
 # IMPORTANT: Specific literal paths MUST come before generic path parameters
 # Otherwise /{item_id}/similar will match /semantic, /connections/..., etc.
+
+
+def _connections_for_highlight(
+    highlight: "Highlight",
+    source_tags: set[str],
+    threshold: float,
+    db: "Session",
+    max_fetch: int = 100,
+) -> list[HighlightArticleConnection]:
+    """
+    Return article-grouped connections for a single highlight.
+
+    Filters out articles with no shared tags with the source article.
+    Returns at most 2 best passages per connected article.
+    """
+    if highlight.embedding is None:
+        return []
+
+    embedding_str = "[" + ",".join(map(str, highlight.embedding)) + "]"
+
+    connection_query = text(
+        """
+        SELECT
+            h.id,
+            h.text,
+            h.content_item_id,
+            ci.title        AS article_title,
+            ci.author       AS article_author,
+            ci.original_url AS article_url,
+            ci.tags         AS article_tags,
+            (1 - (h.embedding <=> CAST(:source_embedding AS vector))) AS similarity
+        FROM highlights h
+        JOIN content_items ci ON h.content_item_id = ci.id
+        WHERE h.user_id = :user_id
+            AND h.content_item_id != :source_article_id
+            AND h.embedding IS NOT NULL
+            AND ci.deleted_at IS NULL
+            AND LENGTH(h.text) >= 20
+            AND (1 - (h.embedding <=> CAST(:source_embedding AS vector))) >= :threshold
+        ORDER BY h.embedding <=> CAST(:source_embedding AS vector)
+        LIMIT :limit
+        """
+    )
+
+    rows = db.execute(
+        connection_query,
+        {
+            "source_embedding": embedding_str,
+            "user_id": highlight.user_id,
+            "source_article_id": highlight.content_item_id,
+            "threshold": threshold,
+            "limit": max_fetch,
+        },
+    ).fetchall()
+
+    # Group rows by connected article
+    article_groups: dict[str, dict] = {}
+    for row in rows:
+        article_id = str(row.content_item_id)
+        if article_id not in article_groups:
+            article_groups[article_id] = {
+                "article_id": article_id,
+                "article_title": row.article_title or "",
+                "article_author": row.article_author,
+                "article_url": row.article_url or "",
+                "article_tags": list(row.article_tags or []),
+                "passages": [],
+            }
+        article_groups[article_id]["passages"].append((float(row.similarity), row.text))
+
+    result: list[HighlightArticleConnection] = []
+    for group in article_groups.values():
+        shared = sorted(source_tags & set(group["article_tags"]))
+        if not shared:
+            continue
+        # Best 2 passages by similarity score
+        top_passages = [
+            text for _, text in sorted(group["passages"], key=lambda x: -x[0])[:2]
+        ]
+        parsed = urlparse(group["article_url"])
+        domain = parsed.netloc.removeprefix("www.") if parsed.netloc else ""
+        result.append(
+            HighlightArticleConnection(
+                article_id=group["article_id"],
+                article_title=group["article_title"],
+                article_author=group["article_author"],
+                article_domain=domain,
+                shared_tags=shared,
+                passages=top_passages,
+            )
+        )
+
+    result.sort(key=lambda c: -len(c.shared_tags))
+    return result
 
 
 @router.get("/semantic", response_model=SearchResponse)
@@ -261,23 +382,20 @@ def record_search_event(
 
 
 @router.get(
-    "/connections/{highlight_id}", response_model=list[HighlightConnectionResponse]
+    "/connections/{highlight_id}", response_model=ConnectionsForHighlightResponse
 )
 def find_highlight_connections(
     highlight_id: str,
     threshold: float = Query(settings.SIMILARITY_THRESHOLD_CONNECTIONS, ge=0, le=1),
-    limit: int = Query(10, ge=1, le=50),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """
-    Find highlights similar to the given highlight across all user's articles.
+    Find connections for a single highlight, grouped by connected article.
 
-    - Searches based on highlight embeddings
-    - Returns similar highlights from other articles
-    - Excludes highlights from the same article
+    Returns article metadata (author, domain, shared tags) and matched passages.
+    Connections with no shared tags are excluded.
     """
-    # Get the source highlight
     source_highlight = (
         db.query(Highlight)
         .filter(
@@ -298,60 +416,191 @@ def find_highlight_connections(
             detail="Highlight has no embedding yet. Please wait for processing.",
         )
 
-    # Convert embedding to string format for PostgreSQL
-    embedding_str = "[" + ",".join(map(str, source_highlight.embedding)) + "]"
+    source_article = (
+        db.query(ContentItem)
+        .filter(ContentItem.id == source_highlight.content_item_id)
+        .first()
+    )
+    source_tags = set(source_article.tags or []) if source_article else set()
 
-    # Find similar highlights using pgvector
-    connection_query = text(
-        """
-        SELECT
-            h.id,
-            h.text,
-            h.color,
-            h.content_item_id,
-            ci.title as article_title,
-            (1 - (h.embedding <=> CAST(:source_embedding AS vector))) as similarity
-        FROM highlights h
-        JOIN content_items ci ON h.content_item_id = ci.id
-        WHERE h.user_id = :user_id
-            AND h.content_item_id != :source_article_id
-            AND h.embedding IS NOT NULL
-            AND ci.deleted_at IS NULL
-            AND LENGTH(h.text) >= 20
-            AND (1 - (h.embedding <=> CAST(:source_embedding AS vector))) >= :threshold
-        ORDER BY h.embedding <=> CAST(:source_embedding AS vector)
-        LIMIT :limit
-    """
+    connections = _connections_for_highlight(
+        source_highlight, source_tags, threshold, db
     )
 
-    results = db.execute(
-        connection_query,
-        {
-            "source_embedding": embedding_str,
-            "user_id": current_user.id,
-            "source_article_id": source_highlight.content_item_id,
-            "threshold": threshold,
-            "limit": limit,
-        },
-    ).fetchall()
+    return ConnectionsForHighlightResponse(
+        source_note=source_highlight.note,
+        connections=connections,
+    )
 
-    # Format response
-    connections = []
-    for row in results:
-        connections.append(
-            {
-                "item": {
-                    "id": str(row.id),
-                    "text": row.text,
-                    "color": row.color,
-                    "similarity_score": float(row.similarity),
-                },
-                "from_article_id": str(row.content_item_id),
-                "from_article_title": row.article_title,
-            }
+
+# ── Insight helpers (isolated so tests can patch them) ──────────────────────
+
+
+def _get_redis_client():
+    """Return a Redis client, or raise if unavailable."""
+    import redis as redis_lib
+
+    return redis_lib.from_url(settings.REDIS_URL, socket_connect_timeout=1)
+
+
+def _call_openai_insight(
+    source_text: str, passages: list[str], article_title: str
+) -> str:
+    """Call gpt-4o-mini and return a one-sentence connection insight."""
+    from openai import OpenAI
+
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    passages_block = "\n".join(f"- {p}" for p in passages)
+    prompt = (
+        f'Highlight: "{source_text}"\n\n'
+        f'From "{article_title}":\n{passages_block}\n\n'
+        "In one sentence, explain the specific idea that connects the highlight to these passages. "
+        "Be precise, not generic. Reply with only the sentence."
+    )
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=120,
+        temperature=0.3,
+    )
+    return response.choices[0].message.content.strip()
+
+
+class InsightResponse(BaseModel):
+    insight: str | None = None
+
+
+@router.get(
+    "/connections/{highlight_id}/insight/{article_id}",
+    response_model=InsightResponse,
+)
+def generate_highlight_insight(
+    highlight_id: str,
+    article_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return a one-sentence insight explaining the connection between a highlight
+    and a connected article. Generated by gpt-4o-mini, cached in Redis for 7 days.
+
+    Returns {insight: null} on any generation failure — never 500.
+    """
+    # Verify ownership
+    source_highlight = (
+        db.query(Highlight)
+        .filter(Highlight.id == highlight_id, Highlight.user_id == current_user.id)
+        .first()
+    )
+    if not source_highlight:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Highlight not found"
         )
 
-    return connections
+    cache_key = f"insight:{highlight_id}:{article_id}"
+
+    try:
+        redis_client = _get_redis_client()
+        cached = redis_client.get(cache_key)
+        if cached is not None:
+            return InsightResponse(insight=cached.decode("utf-8"))
+    except Exception:
+        redis_client = None
+
+    # Load connected highlight passages for context
+    connected_highlights = (
+        db.query(Highlight)
+        .filter(
+            Highlight.content_item_id == article_id,
+            Highlight.user_id == current_user.id,
+        )
+        .limit(3)
+        .all()
+    )
+    connected_article = (
+        db.query(ContentItem)
+        .filter(ContentItem.id == article_id, ContentItem.user_id == current_user.id)
+        .first()
+    )
+
+    passages = [h.text for h in connected_highlights]
+    article_title = connected_article.title if connected_article else ""
+
+    try:
+        insight = _call_openai_insight(source_highlight.text, passages, article_title)
+        if redis_client is not None:
+            try:
+                redis_client.setex(cache_key, 604800, insight)  # 7 days
+            except Exception:
+                pass
+        return InsightResponse(insight=insight)
+    except Exception:
+        logger.warning(
+            "Insight generation failed for highlight=%s article=%s",
+            highlight_id,
+            article_id,
+        )
+        return InsightResponse(insight=None)
+
+
+@router.get(
+    "/connections/article/{content_id}/highlights",
+    response_model=list[HighlightWithConnections],
+)
+def find_highlight_grouped_connections(
+    content_id: str,
+    threshold: float = Query(settings.SIMILARITY_THRESHOLD_CONNECTIONS, ge=0, le=1),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Find connections for all highlights in an article, grouped by source highlight.
+
+    Only highlights that have at least one connection (after shared-tag filter) are
+    returned. Used by ConnectionsPanel Mode 2.
+    """
+    article = (
+        db.query(ContentItem)
+        .filter(
+            ContentItem.id == content_id,
+            ContentItem.user_id == current_user.id,
+            ContentItem.deleted_at.is_(None),
+        )
+        .first()
+    )
+
+    if not article:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Content item not found"
+        )
+
+    highlights = (
+        db.query(Highlight)
+        .filter(
+            Highlight.content_item_id == content_id,
+            Highlight.user_id == current_user.id,
+            Highlight.embedding.isnot(None),
+        )
+        .limit(30)  # cap to keep response time bounded
+        .all()
+    )
+
+    source_tags = set(article.tags or [])
+    result: list[HighlightWithConnections] = []
+
+    for highlight in highlights:
+        connections = _connections_for_highlight(highlight, source_tags, threshold, db)
+        if not connections:
+            continue
+        result.append(
+            HighlightWithConnections(
+                highlight_id=str(highlight.id),
+                highlight_text=highlight.text,
+                connections=connections,
+            )
+        )
+
+    return result
 
 
 @router.get("/connections/article/{content_id}", response_model=list[ArticleConnection])
