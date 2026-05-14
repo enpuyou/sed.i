@@ -1,201 +1,422 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { searchAPI } from "@/lib/api";
+import {
+  searchAPI,
+  type ConnectionsForHighlightResponse,
+  type HighlightArticleConnection,
+  type HighlightWithConnections,
+} from "@/lib/api";
 import RetroLoader from "./RetroLoader";
 import InlineError from "./InlineError";
 import EmptyState from "./EmptyState";
 
-interface HighlightPair {
-  user_highlight_id: string;
-  user_highlight_text: string;
-  connected_highlight_id: string;
-  connected_highlight_text: string;
-  similarity: number;
-}
-
-interface ArticleConnection {
-  article_id: string;
-  article_title: string;
-  highlight_pairs: HighlightPair[];
-  total_similarity: number;
-  shared_tags: string[];
-}
+// ── Props ─────────────────────────────────────────────────────────────────────
 
 interface ConnectionsPanelProps {
   contentId: string;
+  activeHighlightId: string | null; // null = Mode 2; set = Mode 1
   isOpen: boolean;
-  onClose: () => void;
+  onBackToAll: () => void;
+  onSelectHighlight: (highlightId: string) => void; // Mode 2 card click → Mode 1
   onNavigateToArticle?: (contentId: string) => void;
 }
 
+// ── Root component ────────────────────────────────────────────────────────────
+
 export default function ConnectionsPanel({
   contentId,
+  activeHighlightId,
   isOpen,
-  onClose: _onClose,
+  onBackToAll,
+  onSelectHighlight,
   onNavigateToArticle,
 }: ConnectionsPanelProps) {
-  const [connections, setConnections] = useState<ArticleConnection[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasFetched, setHasFetched] = useState(false);
-  const [fetchedForId, setFetchedForId] = useState<string | null>(null);
   const router = useRouter();
 
+  const handleNavigate = (articleId: string) => {
+    onNavigateToArticle?.(articleId);
+    router.push(`/content/${articleId}`);
+  };
+
+  if (!isOpen) return null;
+
+  if (activeHighlightId) {
+    return (
+      <Mode1Panel
+        highlightId={activeHighlightId}
+        onBackToAll={onBackToAll}
+        onNavigate={handleNavigate}
+      />
+    );
+  }
+
+  return (
+    <Mode2Panel
+      contentId={contentId}
+      onSelectHighlight={onSelectHighlight}
+      onNavigate={handleNavigate}
+    />
+  );
+}
+
+// ── Mode 1: single highlight ──────────────────────────────────────────────────
+
+function Mode1Panel({
+  highlightId,
+  onBackToAll,
+  onNavigate,
+}: {
+  highlightId: string;
+  onBackToAll: () => void;
+  onNavigate: (articleId: string) => void;
+}) {
+  const [data, setData] = useState<ConnectionsForHighlightResponse | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lastFetchedId = useRef<string | null>(null);
+
   const fetchConnections = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-      const data = await searchAPI.findArticleConnections(contentId);
-      setConnections(data);
-      setHasFetched(true);
-      setFetchedForId(contentId);
-    } catch (err) {
-      console.error("Failed to load connections:", err);
-      setError(
-        err instanceof Error ? err.message : "Couldn't load connections.",
-      );
+      const result = await searchAPI.findHighlightConnections(highlightId);
+      setData(result);
+      lastFetchedId.current = highlightId;
+    } catch {
+      setError("Couldn't load connections. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [highlightId]);
+
+  useEffect(() => {
+    if (highlightId !== lastFetchedId.current) {
+      setData(null);
+    }
+    fetchConnections();
+  }, [highlightId, fetchConnections]);
+
+  return (
+    <div className="h-full flex flex-col bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
+      {/* Compact back button — top-left, matches HighlightsPanel Copy button */}
+      <div className="px-3 pt-2.5 pb-1.5">
+        <button
+          onClick={onBackToAll}
+          className="font-mono text-[10px] px-2 py-0.5 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-faint)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+        >
+          ← all highlights
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2.5">
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <RetroLoader
+              text="Finding connections"
+              className="text-[var(--color-text-muted)]"
+            />
+          </div>
+        )}
+
+        {error && !loading && (
+          <InlineError message={error} onRetry={fetchConnections} />
+        )}
+
+        {!loading && !error && data && data.connections.length === 0 && (
+          <EmptyState
+            message="No connections found."
+            description="Highlight passages on this topic in your other articles."
+            variant="inline"
+          />
+        )}
+
+        {!loading && !error && data && data.connections.length > 0 && (
+          <>
+            {/* Source highlight note */}
+            {data.source_note && (
+              <div className="border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
+                <p className="font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)] mb-1">
+                  Your note
+                </p>
+                <p className="font-serif text-[13px] text-[var(--color-text-secondary)] leading-relaxed">
+                  {data.source_note}
+                </p>
+              </div>
+            )}
+
+            {/* Connection cards */}
+            {data.connections.map((conn) => (
+              <Mode1Card
+                key={conn.article_id}
+                connection={conn}
+                highlightId={highlightId}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Mode 1 card ───────────────────────────────────────────────────────────────
+
+function Mode1Card({
+  connection,
+  highlightId,
+  onNavigate,
+}: {
+  connection: HighlightArticleConnection;
+  highlightId: string;
+  onNavigate: (articleId: string) => void;
+}) {
+  const [insight, setInsight] = useState<string | null>(null);
+  const [insightLoading, setInsightLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setInsight(null);
+    setInsightLoading(true);
+
+    searchAPI
+      .getConnectionInsight(highlightId, connection.article_id)
+      .then((res) => {
+        if (!cancelled) {
+          setInsight(res.insight);
+          setInsightLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInsightLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [highlightId, connection.article_id]);
+
+  return (
+    <div
+      className="border border-[var(--color-border)] bg-[var(--color-bg-primary)] hover:border-[var(--color-accent)] transition-colors"
+      onClick={() => onNavigate(connection.article_id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onNavigate(connection.article_id)}
+    >
+      {/* Zone A: article identity */}
+      <div className="px-3 pt-3 pb-3">
+        <p className="font-serif text-[13px] text-[var(--color-text-primary)] leading-snug mb-0.5">
+          {connection.article_title}
+        </p>
+        {(connection.article_author || connection.article_domain) && (
+          <p className="font-mono text-[10px] text-[var(--color-text-faint)] mb-2">
+            {connection.article_author && (
+              <span className="text-[var(--color-text-muted)]">
+                {connection.article_author}
+              </span>
+            )}
+            {connection.article_author && connection.article_domain && " · "}
+            {connection.article_domain}
+          </p>
+        )}
+        {connection.shared_tags.length > 0 && (
+          <div className="flex flex-wrap gap-2.5 mb-2">
+            {connection.shared_tags.map((tag) => (
+              <span
+                key={tag}
+                className="font-mono text-[10px] text-[var(--color-text-muted)]"
+              >
+                ● {tag}
+              </span>
+            ))}
+          </div>
+        )}
+        {insightLoading && (
+          <p className="font-mono text-[10px] text-[var(--color-text-faint)] leading-relaxed">
+            generating insight…
+          </p>
+        )}
+        {!insightLoading && insight && (
+          <p className="font-mono text-[10px] text-[var(--color-text-muted)] leading-relaxed">
+            {insight}
+          </p>
+        )}
+      </div>
+
+      {/* Zone B: matched passages */}
+      <div className="border-t border-[var(--color-border)] px-3 pt-2.5 pb-3">
+        {connection.passages.map((passage, i) => (
+          <p
+            key={i}
+            className={`font-serif text-[13px] text-[var(--color-text-secondary)] leading-relaxed ${
+              i > 0
+                ? "border-t border-[var(--color-border-subtle)] mt-2.5 pt-2.5"
+                : ""
+            }`}
+          >
+            {passage}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Mode 2: all highlights ────────────────────────────────────────────────────
+
+function Mode2Panel({
+  contentId,
+  onSelectHighlight,
+  onNavigate,
+}: {
+  contentId: string;
+  onSelectHighlight: (highlightId: string) => void;
+  onNavigate: (articleId: string) => void;
+}) {
+  const [data, setData] = useState<HighlightWithConnections[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchConnections = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await searchAPI.findHighlightGroupedConnections(contentId);
+      setData(result);
+    } catch {
+      setError("Couldn't load connections. Try again.");
     } finally {
       setLoading(false);
     }
   }, [contentId]);
 
   useEffect(() => {
-    if (fetchedForId && fetchedForId !== contentId) {
-      setConnections([]);
-      setHasFetched(false);
-      setError(null);
-      setFetchedForId(null);
-    }
-  }, [contentId, fetchedForId]);
-
-  useEffect(() => {
-    if (!isOpen || hasFetched) return;
     fetchConnections();
-  }, [isOpen, hasFetched, fetchConnections]);
-
-  const handleNavigateToArticle = (articleId: string, highlightId?: string) => {
-    const url = `/content/${articleId}${highlightId ? `#${highlightId}` : ""}`;
-    onNavigateToArticle?.(articleId);
-    router.push(url);
-  };
-
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="flex items-center justify-center py-12">
-          <RetroLoader
-            text="Fetching highlight connections"
-            className="text-[var(--color-text-muted)]"
-          />
-        </div>
-      );
-    }
-
-    if (error) {
-      return (
-        <div className="p-4">
-          <InlineError message={error} onRetry={fetchConnections} />
-        </div>
-      );
-    }
-
-    if (connections.length === 0) {
-      return (
-        <EmptyState
-          message="No connections yet."
-          description="Highlight similar concepts across articles to discover connections."
-          className="px-4"
-        />
-      );
-    }
-
-    return (
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-8">
-        {connections.map((articleConnection) => (
-          <ArticleConnectionCard
-            key={articleConnection.article_id}
-            connection={articleConnection}
-            onNavigate={handleNavigateToArticle}
-            sourceContentId={contentId}
-          />
-        ))}
-      </div>
-    );
-  };
+  }, [fetchConnections]);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex flex-col h-full">{renderContent()}</div>
+    <div className="h-full flex flex-col bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <RetroLoader
+              text="Finding connections"
+              className="text-[var(--color-text-muted)]"
+            />
+          </div>
+        )}
+
+        {error && !loading && (
+          <InlineError message={error} onRetry={fetchConnections} />
+        )}
+
+        {!loading && !error && data && data.length === 0 && (
+          <EmptyState
+            message="No connections yet."
+            description="Highlight passages in this article and others on the same topic."
+            variant="inline"
+          />
+        )}
+
+        {!loading &&
+          !error &&
+          data &&
+          data.length > 0 &&
+          data.map((item) => (
+            <Mode2Card
+              key={item.highlight_id}
+              item={item}
+              onSelectHighlight={onSelectHighlight}
+              onNavigate={onNavigate}
+            />
+          ))}
+      </div>
     </div>
   );
 }
 
-function ArticleConnectionCard({
-  connection,
+// ── Mode 2 card ───────────────────────────────────────────────────────────────
+
+function Mode2Card({
+  item,
+  onSelectHighlight,
   onNavigate,
-  sourceContentId,
 }: {
-  connection: ArticleConnection;
-  onNavigate: (articleId: string, highlightId?: string) => void;
-  sourceContentId: string;
+  item: HighlightWithConnections;
+  onSelectHighlight: (highlightId: string) => void;
+  onNavigate: (articleId: string) => void;
 }) {
-  const pair = connection.highlight_pairs[0];
-
   return (
-    <div className="border border-[var(--color-border)]">
-      {/* Article title + shared tags */}
-      <div className="px-3 pt-3 pb-2">
-        <button
-          onClick={() => onNavigate(connection.article_id)}
-          className="text-left hover:text-[var(--color-accent)] transition-colors"
-        >
-          <h4 className="text-sm font-serif font-medium text-[var(--color-text-primary)] line-clamp-2">
-            {connection.article_title}
-          </h4>
-        </button>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
-          {connection.shared_tags.map((tag) => (
-            <span
-              key={tag}
-              className="text-xs text-[var(--color-text-muted)] cursor-default"
-              onClick={() =>
-                searchAPI.postTelemetry({
-                  surface: "connections_panel",
-                  item_id: sourceContentId,
-                  shared_tag: tag,
-                  action: "click",
-                })
-              }
-            >
-              ● {tag}
-            </span>
-          ))}
-        </div>
+    <div className="border border-[var(--color-border)] bg-[var(--color-bg-primary)]">
+      {/* Highlight header — click to enter Mode 1 */}
+      <div
+        className="px-3 py-3 bg-[var(--color-bg-tertiary)] border-b border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-bg-secondary)] transition-colors"
+        onClick={() => onSelectHighlight(item.highlight_id)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) =>
+          e.key === "Enter" && onSelectHighlight(item.highlight_id)
+        }
+      >
+        <p className="font-serif text-[13px] text-[var(--color-text-secondary)] leading-relaxed">
+          {item.highlight_text}
+        </p>
       </div>
 
-      {/* Highlight comparison — your highlight on top, theirs below */}
-      <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-        <div className="px-3 py-2 border-b border-[var(--color-border-subtle,var(--color-border))]">
-          <p className="text-xs text-[var(--color-text-primary)] line-clamp-3">
-            {pair.user_highlight_text}
-          </p>
-        </div>
-        <button
-          onClick={() =>
-            onNavigate(connection.article_id, pair.connected_highlight_id)
-          }
-          className="w-full text-left px-3 py-2 hover:bg-[var(--color-bg-tertiary)] transition-colors group"
+      {/* Connected articles */}
+      {item.connections.map((conn, i) => (
+        <div
+          key={conn.article_id}
+          className={`px-3 py-3 cursor-pointer hover:bg-[var(--color-bg-secondary)] transition-colors ${
+            i > 0 ? "border-t border-[var(--color-border)]" : ""
+          }`}
+          onClick={() => onNavigate(conn.article_id)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && onNavigate(conn.article_id)}
         >
-          <p className="text-xs text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)] line-clamp-3 transition-colors">
-            {pair.connected_highlight_text}
+          <p className="font-serif text-[13px] text-[var(--color-text-primary)] mb-0.5">
+            {conn.article_title}
           </p>
-          <p className="text-[10px] text-[var(--color-text-faint)] mt-1">
-            {(pair.similarity * 100).toFixed(0)}% · open article →
-          </p>
-        </button>
-      </div>
+          {(conn.article_author || conn.article_domain) && (
+            <p className="font-mono text-[10px] text-[var(--color-text-faint)] mb-2">
+              {conn.article_author && (
+                <span className="text-[var(--color-text-muted)]">
+                  {conn.article_author}
+                </span>
+              )}
+              {conn.article_author && conn.article_domain && " · "}
+              {conn.article_domain}
+            </p>
+          )}
+          {conn.shared_tags.length > 0 && (
+            <p className="font-mono text-[10px] text-[var(--color-text-muted)] mb-2">
+              {conn.shared_tags.map((t) => `● ${t}`).join("  ")}
+            </p>
+          )}
+          {/* Passages separated from meta */}
+          <div className="border-t border-[var(--color-border-subtle)] pt-2.5">
+            {conn.passages.map((passage, pi) => (
+              <p
+                key={pi}
+                className={`font-serif text-[13px] text-[var(--color-text-secondary)] leading-relaxed ${
+                  pi > 0
+                    ? "border-t border-[var(--color-border-subtle)] mt-2.5 pt-2.5"
+                    : ""
+                }`}
+              >
+                {passage}
+              </p>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

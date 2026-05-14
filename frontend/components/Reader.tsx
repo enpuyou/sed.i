@@ -61,6 +61,10 @@ export default function Reader({
   const [focusMode, setFocusMode] = useState(false);
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [showConnectionsPanel, setShowConnectionsPanel] = useState(false);
+  // null = Mode 2 (all highlights); string = Mode 1 (single highlight)
+  const [activeHighlightId, setActiveHighlightId] = useState<string | null>(
+    null,
+  );
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [articleEditUiState, setArticleEditUiState] = useState({
     isEditing: false,
@@ -89,7 +93,17 @@ export default function Reader({
       if (!e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         if (window.innerWidth >= 1280) {
-          setShowConnectionsPanel((prev) => !prev);
+          if (!showConnectionsPanel) {
+            // Closed → open in Mode 2
+            setActiveHighlightId(null);
+            setShowConnectionsPanel(true);
+          } else if (activeHighlightId !== null) {
+            // Mode 1 → Mode 2
+            setActiveHighlightId(null);
+          } else {
+            // Mode 2 → close
+            setShowConnectionsPanel(false);
+          }
         }
       }
     },
@@ -587,8 +601,10 @@ export default function Reader({
         >
           <ConnectionsPanel
             contentId={content.id}
+            activeHighlightId={activeHighlightId}
             isOpen={showConnectionsPanel}
-            onClose={() => setShowConnectionsPanel(false)}
+            onBackToAll={() => setActiveHighlightId(null)}
+            onSelectHighlight={(id) => setActiveHighlightId(id)}
             onNavigateToArticle={(id) => router.push(`/content/${id}`)}
           />
         </div>
@@ -702,7 +718,10 @@ export default function Reader({
         onHighlightsChange={setHighlights}
         onShowConnections={
           settings.showConnections
-            ? () => setShowConnectionsPanel(true)
+            ? (highlightId: string) => {
+                setActiveHighlightId(highlightId);
+                setShowConnectionsPanel(true);
+              }
             : undefined
         }
         onHighlightCreate={onHighlightCreate}

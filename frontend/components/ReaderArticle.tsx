@@ -45,7 +45,7 @@ interface ReaderArticleProps {
   }) => void;
   embedded?: boolean;
   focusModeEnabled?: boolean;
-  onShowConnections?: () => void;
+  onShowConnections?: (highlightId: string) => void;
   onHighlightsChange?: (
     highlights: Array<{
       id: string;
@@ -1080,8 +1080,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                   }}
                   onUpdateHighlight={refreshHighlights}
                   newlyCreatedHighlightId={newlyCreatedHighlightId}
-                  onShowConnections={(_highlightId) => {
-                    onShowConnections?.();
+                  onShowConnections={(highlightId) => {
+                    onShowConnections?.(highlightId);
                   }}
                   connectedHighlightIds={connectedHighlightIds}
                 />
@@ -1267,36 +1267,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                     </span>
                   </>
                 )}
-                {!displayAuthor && !displayPublishedDate && (
-                  <span className="text-[var(--color-text-faint)] italic">
-                    no attribution
-                  </span>
-                )}
               </div>
-
-              {/* Semantic tags: first tag = domain/field, rest = concepts */}
-              {content.tags && content.tags.length > 0 && (
-                <div className="mt-3 space-y-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
-                      Field
-                    </span>
-                    <span className="text-xs text-[var(--color-text-secondary)]">
-                      {content.tags[0]}
-                    </span>
-                  </div>
-                  {content.tags.length > 1 && (
-                    <div className="flex items-baseline gap-2">
-                      <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
-                        Ideas
-                      </span>
-                      <span className="text-xs text-[var(--color-text-secondary)]">
-                        {content.tags.slice(1).join(" · ")}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Inline meta edit panel */}
               {isEditingMeta && (
@@ -1481,6 +1452,30 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                 </a>
               </div>
             </div>
+
+            {/* Semantic tags: first tag = domain/field, rest = concepts */}
+            {content.tags && content.tags.length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
+                    Field
+                  </span>
+                  <span className="text-xs text-[var(--color-text-faint)]">
+                    {content.tags[0]}
+                  </span>
+                </div>
+                {content.tags.length > 1 && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
+                      Ideas
+                    </span>
+                    <span className="text-xs text-[var(--color-text-faint)]">
+                      {content.tags.slice(1).join(" · ")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Thumbnail */}
             {content.thumbnail_url && (

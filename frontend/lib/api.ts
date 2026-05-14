@@ -2,6 +2,28 @@
 // Use environment variable for production, fallback to localhost for development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// ── Connections panel types ──────────────────────────────────────────────────
+
+export interface HighlightArticleConnection {
+  article_id: string;
+  article_title: string;
+  article_author: string | null;
+  article_domain: string;
+  shared_tags: string[];
+  passages: string[];
+}
+
+export interface ConnectionsForHighlightResponse {
+  source_note: string | null;
+  connections: HighlightArticleConnection[];
+}
+
+export interface HighlightWithConnections {
+  highlight_id: string;
+  highlight_text: string;
+  connections: HighlightArticleConnection[];
+}
+
 export class APIError extends Error {
   constructor(
     public readonly status: number,
@@ -481,14 +503,35 @@ export const searchAPI = {
     return fetchWithAuth(`${API_BASE_URL}/search/semantic?${params}`);
   },
 
-  // Find connections for a highlight (GET /search/connections/{highlight_id})
-  findHighlightConnections: async (highlightId: string, limit = 10) => {
+  // Find connections for a single highlight, grouped by article (GET /search/connections/{highlight_id})
+  findHighlightConnections: async (
+    highlightId: string,
+  ): Promise<ConnectionsForHighlightResponse> => {
     return fetchWithAuth(
-      `${API_BASE_URL}/search/connections/${highlightId}?limit=${limit}`,
-    );
+      `${API_BASE_URL}/search/connections/${highlightId}`,
+    ) as Promise<ConnectionsForHighlightResponse>;
   },
 
-  // Find all connections for an article's highlights (GET /search/connections/article/{content_id})
+  // Find all highlights in an article with their connections — Mode 2 (GET /search/connections/article/{content_id}/highlights)
+  findHighlightGroupedConnections: async (
+    contentId: string,
+  ): Promise<HighlightWithConnections[]> => {
+    return fetchWithAuth(
+      `${API_BASE_URL}/search/connections/article/${contentId}/highlights`,
+    ) as Promise<HighlightWithConnections[]>;
+  },
+
+  // Get lazy insight for a highlight+article pair (GET /search/connections/{highlight_id}/insight/{article_id})
+  getConnectionInsight: async (
+    highlightId: string,
+    articleId: string,
+  ): Promise<{ insight: string | null }> => {
+    return fetchWithAuth(
+      `${API_BASE_URL}/search/connections/${highlightId}/insight/${articleId}`,
+    ) as Promise<{ insight: string | null }>;
+  },
+
+  // Find all connections for an article's highlights — legacy article-level endpoint
   findArticleConnections: async (contentId: string) => {
     return fetchWithAuth(
       `${API_BASE_URL}/search/connections/article/${contentId}`,

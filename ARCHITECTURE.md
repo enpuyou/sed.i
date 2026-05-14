@@ -356,12 +356,14 @@ runs) so the item is flagged as limited without waiting for the Celery task.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/search/semantic?query=...` | Hybrid search. Returns `{ articles: [...], highlights: [...] }`. Articles: classifies query and routes to keyword, filter, semantic, or RRF-fused path. Highlights: tsvector keyword search over `highlights.search_vector`. Supports `mode=full`, `offset`, `after`/`before` date operators. |
-| GET | `/search/connections/{highlight_id}` | Highlights in other articles similar to this highlight. Threshold param (default 0.75). |
+| GET | `/search/connections/{highlight_id}` | Per-highlight connections. Response: `{source_note, connections[]}` with article metadata, shared tags, and matched passages. |
+| GET | `/search/connections/{highlight_id}/insight/{article_id}` | AI-generated one-sentence insight linking the highlight to a connected article. Cached in Redis (7 days). Returns `{insight: null}` on failure. |
 | GET | `/search/connections/article/{content_id}` | All cross-article connections for highlights in the given article, grouped by connected article. |
+| GET | `/search/connections/article/{content_id}/highlights` | All-highlights grouped view for Mode 2 panel. Returns `HighlightWithConnections[]` (highlights with ≥1 connection only). |
 | GET | `/search/{item_id}/similar` | Articles in user's queue similar to the given item. |
 
 **Route ordering note:** `/semantic`, `/connections/...` must come **before**
-`/{item_id}/similar` in the router (same reason as content routes).
+`/{item_id}/similar` in the router. Within connections routes: `/connections/article/{id}/highlights` before `/connections/article/{id}` (literal "highlights" before the broader path), and both before `/{highlight_id}`.
 
 **pgvector raw SQL:** All similarity queries use `text(...)` with
 `CAST(:emb AS vector)` instead of the SQLAlchemy ORM operator. This is because
@@ -550,16 +552,46 @@ The old free-pass (pgvector similarity to already-tagged articles) was removed. 
 
 ---
 
-## 11b. Tag-grouped highlight connections (Phase 3)
+## 11b. Highlight Connections — two-mode panel
 
-`GET /search/connections/article/{content_id}` returns `shared_tags: list[str]` (intersection of source and connected article tags) on each `ArticleConnection`.
+The connections system surfaces how ideas in one article link to ideas captured elsewhere in a user's library, using a combination of embedding similarity and shared semantic tags.
+
+### Backend endpoints
+
+`GET /search/connections/{highlight_id}` — per-highlight connections.
+- Response: `ConnectionsForHighlightResponse { source_note: str | null, connections: HighlightArticleConnection[] }`
+- Each `HighlightArticleConnection` includes: `article_id`, `article_title`, `article_author`, `article_domain`, `shared_tags`, `passages` (top 2 matched passages from the connected article)
+- Filters: only connections with ≥1 shared tag; similarity threshold 0.7; excludes highlights in the same article
+
+`GET /search/connections/article/{content_id}/highlights` — all-highlights grouped view (Mode 2).
+- Response: `list[HighlightWithConnections]` — each item has `highlight_id`, `highlight_text`, `connections: HighlightArticleConnection[]`
+- Highlights with zero connections are omitted. Capped at 30 highlights.
+- **Route ordering note:** registered before `GET /search/connections/article/{content_id}` (literal "highlights" segment must win over the broader pattern).
+
+`GET /search/connections/{highlight_id}/insight/{article_id}` — AI-generated one-sentence insight explaining the conceptual link between a highlight and a connected article.
+- Response: `InsightResponse { insight: str | null }` — `null` if generation fails (never 500)
+- Cached in Redis with key `insight:{highlight_id}:{article_id}`, TTL 7 days
+- Uses `gpt-4o-mini`. Two helpers isolated for test patching: `_get_redis_client()`, `_call_openai_insight()`
 
 Quality filters applied at query time:
-- `SIMILARITY_THRESHOLD_CONNECTIONS = 0.7` (raised from 0.5 — cosine formula means 0.5 was zero similarity)
-- Only one highlight pair per connected article is returned — the highest-similarity pair
-- Connections with no `shared_tags` are excluded entirely
+- `SIMILARITY_THRESHOLD_CONNECTIONS = 0.7` (cosine similarity; 0.5 was effectively zero)
+- Only connections with `shared_tags` (intersection of source and target article tags) are returned
+- Top 2 passages per connected article
 
-`ConnectionsPanel` renders each connected article as: title → shared tags (dot format) → your highlight text → their highlight text (clickable, navigates to article). No expand/collapse logic needed since only one pair per article is shown.
+### Frontend — ConnectionsPanel (two-mode)
+
+`ConnectionsPanel` routes between two sub-panels based on `activeHighlightId: string | null`:
+
+**Mode 1** (single highlight, `activeHighlightId` is set) — fetches `findHighlightConnections`, shows a compact "← all highlights" back button, optional source note, then connection cards. Each card has two zones: identity (title, author/domain, shared tag dots, lazy-loaded insight sentence) and passages (matched text from the connected article).
+
+**Mode 2** (all highlights, `activeHighlightId = null`) — fetches `findHighlightGroupedConnections`, shows each highlight as a header card; connected articles are listed below each highlight.
+
+**`c` key state machine (Reader.tsx):**
+- panel closed → open in Mode 2
+- Mode 1 → switch to Mode 2
+- Mode 2 → close panel
+
+**Clicking a highlight** in ReaderArticle calls `onShowConnections(highlightId)` → Reader sets `activeHighlightId` and opens the panel in Mode 1. The `onShowConnections` prop type changed from `() => void` to `(highlightId: string) => void`.
 
 ## 11c. Draft relevant reads (Phase 4)
 
@@ -683,7 +715,8 @@ Optional `mood` filter:
 | `ContentList` | dashboard | Fetches items, client-side filter, list/index view toggle. Sort field/dir persisted in localStorage. RetroLoader on all loading states. Active sort header highlighted in accent color (no glyph). |
 | `ContentItem` | dashboard / public profile | Card view. Accepts `readOnly?: boolean` — hides all action buttons (read, archive, delete, tag, list) when true. Accepts `navigateTo?: string` to override default `/content/:id` link. Uses `getIngestIssue(...)` mapping to show clearer ingest failure badges (blocked/auth/network/partial) instead of a single generic extraction failure label. Failed-ingest items only use the compact single-line row (status badge + source domain + date + right-aligned delete) when extraction fails before meaningful metadata is available; failed items with usable metadata keep the standard full card layout. |
 | `ContentIndexItem` | dashboard / public profile | Index row. Responsive layout layout: Desktop shows Date \| Title \| Author/Source \| hover menu. Mobile collapses to just Date \| Title to preserve space. Hovering reveals absolute-positioned multi-action tools (Read, Archive, Delete). Delete uses click→"Delete?"→click confirm. Accepts `readOnly` and `navigateTo` props. |
-| `Reader` | content/[id], read/ | Shell: fixed navbar, reading progress bar, optional NowPlaying, HighlightsPanel + optional ConnectionsPanel sidebars, TOC sidebar, KeyboardShortcuts. Renders `<ReaderArticle>`. Accepts `onHighlightCreate` override prop — when provided, highlight creation calls the callback instead of the API (used by `EphemeralReader` to collect local highlights before save). |
+| `Reader` | content/[id], read/ | Shell: fixed navbar, reading progress bar, optional NowPlaying, HighlightsPanel + optional ConnectionsPanel sidebars, TOC sidebar, KeyboardShortcuts. Renders `<ReaderArticle>`. Manages `activeHighlightId` state (null = Mode 2 / all-highlights, string = Mode 1 / single-highlight). `c` key state machine: closed→Mode2, Mode1→Mode2, Mode2→close. `onShowConnections(highlightId)` callback opens Mode 1 directly from a highlight click. |
+| `ConnectionsPanel` | reader | Two-mode connections panel. Mode 1: `activeHighlightId` is set — fetches per-highlight connections, shows back button + source note + article cards with insight. Mode 2: `activeHighlightId` is null — fetches all-highlights grouped view. Props: `contentId`, `activeHighlightId`, `isOpen`, `onBackToAll`, `onSelectHighlight`, `onNavigateToArticle`. |
 | `EphemeralReader` | read/ | Wraps `Reader` with a sticky "Reading without saving" / "Save to Library" banner. Collects highlights locally via `onHighlightCreate` ref. On save: calls `contentAPI.create` with `initial_highlights`, clears sessionStorage, navigates to `/content/{id}`. |
 | `ReaderArticle` | content/[id], lists/[id] | Reusable article body. Handles highlights, selection toolbar, summary, metadata editing, similar articles, ImageZoomModal, scroll position save/restore. `embedded` prop switches from window scroll to container scroll (used in split-pane list view). `focusModeEnabled` prop controlled by Reader's navbar. Exposes `highlights`, `refreshHighlights`, `scrollToHighlight` via `forwardRef`/`useImperativeHandle` for Reader's sidepanels. Uses `getIngestIssue(...)` fallback copy when full text is unavailable, including source-blocked and partial-extraction states. |
 | `InlineError` | shared | Inline contextual error with optional dismiss/retry. See §16. |
@@ -921,6 +954,8 @@ Location: `content-queue-backend/tests/`
 | `test_vinyl_api.py` | Full vinyl CRUD; soft delete; cross-user 404; Celery mocked. |
 | `test_rate_limiter.py` | Sliding window unit tests (no DB). |
 | `test_lists_api.py` | List CRUD; membership management; cross-user isolation. |
+| `test_highlight_connections.py` | Per-highlight connections endpoint shape, shared-tag filtering, cross-user isolation, grouped-highlights view (8 tests). |
+| `test_insight_endpoint.py` | Insight generation: cache miss, cache hit (no OpenAI call), generation failure → null, unauthenticated 401 (4 tests). |
 
 Run: `cd content-queue-backend && poetry run pytest tests/`
 
