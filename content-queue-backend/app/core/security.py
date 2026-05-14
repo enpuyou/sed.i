@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from jose import jwt
 from passlib.context import CryptContext
@@ -21,21 +23,36 @@ def get_password_hash(password: str) -> str:
 def create_access_token(
     data: dict[str, Any], expires_delta: timedelta | None = None
 ) -> str:
-    """Create a JWT token"""
+    """Create a signed JWT access token."""
     to_encode = data.copy()
-
-    # Set expiration time
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
-
     to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
-    # Encode and sign the token
-    encoded_jwt = jwt.encode(
-        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
+
+def create_refresh_token() -> tuple[str, str]:
+    """
+    Generate a refresh token.
+
+    Returns (raw_token, token_hash). Store only the hash in the DB;
+    send the raw token to the client exactly once.
+    """
+    raw = secrets.token_urlsafe(48)  # 288 bits of entropy
+    token_hash = hash_token(raw)
+    return raw, token_hash
+
+
+def hash_token(raw: str) -> str:
+    """SHA-256 hex digest — used to store/look up refresh tokens without raw value."""
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def refresh_token_expires() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
-    return encoded_jwt
