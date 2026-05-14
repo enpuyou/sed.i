@@ -20,6 +20,7 @@ interface ArticleConnection {
   article_title: string;
   highlight_pairs: HighlightPair[];
   total_similarity: number;
+  shared_tags: string[];
 }
 
 interface ConnectionsPanelProps {
@@ -60,7 +61,6 @@ export default function ConnectionsPanel({
     }
   }, [contentId]);
 
-  // Reset state when article changes
   useEffect(() => {
     if (fetchedForId && fetchedForId !== contentId) {
       setConnections([]);
@@ -70,7 +70,6 @@ export default function ConnectionsPanel({
     }
   }, [contentId, fetchedForId]);
 
-  // Fetch when panel opens (or article changed while open)
   useEffect(() => {
     if (!isOpen || hasFetched) return;
     fetchConnections();
@@ -82,7 +81,6 @@ export default function ConnectionsPanel({
     router.push(url);
   };
 
-  // Exclusive state rendering: loading > error > empty > data
   const renderContent = () => {
     if (loading) {
       return (
@@ -116,67 +114,12 @@ export default function ConnectionsPanel({
     return (
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-8">
         {connections.map((articleConnection) => (
-          <div
+          <ArticleConnectionCard
             key={articleConnection.article_id}
-            className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-none shadow-lg"
-          >
-            {/* Article Title - clickable */}
-            <button
-              onClick={() =>
-                handleNavigateToArticle(articleConnection.article_id)
-              }
-              className="w-full text-left p-3 hover:bg-[var(--color-bg-tertiary)] transition-colors"
-            >
-              <h4 className="text-sm font-serif font-medium text-[var(--color-text-primary)] line-clamp-2">
-                {articleConnection.article_title}
-              </h4>
-              <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                {articleConnection.highlight_pairs.length} highlight
-                {articleConnection.highlight_pairs.length !== 1 ? "s" : ""}
-              </p>
-            </button>
-
-            {/* Highlight Pairs */}
-            <div className="bg-[var(--color-bg-tertiary)] border-t border-[var(--color-border)] px-3 py-2 space-y-2">
-              {articleConnection.highlight_pairs
-                .slice(0, 3)
-                .map((pair, idx) => (
-                  <div key={idx} className="text-xs">
-                    <p className="text-[var(--color-text-muted)] mb-1">
-                      {(pair.similarity * 100).toFixed(0)}% match
-                    </p>
-                    <div className="space-y-1">
-                      <p className="block text-left text-[var(--color-text-primary)] text-xs line-clamp-2">
-                        <span className="text-[var(--color-text-muted)]">
-                          Your:{" "}
-                        </span>
-                        {pair.user_highlight_text}
-                      </p>
-                      <button
-                        onClick={() =>
-                          handleNavigateToArticle(
-                            articleConnection.article_id,
-                            pair.connected_highlight_id,
-                          )
-                        }
-                        className="block text-left text-[var(--color-text-primary)] hover:text-[var(--color-accent)] transition-colors text-xs line-clamp-2"
-                      >
-                        <span className="text-[var(--color-text-muted)]">
-                          Their:{" "}
-                        </span>
-                        {pair.connected_highlight_text}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              {articleConnection.highlight_pairs.length > 3 && (
-                <p className="text-xs text-[var(--color-text-muted)] pt-1">
-                  +{articleConnection.highlight_pairs.length - 3} more
-                  connections
-                </p>
-              )}
-            </div>
-          </div>
+            connection={articleConnection}
+            onNavigate={handleNavigateToArticle}
+            sourceContentId={contentId}
+          />
         ))}
       </div>
     );
@@ -185,6 +128,74 @@ export default function ConnectionsPanel({
   return (
     <div className="h-full flex flex-col">
       <div className="flex flex-col h-full">{renderContent()}</div>
+    </div>
+  );
+}
+
+function ArticleConnectionCard({
+  connection,
+  onNavigate,
+  sourceContentId,
+}: {
+  connection: ArticleConnection;
+  onNavigate: (articleId: string, highlightId?: string) => void;
+  sourceContentId: string;
+}) {
+  const pair = connection.highlight_pairs[0];
+
+  return (
+    <div className="border border-[var(--color-border)]">
+      {/* Article title + shared tags */}
+      <div className="px-3 pt-3 pb-2">
+        <button
+          onClick={() => onNavigate(connection.article_id)}
+          className="text-left hover:text-[var(--color-accent)] transition-colors"
+        >
+          <h4 className="text-sm font-serif font-medium text-[var(--color-text-primary)] line-clamp-2">
+            {connection.article_title}
+          </h4>
+        </button>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+          {connection.shared_tags.map((tag) => (
+            <span
+              key={tag}
+              className="text-xs text-[var(--color-text-muted)] cursor-default"
+              onClick={() =>
+                searchAPI.postTelemetry({
+                  surface: "connections_panel",
+                  item_id: sourceContentId,
+                  shared_tag: tag,
+                  action: "click",
+                })
+              }
+            >
+              ● {tag}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Highlight comparison — your highlight on top, theirs below */}
+      <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+        <div className="px-3 py-2 border-b border-[var(--color-border-subtle,var(--color-border))]">
+          <p className="text-xs text-[var(--color-text-primary)] line-clamp-3">
+            {pair.user_highlight_text}
+          </p>
+        </div>
+        <button
+          onClick={() =>
+            onNavigate(connection.article_id, pair.connected_highlight_id)
+          }
+          className="w-full text-left px-3 py-2 hover:bg-[var(--color-bg-tertiary)] transition-colors group"
+        >
+          <p className="text-xs text-[var(--color-text-secondary)] group-hover:text-[var(--color-text-primary)] line-clamp-3 transition-colors">
+            {pair.connected_highlight_text}
+          </p>
+          <p className="text-[10px] text-[var(--color-text-faint)] mt-1">
+            {(pair.similarity * 100).toFixed(0)}% · open article →
+          </p>
+        </button>
+      </div>
     </div>
   );
 }

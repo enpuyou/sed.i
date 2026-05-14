@@ -8,7 +8,11 @@ Search endpoints.
 /search/connections/article/ — All cross-article connections for a ContentItem's highlights.
 """
 
+import json
+import logging
 import re as _re
+from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -23,6 +27,8 @@ from app.models.highlight import Highlight
 from app.schemas.content import ContentItemResponse
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/search", tags=["search"])
 
 
@@ -32,9 +38,8 @@ class SimilarContentResponse(BaseModel):
     item: ContentItemResponse
     similarity_score: float
     match_type: str = "semantic"  # "filter" | "keyword" | "semantic" | "hybrid"
-    semantic_score: float | None = (
-        None  # cosine similarity, only set for semantic results
-    )
+    semantic_score: float | None = None
+    shared_tags: list[str] = []
 
 
 class HighlightConnection(BaseModel):
@@ -61,6 +66,7 @@ class ArticleConnection(BaseModel):
     article_title: str
     highlight_pairs: list[dict]  # {user_highlight, connected_highlight, similarity}
     total_similarity: float
+    shared_tags: list[str] = []
 
 
 class HighlightSearchResult(BaseModel):
@@ -133,6 +139,13 @@ def _search_highlights(
         )
         for row in rows
     ]
+
+
+class SearchTelemetryEvent(BaseModel):
+    surface: str
+    item_id: UUID
+    shared_tag: str | None = None
+    action: Literal["click", "dismiss"]
 
 
 # IMPORTANT: Specific literal paths MUST come before generic path parameters
@@ -224,6 +237,27 @@ def semantic_search(
     highlight_results = _search_highlights(query, current_user.id, db, limit=10)
 
     return SearchResponse(articles=search_results, highlights=highlight_results)
+
+
+@router.post("/telemetry", status_code=204)
+def record_search_event(
+    payload: SearchTelemetryEvent,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Record a search interaction event. Logged server-side; no DB write."""
+    logger.info(
+        json.dumps(
+            {
+                "event": "search_click",
+                "surface": payload.surface,
+                "item_id": str(payload.item_id),
+                "shared_tag": payload.shared_tag,
+                "action": payload.action,
+                "user_id": str(current_user.id),
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    )
 
 
 @router.get(
@@ -378,6 +412,7 @@ def find_article_connections(
                 h.color,
                 h.content_item_id,
                 ci.title as article_title,
+                ci.tags as article_tags,
                 (1 - (h.embedding <=> CAST(:source_embedding AS vector)) / 2) as similarity
             FROM highlights h
             JOIN content_items ci ON h.content_item_id = ci.id
@@ -388,7 +423,7 @@ def find_article_connections(
                 AND LENGTH(h.text) >= 20
                 AND (1 - (h.embedding <=> CAST(:source_embedding AS vector)) / 2) >= :threshold
             ORDER BY h.embedding <=> CAST(:source_embedding AS vector)
-            LIMIT 5
+            LIMIT 20
         """
         )
 
@@ -408,6 +443,7 @@ def find_article_connections(
                 article_connections[article_id] = {
                     "article_id": article_id,
                     "article_title": row.article_title,
+                    "article_tags": list(row.article_tags or []),
                     "highlight_pairs": [],
                     "total_similarity": 0.0,
                 }
@@ -423,12 +459,20 @@ def find_article_connections(
             )
             article_connections[article_id]["total_similarity"] += float(row.similarity)
 
-    # Sort by total similarity and return
-    return sorted(
-        article_connections.values(),
-        key=lambda x: x["total_similarity"],
-        reverse=True,
-    )
+    # Keep only the best highlight pair per connected article, require shared tags
+    source_tags = set(article.tags or [])
+    result = []
+    for conn in article_connections.values():
+        shared = sorted(source_tags & set(conn.pop("article_tags", [])))
+        if not shared:
+            continue
+        best_pair = max(conn["highlight_pairs"], key=lambda p: p["similarity"])
+        conn["highlight_pairs"] = [best_pair]
+        conn["total_similarity"] = best_pair["similarity"]
+        conn["shared_tags"] = shared
+        result.append(conn)
+
+    return sorted(result, key=lambda x: x["total_similarity"], reverse=True)
 
 
 @router.get("/{item_id}/similar", response_model=list[SimilarContentResponse])
@@ -519,6 +563,8 @@ def find_similar_content(
     ).fetchall()
 
     # Format response
+    source_tags = set(source_item.tags or [])
+
     similar_items = []
     for row in results:
         item_dict = {
@@ -541,9 +587,13 @@ def find_similar_content(
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }
-
+        shared = sorted(source_tags & set(row.tags or []))
         similar_items.append(
-            {"item": item_dict, "similarity_score": float(row.similarity)}
+            {
+                "item": item_dict,
+                "similarity_score": float(row.similarity),
+                "shared_tags": shared,
+            }
         )
 
     return similar_items

@@ -425,6 +425,16 @@ export const draftsAPI = {
       method: "DELETE",
     });
   },
+
+  getRelevantReads: async (
+    listId: string,
+  ): Promise<{ items: RelevantReadItem[] }> => {
+    const resp = await fetchWithAuth(
+      `${API_BASE_URL}/lists/${listId}/draft/relevant-reads`,
+    );
+    if (!resp.ok) return { items: [] };
+    return resp.json();
+  },
 };
 
 // Search API - matches your /search endpoints (for future use)
@@ -432,6 +442,20 @@ export const searchAPI = {
   // Find similar content (GET /search/{item_id}/similar)
   findSimilar: async (id: string) => {
     return fetchWithAuth(`${API_BASE_URL}/search/${id}/similar`);
+  },
+
+  // Record a search interaction event (fire-and-forget)
+  postTelemetry: (payload: {
+    surface: string;
+    item_id: string;
+    shared_tag?: string;
+    action: "click" | "dismiss";
+  }): void => {
+    fetchWithAuth(`${API_BASE_URL}/search/telemetry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
   },
 
   // Semantic search (GET /search/semantic)
@@ -619,6 +643,35 @@ export const publicAPI = {
       `${API_BASE_URL}/public/u/${username}/content/${itemId}`,
     );
     if (!response.ok) throw new Error("Not found");
+    return response.json();
+  },
+};
+
+export interface RelevantReadItem {
+  id: string;
+  title: string | null;
+  tags: string[];
+  thumbnail_url: string | null;
+}
+
+export interface TopArticle {
+  id: string;
+  title: string | null;
+  thumbnail: string | null;
+}
+
+export interface ReadingCluster {
+  id: string;
+  label: string;
+  article_count: number;
+  tag_labels: string[];
+  top_articles: TopArticle[];
+}
+
+export const themesAPI = {
+  getClusters: async (): Promise<{ clusters: ReadingCluster[] }> => {
+    const response = await fetchWithAuth(`${API_BASE_URL}/themes`);
+    if (!response.ok) throw new Error("Couldn't load reading themes.");
     return response.json();
   },
 };

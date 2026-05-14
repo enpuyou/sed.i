@@ -473,7 +473,11 @@ POST /content (201, processing_status='completed' immediately)
 |------|------|-------------|
 | `extract_metadata` | `tasks/extraction.py` | Full pipeline: fetch → parse → trafilatura. For article URLs, limited extraction is flagged via source-restriction/truncation heuristics (paywall/access markers, schema/content-tier signals, teaser-description overlap, media/caption-only extraction, and low extraction coverage), not a raw short-text threshold. Thumbnail extraction uses a fallback chain: OG/Twitter meta → JSON-LD image → `link[rel=image_src]` → first usable in-content image. |
 | `generate_embedding` | `tasks/embedding.py` | OpenAI embedding, stored in pgvector. Also embeds highlights. |
-| `generate_tags` | `tasks/tagging.py` | Hybrid two-pass. Pass 1 (pgvector similarity, free): if ≥2 high-confidence tag matches found, auto-accepts into both `auto_tags` and `tags`. Pass 2 (`gpt-4o-mini`): if pass 1 misses, calls LLM and also auto-accepts. `auto_tags`/`tags` endpoints exist for manual override. |
+| `generate_tags` | `tasks/tagging.py` | LLM-only semantic extraction. Two-level prompt (DOMAIN + CONCEPTS), diverse domain examples. Writes to `tags`. Calls `upsert_tag_embeddings` after. |
+| `upsert_tag_embeddings` | `tasks/tagging.py` | Embeds any new tag labels via `text-embedding-3-small` and writes to `tag_embeddings`. Idempotent — already-present labels are skipped. |
+| `cluster_user_tags_task` | `tasks/clustering.py` | Runs cosine similarity + union-find on a user's tag embeddings, writes `reading_clusters`. Requires ≥10 tagged articles. |
+| `cluster_all_users_task` | `tasks/clustering.py` | Weekly beat task — dispatches `cluster_user_tags_task` for every user. |
+| `backfill_semantic_tags` | `tasks/tagging.py` | Re-tags articles with empty `tags`. Rate-limited to 50/min. |
 | `generate_summary` | `tasks/summarization.py` | Triggered by `POST /content/{id}/summary`. Calls OpenAI to produce a summary. |
 | `fetch_discogs_metadata` | `tasks/discogs.py` | Fetches vinyl metadata from Discogs API. |
 | `cleanup` | `tasks/cleanup.py` | Periodic task (beat). Removes old data / temp files. |
@@ -501,24 +505,70 @@ If a saved URL returns `Content-Type: application/pdf`:
 
 ---
 
-## 11. Auto-tagging pipeline (detail)
+## 11. Semantic tagging pipeline (detail)
 
-**Goal:** Suggest relevant tags without spending money on every article.
+**Goal:** Extract fine-grained semantic labels from article content and store them with embeddings for similarity queries.
 
-**Two-pass strategy in `generate_tags`:**
+**Strategy in `generate_tags` (`tasks/tagging.py`):**
 
-1. **Free pass (pgvector):** Find user's already-tagged content with cosine distance
-   < 0.25. If ≥2 tags appear across ≥2 similar articles (`should_accept_tags`),
-   auto-write to both `auto_tags` **and** `tags` immediately.
-2. **LLM pass (gpt-4o-mini):** If pass 1 finds nothing, call `gpt-4o-mini` with
-   the article title + description + first **800 words** of plain text.
-   Parse JSON array from response; also auto-writes to both `auto_tags` and `tags`.
+The old free-pass (pgvector similarity to already-tagged articles) was removed. It propagated coarse categorical labels and blocked semantic extraction. The pipeline is now LLM-only:
 
-**Both passes auto-accept immediately** — when tagging succeeds the item is
-considered done. The `/tags/accept` and `/tags/dismiss` endpoints exist for
-manual correction after the fact (UI can show suggested tags and let user override).
+1. Call `gpt-4o-mini` with title + description + first 800 words of plain text.
+2. Two-level prompt: **DOMAIN** (1-2 field-level labels, e.g. "personal finance") + **CONCEPTS** (3-4 specific ideas, e.g. "compound interest mechanics"). Examples span tech, food, finance, politics, health, and arts to avoid AI/tech bias.
+3. Validated labels (max 6 words, max 100 chars) written to `item.tags`.
+4. `upsert_tag_embeddings` is called immediately after — embeds any new labels via `text-embedding-3-small` and writes them to `tag_embeddings` (idempotent; already-embedded labels are skipped).
+
+**`tag_embeddings` table:** Global lookup `{label TEXT UNIQUE, embedding VECTOR(1536)}`. Embeds each unique tag label once across all users. Powers tag-level similarity queries and the clustering pipeline.
+
+**`auto_tags`/`tags` merge:** `auto_tags` was removed as a separate concept. All semantic tags write directly to `tags`. Users remove tags they don't want.
+
+**Backfill:** `backfill_semantic_tags` Celery task re-tags articles with empty `tags`. Rate-limited to 50/min.
+
+**Reader display:** Tags render inline below the author/date section in `ReaderArticle`. First tag = `FIELD` row (domain label); remaining tags = `IDEAS` row (concept labels joined with ` · `). Uses `font-mono text-[9px] uppercase` labels with a fixed `w-10` column. Dot format (`● tag`) used in Find Related shared-tags row.
+
+## 11a. Reading themes (tag clustering)
+
+**Goal:** Group a user's semantic tags into reading clusters so users can see what they're reading about.
+
+**Pipeline (`tasks/clustering.py`, `cluster_user_tags`):**
+
+1. Load all articles for the user that have `tags`.
+2. Skip if fewer than 10 tagged articles.
+3. Build a map of `{tag → [article_ids]}` for all unique tags.
+4. Fetch embeddings for each tag from `tag_embeddings`.
+5. Compute cosine similarity matrix via numpy.
+6. Union-Find: merge tags with cosine similarity ≥ 0.60 into connected components.
+7. Each component with ≥3 articles → one `ReadingCluster` row.
+8. Cluster label = the tag within the cluster that appears on the most articles.
+9. Replace existing clusters for the user (idempotent — rerun replaces, does not append).
+
+**Scheduled:** `cluster_all_users_task` (Celery beat, weekly) dispatches per-user tasks.
+
+**API:** `GET /themes` (`api/themes.py`) — returns `{clusters: [{id, label, article_count, tag_labels, top_articles}]}`.
+
+**Frontend:** `/themes` page — card grid behind `NEXT_PUBLIC_SHOW_READING_THEMES=true` flag. Link appears in dashboard quick-actions row when flag is enabled.
 
 ---
+
+## 11b. Tag-grouped highlight connections (Phase 3)
+
+`GET /search/connections/article/{content_id}` returns `shared_tags: list[str]` (intersection of source and connected article tags) on each `ArticleConnection`.
+
+Quality filters applied at query time:
+- `SIMILARITY_THRESHOLD_CONNECTIONS = 0.7` (raised from 0.5 — cosine formula means 0.5 was zero similarity)
+- Only one highlight pair per connected article is returned — the highest-similarity pair
+- Connections with no `shared_tags` are excluded entirely
+
+`ConnectionsPanel` renders each connected article as: title → shared tags (dot format) → your highlight text → their highlight text (clickable, navigates to article). No expand/collapse logic needed since only one pair per article is shown.
+
+## 11c. Draft relevant reads (Phase 4)
+
+`GET /lists/{list_id}/draft/relevant-reads` returns up to 5 library articles relevant to the current draft.
+
+- Requires ≥50 words in the draft — returns `{items: []}` otherwise.
+- Query = draft title + first 200 chars of content, run through `hybrid_search` (mode=full).
+- User-scoped: only returns the authenticated user's library items.
+- Frontend: `RelevantReadsPanel` renders below the editor in writing mode, behind `NEXT_PUBLIC_SHOW_DRAFT_READS=true`. Panel mounts only after the first autosave (`savedAt !== null`); shows "No matches yet" copy rather than collapsing when results are empty. Fires after each autosave via `onSaved` callback threaded through `WritingWorkspace → MarkdownEditor`.
 
 ## 12. Hybrid search and connections
 

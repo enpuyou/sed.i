@@ -16,6 +16,8 @@ import ReaderArticle from "@/components/ReaderArticle";
 import NowPlaying from "@/components/NowPlaying";
 import InlineError from "@/components/InlineError";
 import EmptyState from "@/components/EmptyState";
+import RelevantReadsPanel from "@/components/RelevantReadsPanel";
+import { SHOW_DRAFT_READS } from "@/lib/flags";
 
 interface ListDetail {
   id: string;
@@ -106,6 +108,7 @@ export default function ListDetailPage() {
   const [initialDraftContent, setInitialDraftContent] = useState("");
   const [draftLoading, setDraftLoading] = useState(false);
   const [editorFullscreen, setEditorFullscreen] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
   // Inline article view (left pane in writing mode)
   const [selectedArticle, setSelectedArticle] =
@@ -472,7 +475,11 @@ export default function ListDetailPage() {
                   exportHandlerRef.current = fn;
                 }}
                 onFullscreenChange={(fs) => setEditorFullscreen(fs)}
+                onSaved={() => setLastSavedAt(Date.now())}
               />
+              {SHOW_DRAFT_READS && (
+                <RelevantReadsPanel listId={listId} savedAt={lastSavedAt} />
+              )}
             </div>
           </div>
         ) : (

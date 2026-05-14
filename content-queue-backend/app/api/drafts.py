@@ -5,7 +5,9 @@ Drafts are long-form writing pieces associated with a List (one per List).
 Created automatically when a List is created; updated via PATCH.
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from uuid import UUID
 from app.core.database import get_db
@@ -13,7 +15,14 @@ from app.core.deps import get_current_active_user
 from app.models.user import User
 from app.models.list import List
 from app.models.draft import Draft
+from app.models.content import ContentItem
 from app.schemas.draft import DraftCreate, DraftUpdate, DraftResponse
+
+logger = logging.getLogger(__name__)
+
+_MIN_DRAFT_WORDS = 50
+_MAX_QUERY_CHARS = 200
+_MAX_RELEVANT_RESULTS = 5
 
 router = APIRouter(tags=["drafts"])
 
@@ -151,3 +160,87 @@ def delete_draft(
     db.delete(draft)
     db.commit()
     return None
+
+
+class RelevantReadItem(BaseModel):
+    id: str
+    title: str | None
+    tags: list[str]
+    thumbnail_url: str | None = None
+
+
+class RelevantReadsResponse(BaseModel):
+    items: list[RelevantReadItem]
+
+
+@router.get(
+    "/lists/{list_id}/draft/relevant-reads", response_model=RelevantReadsResponse
+)
+def get_relevant_reads(
+    list_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> RelevantReadsResponse:
+    """
+    Return up to 5 library articles relevant to the current draft content.
+
+    Uses the draft title + first 200 chars of content as the search query.
+    Returns {items: []} for drafts with fewer than 50 words.
+    """
+    _verify_list_ownership(list_id, current_user, db)
+
+    draft = (
+        db.query(Draft)
+        .filter(Draft.list_id == list_id, Draft.user_id == current_user.id)
+        .first()
+    )
+
+    content = (draft.content or "") if draft else ""
+    word_count = len(content.split()) if content.strip() else 0
+
+    if word_count < _MIN_DRAFT_WORDS:
+        return RelevantReadsResponse(items=[])
+
+    # Build search query from title + start of content
+    title_part = (draft.title or "").strip()
+    content_part = content[:_MAX_QUERY_CHARS].strip()
+    query = f"{title_part} {content_part}".strip()
+
+    if not query:
+        return RelevantReadsResponse(items=[])
+
+    try:
+        from app.core.hybrid_search import hybrid_search, get_user_search_context
+
+        user_authors, user_tags = get_user_search_context(current_user, db)
+        results = hybrid_search(
+            query=query,
+            user=current_user,
+            db=db,
+            limit=_MAX_RELEVANT_RESULTS,
+            mode="full",
+            user_authors=user_authors,
+            user_tags=user_tags,
+        )
+    except Exception as e:
+        logger.error(f"relevant-reads search failed for list {list_id}: {e}")
+        return RelevantReadsResponse(items=[])
+
+    items = []
+    for r in results[:_MAX_RELEVANT_RESULTS]:
+        item_id = r.get("id") or r.get("content_item_id")
+        if not item_id:
+            continue
+        article = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+        if not article or article.user_id != current_user.id:
+            continue
+        items.append(
+            RelevantReadItem(
+                id=str(article.id),
+                title=article.title,
+                tags=list(article.tags or []),
+                thumbnail_url=article.thumbnail_url,
+            )
+        )
+
+    return RelevantReadsResponse(items=items)

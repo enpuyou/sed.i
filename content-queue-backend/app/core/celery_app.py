@@ -30,6 +30,11 @@ celery_app.conf.update(
             "task": "app.tasks.embedding.process_all_missing_embeddings",
             "schedule": 300.0,  # Every 5 minutes
         },
+        # Cluster user tags into reading themes weekly
+        "cluster-reading-themes": {
+            "task": "app.tasks.clustering.cluster_all_users_task",
+            "schedule": 60 * 60 * 24 * 7,  # Every 7 days
+        },
     },
 )
 
@@ -44,5 +49,6 @@ from app.tasks import (
     discogs,
     embedding,
     tagging,
+    clustering,
     email,
 )

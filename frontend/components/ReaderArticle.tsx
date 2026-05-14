@@ -135,6 +135,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       Array<{
         item: ContentItem;
         similarity_score: number;
+        shared_tags: string[];
       }>
     >([]);
     const [loadingSimilar, setLoadingSimilar] = useState(false);
@@ -1273,6 +1274,30 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                 )}
               </div>
 
+              {/* Semantic tags: first tag = domain/field, rest = concepts */}
+              {content.tags && content.tags.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
+                      Field
+                    </span>
+                    <span className="text-xs text-[var(--color-text-secondary)]">
+                      {content.tags[0]}
+                    </span>
+                  </div>
+                  {content.tags.length > 1 && (
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
+                        Ideas
+                      </span>
+                      <span className="text-xs text-[var(--color-text-secondary)]">
+                        {content.tags.slice(1).join(" · ")}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Inline meta edit panel */}
               {isEditingMeta && (
                 <div className="mt-3 mb-2 p-3 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] space-y-2">
@@ -1711,52 +1736,74 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                 </div>
               ) : similarArticles.length > 0 ? (
                 <div className="grid gap-4">
-                  {similarArticles.map(({ item, similarity_score }) => (
-                    <Link
-                      key={item.id}
-                      href={`/content/${item.id}`}
-                      className="block p-4 rounded-none border border-[var(--color-border)] transition-colors hover:border-[var(--color-accent)]"
-                    >
-                      <div className="flex items-start gap-4">
-                        {item.thumbnail_url && (
-                          <img
-                            src={item.thumbnail_url}
-                            alt=""
-                            className="w-20 h-20 object-cover flex-shrink-0 opacity-80 hover:opacity-100 transition-opacity mt-1"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0 flex flex-col pt-1">
-                          <h3
-                            className={`font-serif font-medium leading-snug line-clamp-2 ${linkColorClasses}`}
-                            style={{
-                              marginTop: "3px",
-                              marginBottom: "10px",
-                            }}
-                          >
-                            {item.title || "Untitled"}
-                          </h3>
-                          {item.description && (
-                            <p className="text-sm text-[var(--color-text-muted)] line-clamp-2 mb-2 leading-relaxed">
-                              {item.description}
-                            </p>
+                  {similarArticles.map(
+                    ({ item, similarity_score, shared_tags }) => (
+                      <Link
+                        key={item.id}
+                        href={`/content/${item.id}`}
+                        onClick={() =>
+                          searchAPI.postTelemetry({
+                            surface: "find_related",
+                            item_id: item.id,
+                            shared_tag: shared_tags?.[0],
+                            action: "click",
+                          })
+                        }
+                        className="block p-4 rounded-none border border-[var(--color-border)] transition-colors hover:border-[var(--color-accent)]"
+                      >
+                        <div className="flex items-start gap-4">
+                          {item.thumbnail_url && (
+                            <img
+                              src={item.thumbnail_url}
+                              alt=""
+                              className="w-20 h-20 object-cover flex-shrink-0 opacity-80 hover:opacity-100 transition-opacity mt-1"
+                            />
                           )}
-                          <div className="mt-auto flex items-center gap-3 text-xs text-[var(--color-text-faint)]">
-                            <span className="text-[var(--color-accent)] font-medium">
-                              {Math.round(similarity_score * 100)}% similar
-                            </span>
-                            {item.reading_time_minutes && (
-                              <>
-                                <span>•</span>
-                                <span>
-                                  {item.reading_time_minutes} min read
-                                </span>
-                              </>
+                          <div className="flex-1 min-w-0 flex flex-col pt-1">
+                            <h3
+                              className={`font-serif font-medium leading-snug line-clamp-2 ${linkColorClasses}`}
+                              style={{
+                                marginTop: "3px",
+                                marginBottom: "10px",
+                              }}
+                            >
+                              {item.title || "Untitled"}
+                            </h3>
+                            {item.description && (
+                              <p className="text-sm text-[var(--color-text-muted)] line-clamp-2 mb-2 leading-relaxed">
+                                {item.description}
+                              </p>
                             )}
+                            {shared_tags?.length > 0 && (
+                              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
+                                {shared_tags.slice(0, 4).map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="text-xs text-[var(--color-text-muted)]"
+                                  >
+                                    ● {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="mt-auto flex items-center gap-3 text-xs text-[var(--color-text-faint)]">
+                              <span className="text-[var(--color-accent)] font-medium">
+                                {Math.round(similarity_score * 100)}% similar
+                              </span>
+                              {item.reading_time_minutes && (
+                                <>
+                                  <span>•</span>
+                                  <span>
+                                    {item.reading_time_minutes} min read
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </Link>
-                  ))}
+                      </Link>
+                    ),
+                  )}
                 </div>
               ) : (
                 <div className="p-4 text-[var(--color-text-muted)]">
