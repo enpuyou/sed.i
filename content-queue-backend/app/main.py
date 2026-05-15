@@ -10,7 +10,17 @@ from sqlalchemy.exc import SQLAlchemyError
 import posthog
 
 from app.core.config import settings
-from app.api import auth, content, lists, search, analytics, highlights, vinyl, drafts
+from app.api import (
+    auth,
+    content,
+    lists,
+    search,
+    analytics,
+    highlights,
+    vinyl,
+    drafts,
+    themes,
+)
 from app.api.endpoints import public
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.mcp.oauth import router as mcp_oauth_router
@@ -147,6 +157,7 @@ app.include_router(search.router)
 app.include_router(analytics.router)
 app.include_router(vinyl.router)
 app.include_router(drafts.router)
+app.include_router(themes.router)
 app.include_router(public.router)
 app.include_router(mcp_oauth_router)
 

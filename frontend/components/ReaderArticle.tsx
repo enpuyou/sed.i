@@ -45,7 +45,7 @@ interface ReaderArticleProps {
   }) => void;
   embedded?: boolean;
   focusModeEnabled?: boolean;
-  onShowConnections?: () => void;
+  onShowConnections?: (highlightId: string) => void;
   onHighlightsChange?: (
     highlights: Array<{
       id: string;
@@ -63,6 +63,8 @@ interface ReaderArticleProps {
     end_offset: number;
     color: string;
   }) => void;
+  // When set, scroll to this highlight after first load (from ?h= query param)
+  initialHighlightId?: string;
 }
 
 export interface ReaderArticleHandle {
@@ -104,6 +106,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       onHighlightsChange,
       onShowConnections,
       onHighlightCreate,
+      initialHighlightId,
     },
     ref,
   ) {
@@ -121,6 +124,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<BlockListRef>(null);
     const savedScrollPosition = useRef(0);
+    const hasScrolledToInitial = useRef(false);
     const similarArticlesRef = useRef<HTMLDivElement>(null);
     const scrollPositionBeforeSimilar = useRef<number>(0);
     const readPositionRef = useRef(content.read_position ?? 0);
@@ -135,6 +139,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       Array<{
         item: ContentItem;
         similarity_score: number;
+        shared_tags: string[];
       }>
     >([]);
     const [loadingSimilar, setLoadingSimilar] = useState(false);
@@ -436,6 +441,27 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
             if (highlightData.status === "fulfilled") {
               setHighlights(highlightData.value);
               onHighlightsChange?.(highlightData.value);
+              if (initialHighlightId && !hasScrolledToInitial.current) {
+                hasScrolledToInitial.current = true;
+                setTimeout(() => {
+                  const els = document.querySelectorAll(
+                    `[data-highlight-id="${initialHighlightId}"]`,
+                  );
+                  if (els.length > 0) {
+                    els[0].scrollIntoView({
+                      behavior: "smooth",
+                      block: "center",
+                    });
+                    els.forEach((el) => {
+                      el.classList.add("ring-2", "ring-blue-500");
+                      setTimeout(
+                        () => el.classList.remove("ring-2", "ring-blue-500"),
+                        1500,
+                      );
+                    });
+                  }
+                }, 300);
+              }
             } else {
               console.error(
                 "Failed to fetch highlights:",
@@ -468,7 +494,12 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
           }
         }
       },
-      [content.id, onHighlightsChange, settings.showConnections],
+      [
+        content.id,
+        onHighlightsChange,
+        settings.showConnections,
+        initialHighlightId,
+      ],
     );
 
     useEffect(() => {
@@ -1079,8 +1110,8 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                   }}
                   onUpdateHighlight={refreshHighlights}
                   newlyCreatedHighlightId={newlyCreatedHighlightId}
-                  onShowConnections={(_highlightId) => {
-                    onShowConnections?.();
+                  onShowConnections={(highlightId) => {
+                    onShowConnections?.(highlightId);
                   }}
                   connectedHighlightIds={connectedHighlightIds}
                 />
@@ -1265,11 +1296,6 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                       )}
                     </span>
                   </>
-                )}
-                {!displayAuthor && !displayPublishedDate && (
-                  <span className="text-[var(--color-text-faint)] italic">
-                    no attribution
-                  </span>
                 )}
               </div>
 
@@ -1456,6 +1482,30 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                 </a>
               </div>
             </div>
+
+            {/* Semantic tags: first tag = domain/field, rest = concepts */}
+            {content.tags && content.tags.length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
+                    Field
+                  </span>
+                  <span className="text-xs text-[var(--color-text-faint)]">
+                    {content.tags[0]}
+                  </span>
+                </div>
+                {content.tags.length > 1 && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-[var(--color-text-muted)] w-10 flex-shrink-0">
+                      Ideas
+                    </span>
+                    <span className="text-xs text-[var(--color-text-faint)]">
+                      {content.tags.slice(1).join(" · ")}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Thumbnail */}
             {content.thumbnail_url && (
@@ -1711,52 +1761,74 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                 </div>
               ) : similarArticles.length > 0 ? (
                 <div className="grid gap-4">
-                  {similarArticles.map(({ item, similarity_score }) => (
-                    <Link
-                      key={item.id}
-                      href={`/content/${item.id}`}
-                      className="block p-4 rounded-none border border-[var(--color-border)] transition-colors hover:border-[var(--color-accent)]"
-                    >
-                      <div className="flex items-start gap-4">
-                        {item.thumbnail_url && (
-                          <img
-                            src={item.thumbnail_url}
-                            alt=""
-                            className="w-20 h-20 object-cover flex-shrink-0 opacity-80 hover:opacity-100 transition-opacity mt-1"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0 flex flex-col pt-1">
-                          <h3
-                            className={`font-serif font-medium leading-snug line-clamp-2 ${linkColorClasses}`}
-                            style={{
-                              marginTop: "3px",
-                              marginBottom: "10px",
-                            }}
-                          >
-                            {item.title || "Untitled"}
-                          </h3>
-                          {item.description && (
-                            <p className="text-sm text-[var(--color-text-muted)] line-clamp-2 mb-2 leading-relaxed">
-                              {item.description}
-                            </p>
+                  {similarArticles.map(
+                    ({ item, similarity_score, shared_tags }) => (
+                      <Link
+                        key={item.id}
+                        href={`/content/${item.id}`}
+                        onClick={() =>
+                          searchAPI.postTelemetry({
+                            surface: "find_related",
+                            item_id: item.id,
+                            shared_tag: shared_tags?.[0],
+                            action: "click",
+                          })
+                        }
+                        className="block p-4 rounded-none border border-[var(--color-border)] transition-colors hover:border-[var(--color-accent)]"
+                      >
+                        <div className="flex items-start gap-4">
+                          {item.thumbnail_url && (
+                            <img
+                              src={item.thumbnail_url}
+                              alt=""
+                              className="w-20 h-20 object-cover flex-shrink-0 opacity-80 hover:opacity-100 transition-opacity mt-1"
+                            />
                           )}
-                          <div className="mt-auto flex items-center gap-3 text-xs text-[var(--color-text-faint)]">
-                            <span className="text-[var(--color-accent)] font-medium">
-                              {Math.round(similarity_score * 100)}% similar
-                            </span>
-                            {item.reading_time_minutes && (
-                              <>
-                                <span>•</span>
-                                <span>
-                                  {item.reading_time_minutes} min read
-                                </span>
-                              </>
+                          <div className="flex-1 min-w-0 flex flex-col pt-1">
+                            <h3
+                              className={`font-serif font-medium leading-snug line-clamp-2 ${linkColorClasses}`}
+                              style={{
+                                marginTop: "3px",
+                                marginBottom: "10px",
+                              }}
+                            >
+                              {item.title || "Untitled"}
+                            </h3>
+                            {item.description && (
+                              <p className="text-sm text-[var(--color-text-muted)] line-clamp-2 mb-2 leading-relaxed">
+                                {item.description}
+                              </p>
                             )}
+                            {shared_tags?.length > 0 && (
+                              <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
+                                {shared_tags.slice(0, 4).map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="text-xs text-[var(--color-text-muted)]"
+                                  >
+                                    ● {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="mt-auto flex items-center gap-3 text-xs text-[var(--color-text-faint)]">
+                              <span className="text-[var(--color-accent)] font-medium">
+                                {Math.round(similarity_score * 100)}% similar
+                              </span>
+                              {item.reading_time_minutes && (
+                                <>
+                                  <span>•</span>
+                                  <span>
+                                    {item.reading_time_minutes} min read
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </Link>
-                  ))}
+                      </Link>
+                    ),
+                  )}
                 </div>
               ) : (
                 <div className="p-4 text-[var(--color-text-muted)]">

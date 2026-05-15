@@ -2,6 +2,30 @@
 // Use environment variable for production, fallback to localhost for development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// ── Connections panel types ──────────────────────────────────────────────────
+
+export interface HighlightArticleConnection {
+  article_id: string;
+  article_title: string;
+  article_author: string | null;
+  article_domain: string;
+  shared_tags: string[];
+  passages: string[];
+  passage_highlight_ids: string[];
+  connection_score: number;
+}
+
+export interface ConnectionsForHighlightResponse {
+  source_note: string | null;
+  connections: HighlightArticleConnection[];
+}
+
+export interface HighlightWithConnections {
+  highlight_id: string;
+  highlight_text: string;
+  connections: HighlightArticleConnection[];
+}
+
 export class APIError extends Error {
   constructor(
     public readonly status: number,
@@ -425,6 +449,16 @@ export const draftsAPI = {
       method: "DELETE",
     });
   },
+
+  getRelevantReads: async (
+    listId: string,
+  ): Promise<{ items: RelevantReadItem[] }> => {
+    const resp = await fetchWithAuth(
+      `${API_BASE_URL}/lists/${listId}/draft/relevant-reads`,
+    );
+    if (!resp.ok) return { items: [] };
+    return resp.json();
+  },
 };
 
 // Search API - matches your /search endpoints (for future use)
@@ -432,6 +466,20 @@ export const searchAPI = {
   // Find similar content (GET /search/{item_id}/similar)
   findSimilar: async (id: string) => {
     return fetchWithAuth(`${API_BASE_URL}/search/${id}/similar`);
+  },
+
+  // Record a search interaction event (fire-and-forget)
+  postTelemetry: (payload: {
+    surface: string;
+    item_id: string;
+    shared_tag?: string;
+    action: "click" | "dismiss";
+  }): void => {
+    fetchWithAuth(`${API_BASE_URL}/search/telemetry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
   },
 
   // Semantic search (GET /search/semantic)
@@ -457,14 +505,35 @@ export const searchAPI = {
     return fetchWithAuth(`${API_BASE_URL}/search/semantic?${params}`);
   },
 
-  // Find connections for a highlight (GET /search/connections/{highlight_id})
-  findHighlightConnections: async (highlightId: string, limit = 10) => {
+  // Find connections for a single highlight, grouped by article (GET /search/connections/{highlight_id})
+  findHighlightConnections: async (
+    highlightId: string,
+  ): Promise<ConnectionsForHighlightResponse> => {
     return fetchWithAuth(
-      `${API_BASE_URL}/search/connections/${highlightId}?limit=${limit}`,
-    );
+      `${API_BASE_URL}/search/connections/${highlightId}`,
+    ) as Promise<ConnectionsForHighlightResponse>;
   },
 
-  // Find all connections for an article's highlights (GET /search/connections/article/{content_id})
+  // Find all highlights in an article with their connections — Mode 2 (GET /search/connections/article/{content_id}/highlights)
+  findHighlightGroupedConnections: async (
+    contentId: string,
+  ): Promise<HighlightWithConnections[]> => {
+    return fetchWithAuth(
+      `${API_BASE_URL}/search/connections/article/${contentId}/highlights`,
+    ) as Promise<HighlightWithConnections[]>;
+  },
+
+  // Get lazy insight for a highlight+article pair (GET /search/connections/{highlight_id}/insight/{article_id})
+  getConnectionInsight: async (
+    highlightId: string,
+    articleId: string,
+  ): Promise<{ insight: string | null }> => {
+    return fetchWithAuth(
+      `${API_BASE_URL}/search/connections/${highlightId}/insight/${articleId}`,
+    ) as Promise<{ insight: string | null }>;
+  },
+
+  // Find all connections for an article's highlights — legacy article-level endpoint
   findArticleConnections: async (contentId: string) => {
     return fetchWithAuth(
       `${API_BASE_URL}/search/connections/article/${contentId}`,
@@ -620,5 +689,32 @@ export const publicAPI = {
     );
     if (!response.ok) throw new Error("Not found");
     return response.json();
+  },
+};
+
+export interface RelevantReadItem {
+  id: string;
+  title: string | null;
+  tags: string[];
+  thumbnail_url: string | null;
+}
+
+export interface TopArticle {
+  id: string;
+  title: string | null;
+  thumbnail: string | null;
+}
+
+export interface ReadingCluster {
+  id: string;
+  label: string;
+  article_count: number;
+  tag_labels: string[];
+  top_articles: TopArticle[];
+}
+
+export const themesAPI = {
+  getClusters: async (): Promise<{ clusters: ReadingCluster[] }> => {
+    return fetchWithAuth(`${API_BASE_URL}/themes`);
   },
 };

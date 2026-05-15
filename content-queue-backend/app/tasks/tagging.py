@@ -1,172 +1,227 @@
 """
-Celery task: generate_auto_tags.
+Celery task: generate_tags_task.
 
-Suggests tags for a ContentItem using pgvector similarity against existing
-user tags (cheap path) with gpt-4o-mini fallback. Stores suggestions in
-ContentItem.auto_tags. User accepts/dismisses from the UI.
+Extracts 3-5 fine-grained semantic labels from article content and stores
+them in ContentItem.tags. Labels are specific multi-word phrases (e.g.
+"deceptive alignment") not broad categories (e.g. "AI").
 
-Dispatch: generate_auto_tags.delay(item_id)
+After writing tags, upserts each label into the tag_embeddings lookup table
+so they can be used for tag-level similarity queries.
+
+Dispatch: generate_tags_task.delay(content_item_id)
+Direct call (tests): generate_tags(content_item_id, db=session)
 """
 
-from sqlalchemy import func
+import logging
+import json
+import time
+from uuid import UUID
+
+from openai import OpenAI
+from sqlalchemy import func, text as sa_text
 from sqlalchemy.orm import Session
+
 from app.core.celery_app import celery_app
 from app.core.config import settings
+from app.core.database import SessionLocal
 from app.models.content import ContentItem
+from app.models.tag_embedding import TagEmbedding
 from app.tasks.base import DatabaseTask, html_to_plain
-from uuid import UUID
-import logging
-from openai import OpenAI
-import json
-import re
 
 logger = logging.getLogger(__name__)
 
+_MAX_LABEL_WORDS = 6
+_MAX_LABEL_CHARS = 100
 
-@celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
-def generate_tags(self, content_item_id: str):
-    """
-    Auto-generate tags for a content item using hybrid approach.
 
-    1. First pass (free): Check embedding similarity to tagged articles
-    2. Second pass (cheap LLM): Call Haiku if no good matches found
+# ---------------------------------------------------------------------------
+# Public interface — call directly in tests with db=session
+# ---------------------------------------------------------------------------
+
+
+def generate_tags(content_item_id: str, db: Session | None = None) -> dict:
     """
+    Extract semantic tags for a content item and store in item.tags.
+
+    Pass 1 (free): embedding similarity to already-tagged articles.
+    Pass 2 (LLM): gpt-4o-mini extraction if Pass 1 yields no results.
+
+    After writing tags, upserts label embeddings to tag_embeddings.
+    """
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+
     try:
-        # Get content item
         item = (
-            self.db.query(ContentItem)
+            db.query(ContentItem)
             .filter(ContentItem.id == UUID(content_item_id))
             .first()
         )
         if not item:
             logger.error(f"Content item {content_item_id} not found")
-            return
+            return {"content_item_id": content_item_id, "status": "not_found"}
 
-        # Skip if no embedding available
         if item.embedding is None:
             logger.warning(f"No embedding for {content_item_id}")
             return {"content_item_id": content_item_id, "status": "no_embedding"}
 
-        # Guard: validate embedding is a flat 1-D sequence (pgvector requirement).
-        # SQLAlchemy/pgvector may return a numpy array — check ndim if available,
-        # otherwise fall back to checking the first element type.
-        emb = item.embedding
-        try:
-            import numpy as np
-
-            if isinstance(emb, np.ndarray):
-                if emb.ndim != 1:
-                    logger.warning(
-                        f"Malformed embedding for {content_item_id} — skipping similarity pass"
-                    )
-                    emb = None
-            elif not isinstance(emb, (list, tuple)) or (
-                len(emb) > 0 and isinstance(emb[0], (list, tuple))
-            ):
-                logger.warning(
-                    f"Malformed embedding for {content_item_id} — skipping similarity pass"
-                )
-                emb = None
-        except Exception:
-            emb = None
-
         logger.info(f"Generating tags for {item.original_url}")
 
-        # PASS 1: Embedding-based similarity (free)
-        suggested_tags = (
-            find_similar_tags_by_embedding(self.db, item) if emb is not None else []
+        # Always use LLM extraction for semantic labels.
+        # The old embedding-similarity pass propagated coarse tags from similar
+        # articles, which blocks fine-grained extraction even on the first run.
+        tags = generate_tags_with_llm(
+            item.title,
+            item.description,
+            item.full_text,
+            existing_tags=item.tags or [],
         )
 
-        if suggested_tags and should_accept_tags(suggested_tags):
-            item.auto_tags = suggested_tags
-            item.tags = suggested_tags  # Auto-accept if high confidence
-            item.processing_status = "completed"
-            self.db.commit()
-            logger.info(f"Auto-tagged {item.original_url} with {suggested_tags}")
+        if tags:
+            item.tags = tags
+            db.commit()
+            logger.info(f"Tagged {item.original_url}: {tags}")
+            upsert_tag_embeddings(tags, db=db)
             return {
                 "content_item_id": content_item_id,
-                "tags": suggested_tags,
-                "source": "embedding_similarity",
+                "tags": tags,
                 "status": "completed",
             }
 
-        # PASS 2: LLM-based tagging (cheap with gpt-4o-mini)
-        user_vocabulary = get_user_tag_vocabulary(self.db, item.user_id)
-        llm_tags = generate_tags_with_llm(
-            item.title, item.description, item.full_text, user_vocabulary
-        )
-
-        if llm_tags:
-            item.auto_tags = llm_tags
-            item.tags = llm_tags  # Auto-accept from LLM
-            item.processing_status = "completed"
-            self.db.commit()
-            logger.info(f"LLM-tagged {item.original_url} with {llm_tags}")
-            return {
-                "content_item_id": content_item_id,
-                "tags": llm_tags,
-                "source": "llm_tagging",
-                "status": "completed",
-            }
-
-        # No tags generated, but processing is done
-        item.processing_status = "completed"
-        self.db.commit()
         return {
             "content_item_id": content_item_id,
             "status": "completed",
-            "message": "No tags generated",
+            "message": "no tags generated",
         }
 
     except Exception as e:
-        logger.error(f"Failed to generate tags for {content_item_id}: {str(e)}")
-        # Ensure we don't get stuck in processing
+        logger.error(f"Failed to generate tags for {content_item_id}: {e}")
         try:
-            # re-query item to avoid detached instance issues if session closed?
-            # But self.db is session.
-            item = (
-                self.db.query(ContentItem)
-                .filter(ContentItem.id == UUID(content_item_id))
-                .first()
-            )
-            if item:
-                item.processing_status = "completed"
-                # Optional: item.processing_error = f"Tagging error: {str(e)}"
-                self.db.commit()
-        except Exception as db_e:
-            logger.error(f"Failed to update status on tagging error: {db_e}")
-
+            db.rollback()
+        except Exception:
+            pass
         return {"content_item_id": content_item_id, "status": "failed", "error": str(e)}
+    finally:
+        if own_session:
+            db.close()
 
 
-def find_similar_tags_by_embedding(db: Session, item: ContentItem) -> list:
+def upsert_tag_embeddings(labels: list[str], db: Session | None = None) -> None:
     """
-    Find similar articles already tagged, suggest their tags.
-    Uses pgvector cosine distance — only considers articles within a tight
-    similarity threshold to avoid cross-contaminating unrelated content.
+    Embed any labels not yet in tag_embeddings and upsert them.
+    Labels already present are skipped (no redundant API calls).
     """
-    # Cosine distance threshold: e.g. 0.25 means cosine similarity >= 0.75.
-    # L2 distance (<->) is used by pgvector's default index; for cosine
-    # we use <=> (cosine distance operator).
-    SIMILARITY_THRESHOLD = (
-        1.0 - settings.SIMILARITY_THRESHOLD_TAGS
-    )  # cosine distance; lower = more similar
+    if not labels:
+        return
 
-    # op("<=>")(value) doesn't carry type info so pgvector can't bind the param.
-    # Use raw SQL with CAST(:emb AS vector) which works reliably.
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+
+    try:
+        # Find which labels are already embedded
+        existing = {
+            row.label
+            for row in db.query(TagEmbedding.label)
+            .filter(TagEmbedding.label.in_(labels))
+            .all()
+        }
+        new_labels = [lbl for lbl in labels if lbl not in existing]
+
+        if not new_labels:
+            return
+
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        resp = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=new_labels,
+            encoding_format="float",
+        )
+
+        for label, data in zip(new_labels, resp.data):
+            row = TagEmbedding(label=label, embedding=data.embedding)
+            db.merge(row)  # upsert on unique label
+
+        db.commit()
+
+    except Exception as e:
+        logger.error(f"upsert_tag_embeddings failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        if own_session:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# Celery task wrapper
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
+def generate_tags_task(self, content_item_id: str):
+    return generate_tags(content_item_id, db=self.db)
+
+
+# ---------------------------------------------------------------------------
+# Backfill — re-tag existing articles without semantic tags
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(base=DatabaseTask, bind=True)
+def backfill_semantic_tags(self, user_id: str | None = None):
+    """
+    Re-run generate_tags for articles that have no tags yet.
+    Writes only to tags (not auto_tags). Rate-limited to 50/min.
+    """
+    query = self.db.query(ContentItem).filter(
+        ContentItem.deleted_at.is_(None),
+        ContentItem.embedding.isnot(None),
+        func.cardinality(ContentItem.tags) == 0,
+    )
+    if user_id:
+        query = query.filter(ContentItem.user_id == UUID(user_id))
+
+    items = query.all()
+    logger.info(f"Backfilling {len(items)} articles")
+
+    for i, item in enumerate(items):
+        generate_tags_task.delay(str(item.id))
+        if (i + 1) % 50 == 0:
+            time.sleep(60)  # 50/min rate limit
+
+    return {"backfilled": len(items)}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_label(label: str) -> str | None:
+    """Return cleaned label if valid, else None."""
+    label = label.strip()[:_MAX_LABEL_CHARS]
+    words = label.split()
+    if not words or len(words) > _MAX_LABEL_WORDS:
+        return None
+    return label
+
+
+def find_similar_tags_by_embedding(db: Session, item: ContentItem) -> list[str]:
+    """Find similar already-tagged articles and suggest their tags (free path)."""
+    threshold = 1.0 - settings.SIMILARITY_THRESHOLD_TAGS
+
     try:
         import numpy as np
 
-        emb_list = (
-            item.embedding.tolist()
-            if isinstance(item.embedding, np.ndarray)
-            else list(item.embedding)
-        )
-        emb_str = str(emb_list)  # "[0.1, 0.2, ...]" — PostgreSQL vector literal format
+        emb = item.embedding
+        emb_list = emb.tolist() if isinstance(emb, np.ndarray) else list(emb)
+        emb_str = str(emb_list)
     except Exception:
         return []
-
-    from sqlalchemy import text as sa_text
 
     rows = db.execute(
         sa_text(
@@ -175,6 +230,7 @@ def find_similar_tags_by_embedding(db: Session, item: ContentItem) -> list:
             WHERE user_id = :user_id
               AND id != :item_id
               AND tags IS NOT NULL
+              AND array_length(tags, 1) > 0
               AND embedding IS NOT NULL
               AND embedding <=> CAST(:emb AS vector) < :threshold
             ORDER BY embedding <=> CAST(:emb AS vector)
@@ -185,7 +241,7 @@ def find_similar_tags_by_embedding(db: Session, item: ContentItem) -> list:
             "user_id": str(item.user_id),
             "item_id": str(item.id),
             "emb": emb_str,
-            "threshold": SIMILARITY_THRESHOLD,
+            "threshold": threshold,
         },
     ).fetchall()
 
@@ -195,93 +251,111 @@ def find_similar_tags_by_embedding(db: Session, item: ContentItem) -> list:
     ids = [r[0] for r in rows]
     similar_items = db.query(ContentItem).filter(ContentItem.id.in_(ids)).all()
 
-    if not similar_items:
-        return []
+    tag_counts: dict[str, int] = {}
+    for si in similar_items:
+        for tag in si.tags or []:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
-    # Collect tags from similar articles
-    tag_counts = {}
-    for similar_item in similar_items:
-        if similar_item.tags:
-            for tag in similar_item.tags:
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
-
-    # Return tags that appeared in more than one similar article (higher confidence)
     sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
     return [tag for tag, count in sorted_tags[:5] if count >= 2]
 
 
-def should_accept_tags(tags: list) -> bool:
-    """Accept embedding-suggested tags only if we found confident matches."""
-    return len(tags) >= 2
+def generate_tags_with_llm(
+    title: str,
+    description: str,
+    full_text: str,
+    existing_tags: list[str] | None = None,
+) -> list[str]:
+    """
+    Extract semantic tags at two levels:
+    - 1-2 domain labels: the field this belongs to (specific enough to cluster, broad enough to group)
+    - 3-4 concept labels: precise ideas actually discussed in the article
+
+    existing_tags are treated as the user's categorization context — preserved
+    where meaningful, replaced where too generic.
+    """
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    parts = [p for p in [title, description] if p]
+    if full_text:
+        plain = html_to_plain(full_text)
+        parts.append(" ".join(plain.split()[:800]))
+    article_context = "\n\n".join(parts)
+
+    existing_block = ""
+    if existing_tags:
+        existing_block = (
+            f"\nThe user has already categorized this article with: {existing_tags}. "
+            "Keep any that are meaningful category labels. Replace or extend with "
+            "more specific concepts where those tags are too vague.\n"
+        )
+
+    prompt = f"""Tag this article for a personal reading library.
+
+Generate tags at two levels:
+
+DOMAIN (1-2 tags): The specific field or area this article belongs to.
+  Examples across domains:
+  - Tech: "distributed systems", "LLM fine-tuning", "iOS development"
+  - Food: "fermented foods", "Japanese cuisine", "home baking"
+  - Finance: "personal investing", "venture capital", "behavioral economics"
+  - Politics: "electoral reform", "climate policy", "urban planning"
+  - Health: "sleep science", "strength training", "mental health"
+  - Arts: "documentary filmmaking", "literary fiction", "music theory"
+  Specific enough to cluster related articles; broad enough to group more than one.
+
+CONCEPTS (3-4 tags): Precise ideas the article actually discusses.
+  Examples across domains:
+  - Tech: "context window limits", "zero-shot prompting", "memory-mapped files"
+  - Food: "maillard reaction", "sourdough starter", "umami flavor balance"
+  - Finance: "loss aversion bias", "compound interest mechanics", "tax loss harvesting"
+  - Politics: "ranked choice voting", "gerrymandering effects", "voter turnout drivers"
+  - Health: "circadian rhythm disruption", "progressive overload", "gut microbiome diversity"
+  - Arts: "unreliable narrator", "negative space composition", "leitmotif technique"
+  Two articles sharing a concept tag should genuinely discuss the same idea.
+
+Rules:
+- 2-4 words per tag. No single-word tags ("AI", "Food", "Politics" say nothing).
+- No ultra-narrow jargon that only appears in this one article.
+- No generic filler: "Technology", "Business", "Opinion", "Culture".
+- Match the domain of the article — don't force tech vocabulary onto non-tech content.
+{existing_block}
+Article:
+{article_context}
+
+Return JSON: {{"tags": ["domain1", "concept1", "concept2", ...]}} — 4-6 tags total."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        data = json.loads(content)
+
+        if isinstance(data, list):
+            raw_tags = data
+        elif isinstance(data, dict):
+            raw_tags = next((v for v in data.values() if isinstance(v, list)), [])
+        else:
+            raw_tags = []
+
+        validated = [_validate_label(str(t)) for t in raw_tags[:6]]
+        return [t for t in validated if t]
+
+    except Exception as e:
+        logger.error(f"LLM tag extraction failed: {e}")
+        return []
 
 
-def get_user_tag_vocabulary(db: Session, user_id: UUID) -> list:
-    """Get all unique tags user has ever created"""
-    existing_tags = (
+def get_user_tag_vocabulary(db: Session, user_id: UUID) -> list[str]:
+    """All unique tags a user has confirmed (kept for future use)."""
+    rows = (
         db.query(func.unnest(ContentItem.tags))
         .filter(ContentItem.user_id == user_id)
         .distinct()
         .all()
     )
-    return [tag[0] for tag in existing_tags if tag[0]]
-
-
-def generate_tags_with_llm(
-    title: str, description: str, full_text: str, user_vocabulary: list
-) -> list:
-    """Call OpenAI (gpt-4o-mini) to generate tags."""
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-
-    # Prepare context from article — strip HTML tags first (full_text is always HTML)
-    text_parts = [title, description]
-    if full_text:
-        plain = html_to_plain(full_text)
-        words = plain.split()[:800]
-        text_parts.append(" ".join(words))
-
-    article_context = "\n\n".join(t for t in text_parts if t)
-
-    prompt = f"""Analyze this article and suggest 3-5 relevant tags.
-
-User's existing tags: {", ".join(user_vocabulary) if user_vocabulary else "None yet"}
-
-Article:
-{article_context}
-
-Return ONLY a JSON list of tags (strings). Example: ["Technology", "AI", "Opinion"]
-Reuse the user's existing tags when relevant."""
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=100,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-        )
-
-        # Parse tags from response
-        content = response.choices[0].message.content
-        # Try to extract JSON list
-        try:
-            # Handle potential wrapper object if model outputs {"tags": [...]}
-            data = json.loads(content)
-            if isinstance(data, list):
-                tags = data
-            elif isinstance(data, dict):
-                # Look for list values
-                tags = next((v for v in data.values() if isinstance(v, list)), [])
-            else:
-                tags = []
-
-            return [str(tag)[:100] for tag in tags[:5]]  # Limit tag length
-        except json.JSONDecodeError:
-            # If JSON parsing fails, extract quoted strings
-            matches = re.findall(r'"([^"]+)"', content)
-            if matches:
-                return matches[:5]
-
-        return []
-
-    except Exception as e:
-        logger.error(f"LLM tagging failed: {str(e)}")
-        return []
+    return [r[0] for r in rows if r[0]]

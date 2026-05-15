@@ -6,6 +6,9 @@ from app.models.chunk import ContentChunk
 from app.models.vinyl import VinylRecord
 from app.models.token import VerificationToken
 from app.models.draft import Draft
+from app.models.tag_embedding import TagEmbedding
+from app.models.reading_cluster import ReadingCluster
+from app.models.refresh_token import RefreshToken
 
 __all__ = [
     "User",
@@ -17,4 +20,7 @@ __all__ = [
     "VinylRecord",
     "VerificationToken",
     "Draft",
+    "TagEmbedding",
+    "ReadingCluster",
+    "RefreshToken",
 ]

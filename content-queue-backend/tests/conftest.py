@@ -113,8 +113,14 @@ def setup_database():
         conn.execute(sa_text(_HIGHLIGHTS_SEARCH_VECTOR_TRIGGER_SQL))
         conn.commit()
     yield
-    # Drop all at the end of session
-    Base.metadata.drop_all(bind=engine)
+    # Drop tables with CASCADE to handle migration-only tables (e.g. reading_clusters)
+    # that have FKs into Base-managed tables but are not registered in Base.metadata.
+    from sqlalchemy import text as sa_text
+
+    with engine.connect() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(sa_text(f"DROP TABLE IF EXISTS {table.name} CASCADE"))
+        conn.commit()
     engine.dispose()
 
 
@@ -138,17 +144,18 @@ def db_session(setup_database):
         session.close()
 
 
-@pytest.fixture(scope="function")
-def client(db_session):
+@pytest.fixture(scope="session")
+def client(setup_database):
     """
-    Create a test client with dependency injection.
+    Session-scoped test client — starts the ASGI lifespan once per test session.
 
-    The `get_db` override opens a fresh session per request (not the same
-    db_session object) so that endpoint commits don't contend with the
-    test's own open write transaction.
+    Starting TestClient per-test caused the MCP StreamableHTTPSessionManager to
+    hang on the 3rd startup within the same process. A single shared client
+    avoids repeated lifespan cycles while still routing each request through a
+    fresh override_get_db session.
 
-    db_session is still available for test assertions — it shares the same
-    underlying engine and sees committed rows.
+    db_session is still usable for test assertions — it shares the same engine
+    and sees committed rows written by endpoint sessions.
     """
 
     def override_get_db():
@@ -168,10 +175,18 @@ def client(db_session):
         yield test_client
 
     app.dependency_overrides.clear()
-    # Dispose pool immediately after TestClient exits so all endpoint sessions
-    # are fully closed. The next test's db_session will then get a fresh
-    # connection with no lingered row locks.
     engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def fast_password_hashing(monkeypatch):
+    """Replace bcrypt with a trivial hash in all tests — speeds up by ~100x."""
+    monkeypatch.setattr(
+        "app.core.security.pwd_context.hash", lambda p, **_: f"hashed:{p}"
+    )
+    monkeypatch.setattr(
+        "app.core.security.pwd_context.verify", lambda p, h, **_: h == f"hashed:{p}"
+    )
 
 
 @pytest.fixture(scope="function")

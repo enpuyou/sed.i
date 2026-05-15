@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 BACKEND_DIR="$ROOT_DIR/content-queue-backend"
 PYTHON_BIN="$BACKEND_DIR/.venv/bin/python"
-LOCK_DIR="$ROOT_DIR/.git/.precommit-pytest-lock"
+# Use --git-dir (not --show-toplevel) so the lock lives in the real git directory.
+# In a worktree, --show-toplevel/.git is a file, not a directory — mkdir would
+# always fail and report "already in progress" even when no run is active.
+LOCK_DIR="$(git rev-parse --git-dir)/.precommit-pytest-lock"
 
 cleanup_db_sessions() {
   "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1 || true

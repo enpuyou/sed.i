@@ -77,7 +77,7 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
     }
 
     const data = await response.json();
-    await msg('setToken', { token: data.access_token });
+    await msg('setTokenPair', { token: data.access_token, refreshToken: data.refresh_token });
     await setupReadyView();
   } catch (err) {
     showError('login-error', err.message);
@@ -200,7 +200,7 @@ document.getElementById('btn-settings-toggle').addEventListener('click', () => {
 document.getElementById('btn-close').addEventListener('click', () => window.close());
 
 document.getElementById('btn-logout').addEventListener('click', async () => {
-  await msg('clearToken');
+  await msg('logout');
   show('view-login');
 });
 
@@ -445,6 +445,10 @@ saveBtn.addEventListener('click', async () => {
         _savePhase = 'idle';
         saveBtn.disabled = false;
         saveBtn.textContent = 'Send to sed.i';
+        if (resp?.error === 'AUTH_REQUIRED') {
+          show('view-login');
+          return;
+        }
         showError('save-error', parseApiError(resp?.error));
         return;
       }

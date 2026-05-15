@@ -29,12 +29,14 @@ interface ReaderProps {
     end_offset: number;
     color: string;
   }) => void;
+  initialHighlightId?: string;
 }
 
 export default function Reader({
   content,
   onStatusChange,
   onHighlightCreate,
+  initialHighlightId,
 }: ReaderProps) {
   // Use global theme context
   useTheme();
@@ -61,6 +63,10 @@ export default function Reader({
   const [focusMode, setFocusMode] = useState(false);
   const [showHighlightsPanel, setShowHighlightsPanel] = useState(false);
   const [showConnectionsPanel, setShowConnectionsPanel] = useState(false);
+  // null = Mode 2 (all highlights); string = Mode 1 (single highlight)
+  const [activeHighlightId, setActiveHighlightId] = useState<string | null>(
+    null,
+  );
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [articleEditUiState, setArticleEditUiState] = useState({
     isEditing: false,
@@ -89,7 +95,17 @@ export default function Reader({
       if (!e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         if (window.innerWidth >= 1280) {
-          setShowConnectionsPanel((prev) => !prev);
+          if (!showConnectionsPanel) {
+            // Closed → open in Mode 2
+            setActiveHighlightId(null);
+            setShowConnectionsPanel(true);
+          } else if (activeHighlightId !== null) {
+            // Mode 1 → Mode 2
+            setActiveHighlightId(null);
+          } else {
+            // Mode 2 → close
+            setShowConnectionsPanel(false);
+          }
         }
       }
     },
@@ -401,6 +417,15 @@ export default function Reader({
     [],
   );
 
+  // Scroll to source highlight when Mode 1 opens
+  useEffect(() => {
+    if (!activeHighlightId) return;
+    const highlight = highlights.find((h) => h.id === activeHighlightId);
+    if (highlight) {
+      articleRef.current?.scrollToHighlight(highlight);
+    }
+  }, [activeHighlightId, highlights]);
+
   const handleRefreshHighlights = useCallback(() => {
     void articleRef.current?.refreshHighlights();
   }, []);
@@ -587,8 +612,10 @@ export default function Reader({
         >
           <ConnectionsPanel
             contentId={content.id}
+            activeHighlightId={activeHighlightId}
             isOpen={showConnectionsPanel}
-            onClose={() => setShowConnectionsPanel(false)}
+            onBackToAll={() => setActiveHighlightId(null)}
+            onSelectHighlight={(id) => setActiveHighlightId(id)}
             onNavigateToArticle={(id) => router.push(`/content/${id}`)}
           />
         </div>
@@ -702,10 +729,14 @@ export default function Reader({
         onHighlightsChange={setHighlights}
         onShowConnections={
           settings.showConnections
-            ? () => setShowConnectionsPanel(true)
+            ? (highlightId: string) => {
+                setActiveHighlightId(highlightId);
+                setShowConnectionsPanel(true);
+              }
             : undefined
         }
         onHighlightCreate={onHighlightCreate}
+        initialHighlightId={initialHighlightId}
       />
 
       <KeyboardShortcuts

@@ -9,7 +9,8 @@ import MoodSelector from "@/components/MoodSelector";
 import PickForMe from "@/components/PickForMe";
 import { ContentItem } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { SHOW_FOR_YOU } from "@/lib/flags";
+import Link from "next/link";
+import { SHOW_FOR_YOU, SHOW_READING_THEMES } from "@/lib/flags";
 
 export default function DashboardClient() {
   const { user } = useAuth();
@@ -117,17 +118,29 @@ export default function DashboardClient() {
           ) : (
             <>
               {/* Quick Actions Row */}
-              {SHOW_FOR_YOU && (
+              {(SHOW_FOR_YOU || SHOW_READING_THEMES) && (
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowRecommended(true)}
-                    className="flex-1 px-4 py-2 rounded text-sm border border-[var(--color-border)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] transition-colors"
-                  >
-                    For You ✨
-                  </button>
-                  <div className="flex-1">
-                    <PickForMe />
-                  </div>
+                  {SHOW_FOR_YOU && (
+                    <>
+                      <button
+                        onClick={() => setShowRecommended(true)}
+                        className="flex-1 px-4 py-2 rounded text-sm border border-[var(--color-border)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] transition-colors"
+                      >
+                        For You ✨
+                      </button>
+                      <div className="flex-1">
+                        <PickForMe />
+                      </div>
+                    </>
+                  )}
+                  {SHOW_READING_THEMES && (
+                    <Link
+                      href="/themes"
+                      className="flex-1 px-4 py-2 rounded text-sm border border-[var(--color-border)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] transition-colors text-center"
+                    >
+                      Reading themes
+                    </Link>
+                  )}
                 </div>
               )}
 

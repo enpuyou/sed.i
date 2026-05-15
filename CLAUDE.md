@@ -41,6 +41,7 @@ These apply in every session, every file, no exceptions:
 2. **`fetchWithAuth` only.** Never call `fetch()` directly in the frontend.
 3. **Backend error shape: `{ detail: string }`.** Global handlers sanitize 422/500.
 4. **`ARCHITECTURE.md` updated in the same commit as any feature change.**
+11. **Feature doc written for every customer-facing change.** Create or update `docs/features/<feature-name>.md` — written as a user workflow guide, not internal notes. Covers: what it does, where to find it, how to test it. Goes in the same commit as the feature.
 5. **Loading → Error → Empty → Data.** Never render two states at once.
 6. **Optimistic updates** — update UI immediately, revert on failure, show InlineError.
 7. **EmptyState for all empty data** — sentence case, no emoji.
@@ -89,6 +90,68 @@ If a session has completed significant work and either:
 - **Run tests when**: fixing a bug (confirm it's fixed), before `/finalize`, when a PR is being prepared.
 - **Skip full test suite during**: regular feature development unless a test broke. Use targeted file-level runs (`pytest tests/test_foo.py`) to check only what changed.
 - **Full suite always runs in `/finalize`** — no exceptions.
+
+---
+
+## AI-assisted development practices
+
+These apply to all feature work, not just any one feature.
+
+### TDD — vertical slices only
+
+One test → one implementation → repeat. Never write all tests first then all code (horizontal slicing produces tests that describe imagined behavior and break on refactors). Tests verify observable behavior through public interfaces only. See `docs/instructions/testing-standards.md` for test conventions.
+
+### Subagents — when to spawn vs. work inline
+
+Spawn a subagent when:
+- Codebase exploration spans > 5 files (use `subagent_type: Explore`)
+- Writing + running a test suite (`unit-test-runner` agent)
+- Running a code review (`code-reviewer` agent)
+- Frontend design decisions (`taste-skill` or `redesign-skill`)
+- Two independent workstreams can run in parallel (e.g. backend schema + frontend component)
+
+Work inline for: reading 1-2 known files, single-file edits, targeted grep, writing a known function.
+
+**Cost rule**: subagents start cold — they pay a full context-load cost every spawn. Only spawn when the scoped work justifies it.
+
+### Parallel agents
+
+When a phase has independent backend and frontend work, launch both agents in the same message. Each agent's prompt must be fully self-contained — it has no access to the other agent's context. Include the API response schema explicitly in any agent whose work depends on another agent's output.
+
+### Feature flags
+
+All new user-facing features ship behind an env flag (`NEXT_PUBLIC_SHOW_X=false`). Enable manually to test; disable instantly to roll back. No code change required.
+
+### Build sequence per phase
+
+For every non-trivial feature unit, follow this loop in order:
+
+```
+1. TaskCreate for the phase / feature
+2. /plan <goal>            → blueprint before touching any code
+3. TDD loop (inline):
+   a. RED:   write one failing test for one behavior
+   b. GREEN: write minimal code to pass it
+   c. Repeat for each prioritized behavior
+   d. Refactor after all green — never while RED
+4. /pre-commit-dev         → lint + types + tests + ARCHITECTURE.md
+5. Single commit           → one feature = one commit
+6. TaskUpdate → completed
+7. If context is long (> 3 features committed or > 5 files edited) → /handoff
+```
+
+### Parallel agent execution gate
+
+When parallel agents produce work where B depends on A's API contract:
+- Launch A and B simultaneously only if B's prompt includes A's full output schema explicitly
+- Otherwise, run A first, extract the schema, then launch B with it embedded in the prompt
+- Never assume Agent B can infer Agent A's output — they share no context
+
+### Context management
+
+- **Task tracking**: `TaskCreate` at the start of each phase; `TaskUpdate` as each behavior completes. The next session resumes from task state.
+- **Handoff trigger**: after > 3 features committed in one session, or after editing > 5 files — invoke `/handoff` proactively. The next session reads the handoff and `ARCHITECTURE.md`; it does not read conversation history.
+- **ARCHITECTURE.md**: must reflect the system after every commit. It is the canonical state document for cold-start sessions.
 
 ---
 

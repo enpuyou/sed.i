@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useLayoutEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Reader from "@/components/Reader";
 import { contentAPI } from "@/lib/api";
 import { ContentItem } from "@/types";
@@ -12,7 +12,9 @@ const useIsomorphicLayoutEffect =
 
 export default function ContentPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const contentId = params.id as string;
+  const initialHighlightId = searchParams.get("h") ?? undefined;
 
   const getCachedContent = () => {
     if (typeof window === "undefined") return null;
@@ -220,5 +222,11 @@ export default function ContentPage() {
     );
   }
 
-  return <Reader content={content} onStatusChange={handleStatusChange} />;
+  return (
+    <Reader
+      content={content}
+      onStatusChange={handleStatusChange}
+      initialHighlightId={initialHighlightId}
+    />
+  );
 }

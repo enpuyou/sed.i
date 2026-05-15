@@ -15,6 +15,7 @@ interface WritingWorkspaceProps {
     fn: (format?: "md" | "pdf" | "docx") => void | Promise<void>,
   ) => void;
   onFullscreenChange?: (fs: boolean) => void;
+  onSaved?: () => void;
 }
 
 export default function WritingWorkspace({
@@ -27,6 +28,7 @@ export default function WritingWorkspace({
   onExport,
   onExportReady,
   onFullscreenChange,
+  onSaved,
 }: WritingWorkspaceProps) {
   // Escape key to close when inline
   useEffect(() => {
@@ -48,6 +50,7 @@ export default function WritingWorkspace({
         onExport={onExport}
         onExportReady={onExportReady}
         onFullscreenChange={onFullscreenChange}
+        onSaved={onSaved}
       />
     </div>
   );

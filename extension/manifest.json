@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "sed.i",
-  "version": "0.1.2",
-  "description": "Save articles to sed.i — your personal reading queue",
+  "version": "0.1.3",
+  "description": "Read and save articles to sed.i — your personal reading queue",
   "permissions": ["activeTab", "scripting", "storage"],
   "icons": {
     "16": "icons/icon16.png",

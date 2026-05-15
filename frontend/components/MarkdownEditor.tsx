@@ -139,6 +139,7 @@ interface MarkdownEditorProps {
   ) => void;
   onExport?: (format: "md" | "pdf" | "docx") => void;
   onFullscreenChange?: (fs: boolean) => void;
+  onSaved?: () => void;
 }
 
 function countWords(text: string): number {
@@ -173,6 +174,7 @@ export default function MarkdownEditor({
   onExportReady,
   onExport,
   onFullscreenChange,
+  onSaved,
 }: MarkdownEditorProps) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [wordCount, setWordCount] = useState(0);
@@ -205,6 +207,7 @@ export default function MarkdownEditor({
           content.replace(/#{1,6}\s+/g, "").replace(/[_*`~]/g, ""),
         );
         await draftsAPI.update(listId, { content, title, word_count: words });
+        onSaved?.();
         setSaveStatus("saved");
         if (savedStatusTimerRef.current) {
           clearTimeout(savedStatusTimerRef.current);
@@ -217,7 +220,7 @@ export default function MarkdownEditor({
         setSaveStatus("error");
       }
     },
-    [listId],
+    [listId, onSaved],
   );
 
   const editor = useEditor({
