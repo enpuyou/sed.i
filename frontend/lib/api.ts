@@ -713,8 +713,6 @@ export interface ReadingCluster {
 
 export const themesAPI = {
   getClusters: async (): Promise<{ clusters: ReadingCluster[] }> => {
-    const response = await fetchWithAuth(`${API_BASE_URL}/themes`);
-    if (!response.ok) throw new Error("Couldn't load reading themes.");
-    return response.json();
+    return fetchWithAuth(`${API_BASE_URL}/themes`);
   },
 };

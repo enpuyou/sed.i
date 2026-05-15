@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # Feature Flags / Tuning
-    SIMILARITY_THRESHOLD_CONNECTIONS: float = 0.7
+    SIMILARITY_THRESHOLD_CONNECTIONS: float = 0.3
     SIMILARITY_THRESHOLD_TAGS: float = 0.75
 
     # Email Settings (Resend HTTP API)
