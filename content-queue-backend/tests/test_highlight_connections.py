@@ -5,13 +5,13 @@ Behaviors tested (6 + 2 extra):
   Per-highlight endpoint (GET /search/connections/{highlight_id}):
     1. Returns wrapper with source_note + connections list
     2. Each connection has article metadata (id, title, author, domain, shared_tags, passages)
-    3. Connections with no shared tags are filtered out
+    3. Connections with no shared tags are included; shared_tags is empty list
     4. source_note is included from highlight.note
     5. Cross-user isolation
 
   Highlights-grouped endpoint (GET /search/connections/article/{content_id}/highlights):
     6. Returns list of {highlight_id, highlight_text, connections}
-    7. Highlights with zero connections after tag filter are omitted
+    7. Highlights with zero similarity connections are omitted
 """
 
 from sqlalchemy.orm import Session
@@ -166,10 +166,10 @@ class TestHighlightConnectionsShape:
         assert isinstance(conn["passages"], list)
         assert len(conn["passages"]) >= 1
 
-    def test_no_shared_tags_connection_excluded(
+    def test_no_shared_tags_connection_included(
         self, client, db_session, test_user, auth_headers
     ):
-        """Behavior 3: Connections where source and destination share no tags are filtered out."""
+        """Behavior 3: Connections with no shared tags are still included; shared_tags is []."""
         src = _article(db_session, test_user.id, "filter-src", ["distributed systems"])
         dst = _article(db_session, test_user.id, "filter-dst", ["behavioral economics"])
         db_session.commit()
@@ -198,7 +198,11 @@ class TestHighlightConnectionsShape:
         assert resp.status_code == 200
         data = resp.json()
         article_ids = [c["article_id"] for c in data["connections"]]
-        assert str(dst.id) not in article_ids
+        assert (
+            str(dst.id) in article_ids
+        ), "similar highlight should appear even without shared tags"
+        conn = next(c for c in data["connections"] if c["article_id"] == str(dst.id))
+        assert conn["shared_tags"] == []
 
     def test_source_note_included(self, client, db_session, test_user, auth_headers):
         """Behavior 4: source_note reflects highlight.note."""
@@ -340,31 +344,34 @@ class TestHighlightGroupedConnections:
     def test_highlight_with_no_connections_omitted(
         self, client, db_session, test_user, auth_headers
     ):
-        """Behavior 7: Highlights with zero connections (after tag filter) are omitted."""
+        """Behavior 7: Highlights with zero similar highlights in other articles are omitted."""
+        # _EMB_ORTHO is orthogonal to _EMB_A — cosine similarity = 0
+        emb_ortho = [0.0, 1.0] + [0.0] * 1534
         src = _article(db_session, test_user.id, "omit-src", ["unique-tag-xyz"])
-        dst = _article(db_session, test_user.id, "omit-dst", ["different-tag-abc"])
+        dst = _article(db_session, test_user.id, "omit-dst", ["unique-tag-xyz"])
         db_session.commit()
 
         disconnected = _highlight(
             db_session,
             test_user.id,
             src.id,
-            "Highlight with no matching tags on any other article",
+            "Highlight with no similarity to anything else in library",
             _EMB_A,
         )
         _highlight(
             db_session,
             test_user.id,
             dst.id,
-            "Other highlight with no matching tags here",
-            _EMB_B,
+            "Orthogonal highlight with zero cosine similarity",
+            emb_ortho,
         )
         db_session.commit()
 
+        # Use a high threshold so the orthogonal pair (similarity ≈ 0) is excluded
         resp = client.get(
             f"/search/connections/article/{src.id}/highlights",
             headers=auth_headers,
-            params={"threshold": 0.1},
+            params={"threshold": 0.9},
         )
         assert resp.status_code == 200
         data = resp.json()

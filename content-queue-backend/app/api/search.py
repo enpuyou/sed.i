@@ -189,8 +189,8 @@ def _connections_for_highlight(
     """
     Return article-grouped connections for a single highlight.
 
-    Filters out articles with no shared tags with the source article.
     Returns at most 2 best passages per connected article.
+    Shared tags are shown when they exist but do not gate inclusion.
     """
     if highlight.embedding is None:
         return []
@@ -247,30 +247,32 @@ def _connections_for_highlight(
             }
         article_groups[article_id]["passages"].append((float(row.similarity), row.text))
 
-    result: list[HighlightArticleConnection] = []
+    # Resolve shared tags and rank passages per article group
+    enriched = []
     for group in article_groups.values():
         shared = sorted(source_tags & set(group["article_tags"]))
-        if not shared:
-            continue
-        # Best 2 passages by similarity score
-        top_passages = [
-            text for _, text in sorted(group["passages"], key=lambda x: -x[0])[:2]
-        ]
+        top_passages = sorted(group["passages"], key=lambda x: -x[0])[:2]
+        top_sim = top_passages[0][0] if top_passages else 0.0
         parsed = urlparse(group["article_url"])
         domain = parsed.netloc.removeprefix("www.") if parsed.netloc else ""
-        result.append(
-            HighlightArticleConnection(
-                article_id=group["article_id"],
-                article_title=group["article_title"],
-                article_author=group["article_author"],
-                article_domain=domain,
-                shared_tags=shared,
-                passages=top_passages,
+        enriched.append(
+            (
+                len(shared),
+                top_sim,
+                HighlightArticleConnection(
+                    article_id=group["article_id"],
+                    article_title=group["article_title"],
+                    article_author=group["article_author"],
+                    article_domain=domain,
+                    shared_tags=shared,
+                    passages=[t for _, t in top_passages],
+                ),
             )
         )
 
-    result.sort(key=lambda c: -len(c.shared_tags))
-    return result
+    # Sort: shared-tag connections first, then by best passage similarity
+    enriched.sort(key=lambda x: (-x[0], -x[1]))
+    return [conn for _, _, conn in enriched]
 
 
 @router.get("/semantic", response_model=SearchResponse)
@@ -394,7 +396,7 @@ def find_highlight_connections(
     Find connections for a single highlight, grouped by connected article.
 
     Returns article metadata (author, domain, shared tags) and matched passages.
-    Connections with no shared tags are excluded.
+    Shared tags are shown when they exist but do not gate inclusion.
     """
     source_highlight = (
         db.query(Highlight)
@@ -556,8 +558,8 @@ def find_highlight_grouped_connections(
     """
     Find connections for all highlights in an article, grouped by source highlight.
 
-    Only highlights that have at least one connection (after shared-tag filter) are
-    returned. Used by ConnectionsPanel Mode 2.
+    Only highlights that have at least one connection are returned.
+    Used by ConnectionsPanel Mode 2.
     """
     article = (
         db.query(ContentItem)
@@ -708,20 +710,21 @@ def find_article_connections(
             )
             article_connections[article_id]["total_similarity"] += float(row.similarity)
 
-    # Keep only the best highlight pair per connected article, require shared tags
+    # Keep only the best highlight pair per connected article
     source_tags = set(article.tags or [])
     result = []
     for conn in article_connections.values():
         shared = sorted(source_tags & set(conn.pop("article_tags", [])))
-        if not shared:
-            continue
         best_pair = max(conn["highlight_pairs"], key=lambda p: p["similarity"])
         conn["highlight_pairs"] = [best_pair]
         conn["total_similarity"] = best_pair["similarity"]
         conn["shared_tags"] = shared
         result.append(conn)
 
-    return sorted(result, key=lambda x: x["total_similarity"], reverse=True)
+    # Sort: shared-tag connections first, then by similarity
+    return sorted(
+        result, key=lambda x: (-len(x["shared_tags"]), -x["total_similarity"])
+    )
 
 
 @router.get("/{item_id}/similar", response_model=list[SimilarContentResponse])
