@@ -1,9 +1,21 @@
 # Knowledge Connections
 
 **Status:** Live
-**Last updated:** 2026-05-14
+**Last updated:** 2026-05-15
 
 sed.i can now tell you not just which articles are similar — but which specific ideas connect them, how those ideas cluster across your reading history, and what you're reading about overall.
+
+---
+
+## Prerequisites (read this first)
+
+Before testing any of these features, make sure the following are in place:
+
+1. **Worker is running** — `make worker`. Without it, no embeddings or tags are generated.
+2. **Articles have semantic tags** — tags are generated automatically after an article is saved and embedded (~30s). Old articles may need the backfill task (see §1 Notes).
+3. **Highlight Connections need highlight embeddings** — generated when you create a highlight, but only if the worker was running. Run the batch trigger if your highlights are old (see §4 Manual triggers).
+4. **Two articles must share at least one tag** — connections are filtered to shared-tag pairs only. If your articles have no tag overlap, no connections will appear.
+5. **Reading Themes need ≥10 tagged articles** — and the clustering task must have run (see §3 Manual trigger).
 
 ---
 
@@ -163,17 +175,44 @@ Open any article in the reader (desktop only, ≥1280px wide):
 | `c` (in Mode 1) | Switch to Mode 2 |
 | `c` (in Mode 2) | Close panel |
 
+### Manual triggers (dev)
+
+If your highlights exist but connections aren't showing, the highlights may not have embeddings yet. Run:
+
+```python
+from app.core.database import SessionLocal
+from app.models.user import User
+db = SessionLocal()
+user = db.query(User).filter(User.email == "your@email.com").first()
+user_id = str(user.id)
+db.close()
+
+# Generate embeddings for all highlights that are missing them
+from app.tasks.embedding import generate_highlight_embeddings_batch
+result = generate_highlight_embeddings_batch.delay(user_id)
+print(result.get())
+```
+
+Or, if you just want to check without Celery:
+
+```python
+from app.tasks.embedding import process_all_missing_embeddings
+process_all_missing_embeddings.delay()
+```
+
 ### How to test it
 
-1. Open an article where you have highlights **and** both this article and at least one other share semantic tags
-2. Click a highlighted passage → panel opens showing only connections for that highlight
-3. Verify: article title, author, domain, tag pills, passage text are all visible
-4. Wait 2–3 seconds → insight sentence loads in below the tags
-5. If the highlight has a note, it appears as a "Your note" block above the connection cards
-6. Press `c` → transitions to Mode 2 (all highlights as cards)
-7. Click a highlight card header → transitions to Mode 1 for that highlight
-8. Click `← all highlights` → returns to Mode 2
-9. Press `c` again in Mode 2 → panel closes
+1. Make sure both articles have semantic tags and your highlight has an embedding (see Prerequisites and Manual triggers above)
+2. Open an article where you have highlights, and at least one other article in your library shares a semantic tag with it
+3. Click a highlighted passage → panel opens in **Mode 1** scoped to that highlight
+4. Verify: article title, author/domain, shared tag pills (● tag), and matched passage text are all visible
+5. Wait 2–3 seconds → insight sentence loads in below the tags ("generating insight…" placeholder appears first)
+6. If the highlight has a note, it appears as a "Your note" block above the connection cards
+7. Press `c` → transitions to **Mode 2** (all highlights as cards)
+8. Each highlight card shows the highlight text; connected articles are listed below it
+9. Click a highlight card header → transitions to Mode 1 for that highlight
+10. Click `← all highlights` → returns to Mode 2
+11. Press `c` again in Mode 2 → panel closes
 
 ### Tips
 
@@ -221,13 +260,34 @@ Relevant reads update after each autosave. Autosave fires 1.5 seconds after you 
 
 ## Testing checklist
 
-Use this to verify all four surfaces are working end-to-end:
+Use this to verify all five surfaces are working end-to-end:
 
-- [ ] Save a new article and confirm it gets 4–6 specific semantic tags within 60 seconds
-- [ ] Open "Find Related" on that article and confirm tag pills appear on at least one result
-- [ ] Visit `/themes` and confirm at least one reading cluster appears (requires ≥10 tagged articles)
-- [ ] Open an article with highlights, press `c`, and confirm the Connections panel shows tag pills where articles share tags
-- [ ] Open a draft, write 50+ words on a topic you have articles about, and confirm "Relevant reading" appears after the autosave
+**Setup (do this first):**
+- [ ] `make worker` is running
+- [ ] You have ≥2 articles with overlapping semantic tags
+- [ ] You have highlights in at least one of those articles
+- [ ] Run the highlight embedding trigger if highlights are old (see §4 Manual triggers)
+
+**Semantic tags:**
+- [ ] Save a new article and confirm it gets 4–6 specific tags within 60 seconds (open the article → tags below the title)
+
+**Find Related:**
+- [ ] Open "Find Related" at the bottom of a tagged article and confirm tag pills appear on at least one result card
+
+**Reading Themes:**
+- [ ] Visit `/themes` and confirm at least one reading cluster appears (requires ≥10 tagged articles + clustering task run)
+
+**Highlight Connections (two-mode panel):**
+- [ ] Open an article with highlights that share tags with another article
+- [ ] Click a highlighted passage → Mode 1 opens: title, author/domain, tag pills, passage text visible
+- [ ] Wait 2–3s → insight sentence appears below the tags
+- [ ] Press `c` → switches to Mode 2 (all highlights as cards with connected articles below)
+- [ ] Click a highlight card header → switches back to Mode 1 for that highlight
+- [ ] Click `← all highlights` → returns to Mode 2
+- [ ] Press `c` in Mode 2 → panel closes
+
+**Relevant Reading:**
+- [ ] Open a List, click "Write", type 50+ words on a topic you have articles about, pause → "Relevant reading" appears after autosave
 
 ---
 
