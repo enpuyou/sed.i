@@ -28,7 +28,7 @@ frontend:
 
 ## Apply all pending Alembic migrations
 migrate:
-	$(PYENV_RUN) alembic upgrade head
+	$(PYENV_RUN) alembic upgrade heads
 
 ## Generate a new migration (usage: make migrate-generate MSG="add_foo_column")
 migrate-generate:
