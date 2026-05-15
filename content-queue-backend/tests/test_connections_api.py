@@ -138,10 +138,10 @@ class TestArticleConnectionsSharedTags:
         assert "unique-src" not in shared
         assert "unique-dst" not in shared
 
-    def test_no_shared_tags_connection_excluded(
+    def test_no_shared_tags_connection_included(
         self, client, db_session, test_user, auth_headers
     ):
-        """Connections with no shared tags are excluded from results entirely."""
+        """Connections surface even without shared tags when similarity exceeds threshold."""
         src = _article(
             db_session, test_user.id, "src-nooverlap", ["distributed systems"]
         )
@@ -176,7 +176,7 @@ class TestArticleConnectionsSharedTags:
         assert resp.status_code == 200
         data = resp.json()
         article_ids = [c["article_id"] for c in data]
-        assert str(dst.id) not in article_ids
+        assert str(dst.id) in article_ids
 
     def test_cross_user_isolation(self, client, db_session, test_user, auth_headers):
         """User cannot see another user's article connections."""
