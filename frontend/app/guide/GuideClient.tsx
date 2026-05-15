@@ -12,7 +12,7 @@ const sections = [
   { id: "reading", title: "Reading" },
   { id: "crates", title: "Crates" },
   { id: "lists", title: "Lists" },
-  { id: "extension", title: "Chrome Extension" },
+  { id: "extension", title: "Browser Extensions" },
   { id: "search", title: "Search" },
   { id: "ai", title: "AI-Facilitated Features" },
   { id: "claude-integration", title: "Claude Integration" },
@@ -304,11 +304,11 @@ export default function GuideClient() {
             </div>
           </section>
 
-          {/* 05 Chrome Extension */}
+          {/* 05 Browser Extensions */}
           <section>
-            <SectionHeader num={5} id="extension" title="Chrome Extension" />
+            <SectionHeader num={5} id="extension" title="Browser Extensions" />
             <div className="mt-6 space-y-1 border-t border-[var(--color-border-subtle)] pt-4">
-              <Feature label="Installation">
+              <Feature label="Chrome">
                 Visit the{" "}
                 <a
                   href="https://chromewebstore.google.com/detail/sedi/doojneiapaegndmglponeacdbcgaojnm"
@@ -318,12 +318,36 @@ export default function GuideClient() {
                 >
                   Chrome Web Store page
                 </a>{" "}
-                and click "Add to Chrome" to use the official extension.
+                and click &ldquo;Add to Chrome&rdquo; to install the official
+                extension.
               </Feature>
-              <Feature label="Capability">
-                Once installed, the extension allows you to save any article you
-                are currently reading to your sed.i queue with a single click
-                without leaving the page.
+              <Feature label="Safari">
+                Download the latest release from{" "}
+                <a
+                  href="https://github.com/enpuyou/sedi-safari/releases"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--color-accent)] hover:underline"
+                >
+                  github.com/enpuyou/sedi-safari
+                </a>
+                , open the{" "}
+                <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
+                  .dmg
+                </code>
+                , drag sed.i to Applications, and launch it once to register the
+                extension. Then enable it in Safari → Settings → Extensions.
+              </Feature>
+              <Feature label="Save">
+                Click the sed.i toolbar icon on any article page to save it to
+                your queue with a single click — without leaving the page.
+              </Feature>
+              <Feature label="Read">
+                The extension also has an ephemeral reader mode: click Read to
+                open a clean, distraction-free view of the current page directly
+                in the browser tab. The reader uses shadow DOM isolation so
+                typography and spacing are consistent regardless of the
+                site&apos;s CSS.
               </Feature>
             </div>
           </section>
@@ -353,9 +377,26 @@ export default function GuideClient() {
                 analysis of the content.
               </Feature>
               <Feature label="Connections">
-                Connections is an experimental feature we&apos;re still
-                building. It helps surface links between your highlights across
-                different articles and shows semantically related passages.
+                Open any article on desktop and press <Kbd>c</Kbd> — or click
+                any highlighted passage — to open the Connections panel. It has
+                two modes: an overview (Mode 2) showing every highlight with at
+                least one connection, ordered by position in the article; and a
+                focused view (Mode 1) for a single highlight showing connected
+                articles, matched passages, shared concept tags, and a
+                one-sentence AI insight explaining the link. Highlights with
+                connections display a small blue dot — click it to jump straight
+                to Mode 1. Click any matched passage to navigate to that article
+                at that exact location.
+              </Feature>
+              <Feature label="Reading Themes">
+                Visit{" "}
+                <code className="font-mono text-xs bg-[var(--color-bg-tertiary)] px-1 py-0.5">
+                  /themes
+                </code>{" "}
+                to see your entire library grouped into reading clusters based
+                on shared concept tags. Each theme shows its defining ideas and
+                a preview of the articles inside it. Requires at least 10 tagged
+                articles.
               </Feature>
             </div>
           </section>
