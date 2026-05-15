@@ -63,6 +63,8 @@ interface ReaderArticleProps {
     end_offset: number;
     color: string;
   }) => void;
+  // When set, scroll to this highlight after first load (from ?h= query param)
+  initialHighlightId?: string;
 }
 
 export interface ReaderArticleHandle {
@@ -104,6 +106,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       onHighlightsChange,
       onShowConnections,
       onHighlightCreate,
+      initialHighlightId,
     },
     ref,
   ) {
@@ -121,6 +124,7 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<BlockListRef>(null);
     const savedScrollPosition = useRef(0);
+    const hasScrolledToInitial = useRef(false);
     const similarArticlesRef = useRef<HTMLDivElement>(null);
     const scrollPositionBeforeSimilar = useRef<number>(0);
     const readPositionRef = useRef(content.read_position ?? 0);
@@ -437,6 +441,27 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
             if (highlightData.status === "fulfilled") {
               setHighlights(highlightData.value);
               onHighlightsChange?.(highlightData.value);
+              if (initialHighlightId && !hasScrolledToInitial.current) {
+                hasScrolledToInitial.current = true;
+                setTimeout(() => {
+                  const els = document.querySelectorAll(
+                    `[data-highlight-id="${initialHighlightId}"]`,
+                  );
+                  if (els.length > 0) {
+                    els[0].scrollIntoView({
+                      behavior: "smooth",
+                      block: "center",
+                    });
+                    els.forEach((el) => {
+                      el.classList.add("ring-2", "ring-blue-500");
+                      setTimeout(
+                        () => el.classList.remove("ring-2", "ring-blue-500"),
+                        1500,
+                      );
+                    });
+                  }
+                }, 300);
+              }
             } else {
               console.error(
                 "Failed to fetch highlights:",
@@ -469,7 +494,12 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
           }
         }
       },
-      [content.id, onHighlightsChange, settings.showConnections],
+      [
+        content.id,
+        onHighlightsChange,
+        settings.showConnections,
+        initialHighlightId,
+      ],
     );
 
     useEffect(() => {

@@ -21,6 +21,7 @@ interface InlineHighlightProps {
   isMobile?: boolean;
   onShowConnections?: (highlightId: string) => void;
   showIndicators?: boolean;
+  showConnectionIndicator?: boolean;
   hasConnections?: boolean;
 }
 
@@ -43,6 +44,7 @@ export default function InlineHighlight({
   isMobile = false,
   onShowConnections,
   showIndicators = true,
+  showConnectionIndicator = false,
   hasConnections: hasConnectionsProp = false,
 }: InlineHighlightProps) {
   // Internal state for uncontrolled usage (fallback)
@@ -206,18 +208,18 @@ export default function InlineHighlight({
             : ""
         }
       >
-        {/* Connection Indicator - Bottom left of highlight start */}
+        {/* Connection Indicator - Top left corner of highlight start */}
         {SHOW_HIGHLIGHT_CONNECTIONS &&
           hasConnections &&
           onShowConnections &&
           !isOpen &&
-          showIndicators && (
+          showConnectionIndicator && (
             <span
               className="ephemeral-ui inline-block relative"
               style={{
                 width: 0,
-                height: 0,
-                verticalAlign: "text-bottom",
+                height: "1em",
+                verticalAlign: "top",
                 overflow: "visible",
               }}
               data-ephemeral="true"
@@ -229,7 +231,7 @@ export default function InlineHighlight({
                   e.stopPropagation();
                   onShowConnections?.(id);
                 }}
-                className="absolute -bottom-1 -left-1 w-2 h-2 bg-blue-500 rounded-full cursor-pointer hover:scale-125 transition-transform"
+                className="absolute left-0 top-1 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full cursor-pointer hover:scale-125 transition-transform"
                 title="This highlight has connections to other articles"
               />
             </span>

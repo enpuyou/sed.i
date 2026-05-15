@@ -37,6 +37,7 @@ describe("InlineHighlight", () => {
     onShowConnections: jest.fn(),
     hasConnections: false,
     showIndicators: true,
+    showConnectionIndicator: true,
   };
 
   beforeEach(() => {

@@ -141,6 +141,7 @@ const HighlightRenderer = ({
       start: number;
       end: number;
       highlight?: Highlight;
+      isFirst?: boolean;
       isLast?: boolean;
     }
 
@@ -217,10 +218,10 @@ const HighlightRenderer = ({
       }
     });
 
-    // POST-PROCESS: Mark the last segment for each highlight
+    // POST-PROCESS: Mark the first and last segment for each highlight
     Object.values(highlightSegmentsMap).forEach((segments) => {
       if (segments.length > 0) {
-        // The last segment pushed to the array is physically the last one in the DOM order
+        segments[0].isFirst = true;
         segments[segments.length - 1].isLast = true;
       }
     });
@@ -246,6 +247,9 @@ const HighlightRenderer = ({
           span.dataset.highlightColor = segment.highlight.color;
           span.dataset.highlightNote = segment.highlight.note || "";
 
+          if (segment.isFirst) {
+            span.dataset.highlightIsFirst = "true";
+          }
           if (segment.isLast) {
             span.dataset.highlightIsLast = "true";
           }
@@ -316,6 +320,7 @@ const HighlightRenderer = ({
       const id = node.attribs["data-highlight-id"];
       const color = node.attribs["data-highlight-color"];
       const note = node.attribs["data-highlight-note"];
+      const isFirst = node.attribs["data-highlight-is-first"] === "true";
       const isLast = node.attribs["data-highlight-is-last"] === "true";
 
       const highlight = highlights.find((h) => h.id === id);
@@ -335,6 +340,7 @@ const HighlightRenderer = ({
           draftNote={isOpen ? draftNote : undefined}
           onNoteChange={setDraftNote}
           showIndicators={isLast}
+          showConnectionIndicator={isFirst}
           onDelete={onDeleteHighlight}
           onUpdate={onUpdateHighlight}
           onHighlightClick={

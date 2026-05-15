@@ -79,6 +79,8 @@ class HighlightArticleConnection(BaseModel):
     article_domain: str
     shared_tags: list[str]
     passages: list[str]
+    passage_highlight_ids: list[str]
+    connection_score: float
 
 
 class ConnectionsForHighlightResponse(BaseModel):
@@ -245,14 +247,16 @@ def _connections_for_highlight(
                 "article_tags": list(row.article_tags or []),
                 "passages": [],
             }
-        article_groups[article_id]["passages"].append((float(row.similarity), row.text))
+        article_groups[article_id]["passages"].append(
+            (str(row.id), float(row.similarity), row.text)
+        )
 
     # Resolve shared tags and rank passages per article group
     enriched = []
     for group in article_groups.values():
         shared = sorted(source_tags & set(group["article_tags"]))
-        top_passages = sorted(group["passages"], key=lambda x: -x[0])[:2]
-        top_sim = top_passages[0][0] if top_passages else 0.0
+        top_passages = sorted(group["passages"], key=lambda x: -x[1])[:2]
+        top_sim = top_passages[0][1] if top_passages else 0.0
         parsed = urlparse(group["article_url"])
         domain = parsed.netloc.removeprefix("www.") if parsed.netloc else ""
         enriched.append(
@@ -265,7 +269,9 @@ def _connections_for_highlight(
                     article_author=group["article_author"],
                     article_domain=domain,
                     shared_tags=shared,
-                    passages=[t for _, t in top_passages],
+                    passages=[t for _, _, t in top_passages],
+                    passage_highlight_ids=[hid for hid, _, _ in top_passages],
+                    connection_score=round(top_sim, 3),
                 ),
             )
         )
@@ -583,6 +589,7 @@ def find_highlight_grouped_connections(
             Highlight.user_id == current_user.id,
             Highlight.embedding.isnot(None),
         )
+        .order_by(Highlight.start_offset)
         .limit(30)  # cap to keep response time bounded
         .all()
     )

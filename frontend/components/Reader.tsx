@@ -29,12 +29,14 @@ interface ReaderProps {
     end_offset: number;
     color: string;
   }) => void;
+  initialHighlightId?: string;
 }
 
 export default function Reader({
   content,
   onStatusChange,
   onHighlightCreate,
+  initialHighlightId,
 }: ReaderProps) {
   // Use global theme context
   useTheme();
@@ -415,6 +417,15 @@ export default function Reader({
     [],
   );
 
+  // Scroll to source highlight when Mode 1 opens
+  useEffect(() => {
+    if (!activeHighlightId) return;
+    const highlight = highlights.find((h) => h.id === activeHighlightId);
+    if (highlight) {
+      articleRef.current?.scrollToHighlight(highlight);
+    }
+  }, [activeHighlightId, highlights]);
+
   const handleRefreshHighlights = useCallback(() => {
     void articleRef.current?.refreshHighlights();
   }, []);
@@ -725,6 +736,7 @@ export default function Reader({
             : undefined
         }
         onHighlightCreate={onHighlightCreate}
+        initialHighlightId={initialHighlightId}
       />
 
       <KeyboardShortcuts

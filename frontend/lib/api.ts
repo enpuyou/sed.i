@@ -11,6 +11,8 @@ export interface HighlightArticleConnection {
   article_domain: string;
   shared_tags: string[];
   passages: string[];
+  passage_highlight_ids: string[];
+  connection_score: number;
 }
 
 export interface ConnectionsForHighlightResponse {

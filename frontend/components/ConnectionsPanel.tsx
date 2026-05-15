@@ -16,10 +16,10 @@ import EmptyState from "./EmptyState";
 
 interface ConnectionsPanelProps {
   contentId: string;
-  activeHighlightId: string | null; // null = Mode 2; set = Mode 1
+  activeHighlightId: string | null;
   isOpen: boolean;
   onBackToAll: () => void;
-  onSelectHighlight: (highlightId: string) => void; // Mode 2 card click → Mode 1
+  onSelectHighlight: (highlightId: string) => void;
   onNavigateToArticle?: (contentId: string) => void;
 }
 
@@ -34,10 +34,26 @@ export default function ConnectionsPanel({
   onNavigateToArticle,
 }: ConnectionsPanelProps) {
   const router = useRouter();
+  // Tracks which article card to scroll to when entering Mode 1 from Mode 2
+  const [targetArticleId, setTargetArticleId] = useState<string | null>(null);
 
-  const handleNavigate = (articleId: string) => {
+  const handleNavigate = (articleId: string, highlightId?: string) => {
     onNavigateToArticle?.(articleId);
-    router.push(`/content/${articleId}`);
+    const url = highlightId
+      ? `/content/${articleId}?h=${highlightId}`
+      : `/content/${articleId}`;
+    router.push(url);
+  };
+
+  const handleSelectHighlight = (highlightId: string, articleId?: string) => {
+    setTargetArticleId(articleId ?? null);
+    onSelectHighlight(highlightId);
+  };
+
+  // Clear target when going back to Mode 2
+  const handleBackToAll = () => {
+    setTargetArticleId(null);
+    onBackToAll();
   };
 
   if (!isOpen) return null;
@@ -46,7 +62,8 @@ export default function ConnectionsPanel({
     return (
       <Mode1Panel
         highlightId={activeHighlightId}
-        onBackToAll={onBackToAll}
+        targetArticleId={targetArticleId}
+        onBackToAll={handleBackToAll}
         onNavigate={handleNavigate}
       />
     );
@@ -55,8 +72,7 @@ export default function ConnectionsPanel({
   return (
     <Mode2Panel
       contentId={contentId}
-      onSelectHighlight={onSelectHighlight}
-      onNavigate={handleNavigate}
+      onSelectHighlight={handleSelectHighlight}
     />
   );
 }
@@ -65,12 +81,14 @@ export default function ConnectionsPanel({
 
 function Mode1Panel({
   highlightId,
+  targetArticleId,
   onBackToAll,
   onNavigate,
 }: {
   highlightId: string;
+  targetArticleId: string | null;
   onBackToAll: () => void;
-  onNavigate: (articleId: string) => void;
+  onNavigate: (articleId: string, highlightId?: string) => void;
 }) {
   const [data, setData] = useState<ConnectionsForHighlightResponse | null>(
     null,
@@ -100,19 +118,24 @@ function Mode1Panel({
     fetchConnections();
   }, [highlightId, fetchConnections]);
 
+  // Scroll to the target article card once data has loaded
+  useEffect(() => {
+    if (!targetArticleId || !data) return;
+    const el = document.querySelector(`[data-article-id="${targetArticleId}"]`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [data, targetArticleId]);
+
   return (
-    <div className="h-full flex flex-col bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
-      {/* Compact back button — top-left, matches HighlightsPanel Copy button */}
+    <div className="h-full flex flex-col">
       <div className="px-3 pt-2.5 pb-1.5">
         <button
           onClick={onBackToAll}
-          className="font-mono text-[10px] px-2 py-0.5 border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-faint)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+          className="font-mono text-[10px] px-2 py-0.5 border border-[var(--color-border)] bg-transparent text-[var(--color-text-faint)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
         >
           ← all highlights
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2.5">
         {loading && (
           <div className="flex items-center justify-center py-12">
@@ -137,24 +160,15 @@ function Mode1Panel({
 
         {!loading && !error && data && data.connections.length > 0 && (
           <>
-            {/* Source highlight note */}
-            {data.source_note && (
-              <div className="border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
-                <p className="font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)] mb-1">
-                  Your note
-                </p>
-                <p className="font-serif text-[13px] text-[var(--color-text-secondary)] leading-relaxed">
-                  {data.source_note}
-                </p>
-              </div>
-            )}
-
-            {/* Connection cards */}
+            <p className="font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
+              {data.connections.length}{" "}
+              {data.connections.length === 1 ? "connection" : "connections"}
+            </p>
             {data.connections.map((conn) => (
               <Mode1Card
                 key={conn.article_id}
-                connection={conn}
                 highlightId={highlightId}
+                connection={conn}
                 onNavigate={onNavigate}
               />
             ))}
@@ -168,13 +182,13 @@ function Mode1Panel({
 // ── Mode 1 card ───────────────────────────────────────────────────────────────
 
 function Mode1Card({
-  connection,
   highlightId,
+  connection,
   onNavigate,
 }: {
-  connection: HighlightArticleConnection;
   highlightId: string;
-  onNavigate: (articleId: string) => void;
+  connection: HighlightArticleConnection;
+  onNavigate: (articleId: string, highlightId?: string) => void;
 }) {
   const [insight, setInsight] = useState<string | null>(null);
   const [insightLoading, setInsightLoading] = useState(true);
@@ -203,17 +217,20 @@ function Mode1Card({
 
   return (
     <div
-      className="border border-[var(--color-border)] bg-[var(--color-bg-primary)] hover:border-[var(--color-accent)] transition-colors"
-      onClick={() => onNavigate(connection.article_id)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onNavigate(connection.article_id)}
+      className="border border-[var(--color-border)] bg-[var(--color-bg-primary)]"
+      data-article-id={connection.article_id}
     >
-      {/* Zone A: article identity */}
+      {/* Zone A: article identity — not interactive */}
       <div className="px-3 pt-3 pb-3">
-        <p className="font-serif text-[13px] text-[var(--color-text-primary)] leading-snug mb-0.5">
-          {connection.article_title}
-        </p>
+        <div className="flex justify-between items-start gap-2 mb-0.5">
+          <p className="font-serif text-[13px] text-[var(--color-text-primary)] leading-snug">
+            {connection.article_title}
+          </p>
+          <span className="font-mono text-[9px] text-[var(--color-text-muted)] whitespace-nowrap flex-shrink-0 mt-0.5">
+            {(connection.connection_score ?? 0).toFixed(2)}
+          </span>
+        </div>
+
         {(connection.article_author || connection.article_domain) && (
           <p className="font-mono text-[10px] text-[var(--color-text-faint)] mb-2">
             {connection.article_author && (
@@ -225,6 +242,7 @@ function Mode1Card({
             {connection.article_domain}
           </p>
         )}
+
         {connection.shared_tags.length > 0 && (
           <div className="flex flex-wrap gap-2.5 mb-2">
             {connection.shared_tags.map((tag) => (
@@ -237,6 +255,7 @@ function Mode1Card({
             ))}
           </div>
         )}
+
         {insightLoading && (
           <p className="font-mono text-[10px] text-[var(--color-text-faint)] leading-relaxed">
             generating insight…
@@ -249,20 +268,39 @@ function Mode1Card({
         )}
       </div>
 
-      {/* Zone B: matched passages */}
-      <div className="border-t border-[var(--color-border)] px-3 pt-2.5 pb-3">
+      {/* Zone B: matched passages — each individually clickable */}
+      <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-3 pt-2.5 pb-3">
+        <p className="font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)] mb-2">
+          matched highlights
+        </p>
         {connection.passages.map((passage, i) => (
           <p
             key={i}
-            className={`font-serif text-[13px] text-[var(--color-text-secondary)] leading-relaxed ${
+            className={`font-sans text-[12px] text-[var(--color-text-secondary)] leading-relaxed cursor-pointer hover:text-[var(--color-accent)] transition-colors ${
               i > 0
                 ? "border-t border-[var(--color-border-subtle)] mt-2.5 pt-2.5"
                 : ""
             }`}
+            onClick={() =>
+              onNavigate(
+                connection.article_id,
+                connection.passage_highlight_ids[i],
+              )
+            }
           >
             {passage}
           </p>
         ))}
+      </div>
+
+      {/* Footer: open article (no specific highlight) */}
+      <div
+        className="flex justify-end px-3 py-1.5 border-t border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] cursor-pointer group"
+        onClick={() => onNavigate(connection.article_id)}
+      >
+        <span className="font-mono text-[9px] text-[var(--color-text-faint)] group-hover:text-[var(--color-accent)] transition-colors">
+          open article →
+        </span>
       </div>
     </div>
   );
@@ -273,11 +311,9 @@ function Mode1Card({
 function Mode2Panel({
   contentId,
   onSelectHighlight,
-  onNavigate,
 }: {
   contentId: string;
-  onSelectHighlight: (highlightId: string) => void;
-  onNavigate: (articleId: string) => void;
+  onSelectHighlight: (highlightId: string, articleId?: string) => void;
 }) {
   const [data, setData] = useState<HighlightWithConnections[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -301,7 +337,7 @@ function Mode2Panel({
   }, [fetchConnections]);
 
   return (
-    <div className="h-full flex flex-col bg-[var(--color-bg-secondary)] border border-[var(--color-border)]">
+    <div className="h-full flex flex-col">
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
         {loading && (
           <div className="flex items-center justify-center py-12">
@@ -333,7 +369,6 @@ function Mode2Panel({
               key={item.highlight_id}
               item={item}
               onSelectHighlight={onSelectHighlight}
-              onNavigate={onNavigate}
             />
           ))}
       </div>
@@ -346,17 +381,15 @@ function Mode2Panel({
 function Mode2Card({
   item,
   onSelectHighlight,
-  onNavigate,
 }: {
   item: HighlightWithConnections;
-  onSelectHighlight: (highlightId: string) => void;
-  onNavigate: (articleId: string) => void;
+  onSelectHighlight: (highlightId: string, articleId?: string) => void;
 }) {
   return (
-    <div className="border border-[var(--color-border)] bg-[var(--color-bg-primary)]">
-      {/* Highlight header — click to enter Mode 1 */}
+    <div className="border border-[var(--color-border)]">
+      {/* Highlight text — click to enter Mode 1 */}
       <div
-        className="px-3 py-3 bg-[var(--color-bg-tertiary)] border-b border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-bg-secondary)] transition-colors"
+        className="px-3 py-3 border-b border-[var(--color-border-subtle)] cursor-pointer hover:bg-[var(--color-bg-secondary)] transition-colors"
         onClick={() => onSelectHighlight(item.highlight_id)}
         role="button"
         tabIndex={0}
@@ -369,54 +402,53 @@ function Mode2Card({
         </p>
       </div>
 
-      {/* Connected articles */}
-      {item.connections.map((conn, i) => (
-        <div
-          key={conn.article_id}
-          className={`px-3 py-3 cursor-pointer hover:bg-[var(--color-bg-secondary)] transition-colors ${
-            i > 0 ? "border-t border-[var(--color-border)]" : ""
-          }`}
-          onClick={() => onNavigate(conn.article_id)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === "Enter" && onNavigate(conn.article_id)}
-        >
-          <p className="font-serif text-[13px] text-[var(--color-text-primary)] mb-0.5">
-            {conn.article_title}
-          </p>
-          {(conn.article_author || conn.article_domain) && (
-            <p className="font-mono text-[10px] text-[var(--color-text-faint)] mb-2">
-              {conn.article_author && (
-                <span className="text-[var(--color-text-muted)]">
-                  {conn.article_author}
-                </span>
-              )}
-              {conn.article_author && conn.article_domain && " · "}
-              {conn.article_domain}
-            </p>
-          )}
-          {conn.shared_tags.length > 0 && (
-            <p className="font-mono text-[10px] text-[var(--color-text-muted)] mb-2">
-              {conn.shared_tags.map((t) => `● ${t}`).join("  ")}
-            </p>
-          )}
-          {/* Passages separated from meta */}
-          <div className="border-t border-[var(--color-border-subtle)] pt-2.5">
-            {conn.passages.map((passage, pi) => (
-              <p
-                key={pi}
-                className={`font-serif text-[13px] text-[var(--color-text-secondary)] leading-relaxed ${
-                  pi > 0
-                    ? "border-t border-[var(--color-border-subtle)] mt-2.5 pt-2.5"
-                    : ""
-                }`}
-              >
-                {passage}
+      {/* Connected articles — compact rows */}
+      {item.connections.length === 0 ? (
+        <p className="px-3 py-2 font-mono text-[9px] uppercase tracking-wider text-[var(--color-text-faint)]">
+          no connections yet
+        </p>
+      ) : (
+        item.connections.map((conn, i) => (
+          <div
+            key={conn.article_id}
+            className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-[var(--color-bg-secondary)] transition-colors ${
+              i > 0 ? "border-t border-[var(--color-border-subtle)]" : ""
+            }`}
+            onClick={() =>
+              onSelectHighlight(item.highlight_id, conn.article_id)
+            }
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) =>
+              e.key === "Enter" &&
+              onSelectHighlight(item.highlight_id, conn.article_id)
+            }
+          >
+            <div className="flex-1 min-w-0">
+              <p className="font-serif text-[12px] text-[var(--color-text-primary)] overflow-hidden text-ellipsis whitespace-nowrap">
+                {conn.article_title}
               </p>
-            ))}
+              <p className="font-mono text-[9px] text-[var(--color-text-faint)] overflow-hidden text-ellipsis whitespace-nowrap mt-0.5">
+                {conn.article_author && (
+                  <span className="text-[var(--color-text-muted)]">
+                    {conn.article_author}
+                    {conn.article_domain && " · "}
+                  </span>
+                )}
+                {conn.article_domain}
+                {conn.shared_tags.length > 0 &&
+                  " · " + conn.shared_tags.map((t) => `● ${t}`).join("  ")}
+              </p>
+            </div>
+            <span className="font-mono text-[9px] text-[var(--color-text-muted)] flex-shrink-0">
+              {(conn.connection_score ?? 0).toFixed(2)}
+            </span>
+            <span className="font-mono text-[10px] text-[var(--color-text-faint)] flex-shrink-0">
+              →
+            </span>
           </div>
-        </div>
-      ))}
+        ))
+      )}
     </div>
   );
 }

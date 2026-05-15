@@ -28,6 +28,44 @@ acknowledged before proceeding. Shipping actions (`pre-commit`, `git commit`,
 
 ---
 
+## Phase 0 · Backwards compatibility (will prod survive the deploy?)
+
+Before reviewing anything else, check whether changes are safe to ship to a live system.
+
+### 0a. API surface changes
+- List any new fields added to API response schemas. Additive = safe. Removed/renamed = breaking.
+- List any removed or renamed fields. If any exist, check every call site in the frontend.
+- List any changed field types. Widening (string → string | null) is usually safe. Narrowing is not.
+
+### 0b. Deploy order risk
+- If the backend gains new fields the frontend depends on, note the required deploy order (backend first).
+- If the frontend can crash when a field is missing (e.g. `obj.newField.method()` without null guard), add a guard and note it.
+- Check: are null guards in place for every new field accessed without optional chaining?
+
+### 0c. Optional prop additions
+- New React props should always be optional (`prop?: Type`) with a sensible default.
+- Verify no existing call sites pass a now-removed prop (TypeScript will catch this, but confirm).
+
+### 0d. Feature flags
+- Is the change behind a feature flag? If yes: is the flag documented in the feature doc and in ARCHITECTURE.md?
+- If not behind a flag and it's a significant user-facing change: should it be?
+
+### 0e. Database / migration
+- Any schema changes? If yes: is there a migration file? Does it run safely on existing data (no NOT NULL without default on large tables, no missing indexes, no data loss)?
+
+**Output**: Backwards compat verdict per category:
+```
+| Area          | Status | Notes |
+|---------------|--------|-------|
+| API fields    | Safe   | Two new additive fields; null-guarded |
+| Deploy order  | BE→FE  | Frontend crashes if BE is old without guard |
+| Props         | Safe   | All new props are optional with defaults |
+| Feature flags | N/A    | Behind SHOW_HIGHLIGHT_CONNECTIONS |
+| DB/migrations | N/A    | No schema changes |
+```
+
+---
+
 ## Phase 1 · Scope (what changed?)
 
 Understand the full surface area of this branch before verifying anything.
@@ -193,6 +231,23 @@ the actual code and evaluate it against these criteria.
 - Complex logic should have a brief comment explaining *why*, not *what*.
 - Public component interfaces (props) should be self-documenting via types.
 - Do NOT add JSDoc to every function — only where the name isn't enough.
+
+### 4d. Feature doc check
+- For every user-facing change in this branch, is there a corresponding `docs/features/<name>.md`?
+- Read the existing feature doc (if any) — update any section that is now stale:
+  - Prerequisites, test steps, keyboard shortcuts, tips
+  - Flag behaviors that have changed (e.g. "shared tags required" → "no longer required")
+- If no feature doc exists and the change is user-visible, create one now.
+- Feature docs are written for users, not engineers — no internal names, no code references.
+
+### 4e. Impact report
+- Does `docs/changelog/` have an entry for the work done in this branch?
+- If not, create `docs/changelog/YYYY-MM-DD-<topic>.md` with:
+  - What shipped (user-visible behavior, in plain language)
+  - API changes (additive, breaking, or none)
+  - Component/file change table
+  - Deploy order note (if relevant)
+- Keep it factual — this is a record, not marketing copy.
 
 **Output**: List of doc changes made or "docs are current, no changes needed."
 
