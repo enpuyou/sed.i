@@ -69,18 +69,19 @@ generate-types:
 
 # ── Safari extension ───────────────────────────────────────────────────────────
 
-SAFARI_RESOURCES = safari-extension/sed.i/sed.i Extension/Resources
-SAFARI_PROJECT   = safari-extension/sed.i/sed.i.xcodeproj
+SAFARI_RESOURCES     = safari-extension/sed.i/sed.i Extension/Resources
+SAFARI_PROJECT       = safari-extension/sed.i/sed.i.xcodeproj
+SEDI_SAFARI_RESOURCES = $(HOME)/cmpsc/projects/sedi-safari/sed.i/sed.i Extension/Resources
 
-## Sync Chrome extension changes into Safari Resources folder
+## Sync safari-extension/ Resources into the sedi-safari repo
 safari-sync:
-	rsync -a --delete extension/background/ "$(SAFARI_RESOURCES)/background/"
-	rsync -a --delete extension/content/    "$(SAFARI_RESOURCES)/content/"
-	rsync -a --delete extension/icons/      "$(SAFARI_RESOURCES)/icons/"
-	rsync -a --delete extension/lib/        "$(SAFARI_RESOURCES)/lib/"
-	rsync -a --delete extension/popup/      "$(SAFARI_RESOURCES)/popup/"
-	cp extension/manifest.json "$(SAFARI_RESOURCES)/manifest.json"
-	@echo "Synced extension/ → $(SAFARI_RESOURCES). Rebuild in Xcode (⌘B) to apply."
+	rsync -a --delete "$(SAFARI_RESOURCES)/background/" "$(SEDI_SAFARI_RESOURCES)/background/"
+	rsync -a --delete "$(SAFARI_RESOURCES)/content/"    "$(SEDI_SAFARI_RESOURCES)/content/"
+	rsync -a --delete "$(SAFARI_RESOURCES)/icons/"      "$(SEDI_SAFARI_RESOURCES)/icons/"
+	rsync -a --delete "$(SAFARI_RESOURCES)/lib/"        "$(SEDI_SAFARI_RESOURCES)/lib/"
+	rsync -a --delete "$(SAFARI_RESOURCES)/popup/"      "$(SEDI_SAFARI_RESOURCES)/popup/"
+	cp "$(SAFARI_RESOURCES)/manifest.json" "$(SEDI_SAFARI_RESOURCES)/manifest.json"
+	@echo "Synced safari-extension/ → sedi-safari repo. Rebuild in Xcode (⌘B) to apply."
 
 ## Open the Safari extension Xcode project
 safari-open:
