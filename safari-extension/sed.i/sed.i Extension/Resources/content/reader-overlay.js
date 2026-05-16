@@ -16,7 +16,7 @@
     document.documentElement.removeAttribute(ACTIVE_ATTR);
     document.getElementById('__sedi_reader__')?.remove();
     document.getElementById('__sedi_vars__')?.remove();
-    document.removeEventListener('keydown', window.__sediEscHandler__, true);
+    window.removeEventListener('keydown', window.__sediEscHandler__, true);
     if (window.__sediSpClickOutside__) { document.removeEventListener('click', window.__sediSpClickOutside__); window.__sediSpClickOutside__ = null; }
     window.__sediSpyCleanup__?.(); window.__sediSpyCleanup__ = null;
     return;
@@ -33,6 +33,8 @@
   let rs = { ...DEF };
   try { const s = sessionStorage.getItem(SETTINGS_KEY); if (s) rs = { ...DEF, ...JSON.parse(s) }; } catch {}
   function saveRS() { try { sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(rs)); } catch {} }
+
+  let focusCleanup = null;
 
   document.documentElement.setAttribute(ACTIVE_ATTR, '');
 
@@ -79,11 +81,12 @@
     :host(.sedi-w-narrow) { --rmw:512px; }
     :host(.sedi-w-wide)   { --rmw:768px; }
     :host(.sedi-closing)  { animation:__sedi_out__ 0.12s ease forwards; pointer-events:none; }
+    :host(:focus)         { outline:none; }
     ::selection { background:rgba(29,78,216,0.7); color:#fff; }
 
     /* Progress */
     #__sedi_pt__ { position:fixed;top:0;left:0;right:0;height:var(--prgh);background:var(--bds);z-index:3; }
-    #__sedi_pb__ { height:100%;width:0%;background:var(--prg);transition:width 150ms; }
+    #__sedi_pb__ { height:100%;width:100%;background:var(--prg);transform:scaleX(0);transform-origin:left;will-change:transform; }
 
     /* Navbar */
     #__sedi_nav__ { position:fixed;top:0;left:0;right:0;z-index:2;transform:translateY(0);transition:transform 300ms;padding-top:var(--prgh);background:var(--bg); }
@@ -438,10 +441,16 @@
   // Append shadow host to original body
   document.body.appendChild(host);
 
+  // Make host focusable so Safari delivers keydown to it directly.
+  // Without tabIndex, keyboard events go to whichever page element last had
+  // focus — unreliable once page content is hidden by display:none.
+  host.tabIndex = -1;
+  host.focus({ preventScroll: true });
+
   // ── Scroll tracking on the host element ───────────────────────────────────
   const updateProg = () => {
     const dh = host.scrollHeight - host.clientHeight;
-    pb.style.width = (dh > 0 ? Math.min(100, (host.scrollTop / dh) * 100) : 0) + '%';
+    pb.style.transform = `scaleX(${dh > 0 ? Math.min(1, host.scrollTop / dh) : 0})`;
   };
   let lastY = host.scrollTop;
   const onScroll = () => {
@@ -511,7 +520,6 @@
   }
 
   // ── Focus mode ────────────────────────────────────────────────────────────
-  let focusCleanup = null;
   function setupFocusMode() {
     const sel = '#reader-content p,#reader-content h2,#reader-content h3,#reader-content h4,#reader-content blockquote,#reader-content ul,#reader-content ol';
     const paras = Array.from(shadow.querySelectorAll(sel));
@@ -542,14 +550,18 @@
   function teardownFocusMode() { focusCleanup?.(); focusCleanup = null; }
 
   // ── Esc ───────────────────────────────────────────────────────────────────
-  window.__sediEscHandler__ = e => { if (e.key === 'Escape') toggle(); };
-  document.addEventListener('keydown', window.__sediEscHandler__, true);
+  // Primary: host keydown — fires when host holds focus (normal case after focus() call).
+  // Fallback: window capture — fires when focus moves to a child element in the shadow.
+  window.__sediEscHandler__ = e => { if (e.key === 'Escape') { e.stopPropagation(); toggle(); } };
+  host.addEventListener('keydown', window.__sediEscHandler__);
+  window.addEventListener('keydown', window.__sediEscHandler__, true);
 
   // ── Toggle (close) ────────────────────────────────────────────────────────
   function toggle() {
     if (host.classList.contains('sedi-closing')) return;
     teardownFocusMode();
-    document.removeEventListener('keydown', window.__sediEscHandler__, true);
+    host.removeEventListener('keydown', window.__sediEscHandler__);
+    window.removeEventListener('keydown', window.__sediEscHandler__, true);
     if (window.__sediSpClickOutside__) { document.removeEventListener('click', window.__sediSpClickOutside__); window.__sediSpClickOutside__ = null; }
     window.__sediSpyCleanup__?.(); window.__sediSpyCleanup__ = null;
 
