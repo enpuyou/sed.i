@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     # Bedrock implementation lives in app/core/llm_client.py — swap here, no call-site changes.
     LLM_PROVIDER: str = "openai"
 
+    # AWS / Bedrock (Layer 4)
+    # Required when LLM_PROVIDER="bedrock". Leave empty when using OpenAI.
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_REGION: str = "us-east-1"
+    # Model IDs — override to pin a specific version
+    BEDROCK_FAST_MODEL: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    BEDROCK_SMART_MODEL: str = "us.anthropic.claude-sonnet-4-5-20251001-v1:0"
+
     # Braintrust — LLM observability (Layer 1)
     # Leave empty to disable tracing (safe in dev/test without an account).
     BRAINTRUST_API_KEY: str = ""

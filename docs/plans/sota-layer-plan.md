@@ -11,10 +11,10 @@ Reference doc with full rationale for each choice: [sedi-sota-stack-plan](sedi-s
 
 | Layer | Name | Status |
 |---|---|---|
-| 0 | LLMClient interface + ADRs | ☐ Not started |
-| 1 | Braintrust LLM observability | ☐ Not started |
-| 2 | OTEL + Sentry + Grafana | ☐ Not started |
-| 3 | Eval harness | ☐ Not started |
+| 0 | LLMClient interface + ADRs | ✓ Done |
+| 1 | Braintrust LLM observability | ✓ Done (bundled with Layer 0) |
+| 2 | OTEL + Sentry + Grafana | ✓ Done |
+| 3 | Eval harness | ✓ Done |
 | 4 | Bedrock + provider abstraction | ☐ Not started |
 | 5 | Reranker | ☐ Not started |
 | 6 | S3 + object storage | ☐ Not started |

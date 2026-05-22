@@ -1,0 +1,10 @@
+name: sedi-infra
+description: sed.i AWS infrastructure — Bedrock IAM, S3 (Layer 6), future resources
+runtime:
+  name: python
+  options:
+    toolchain: poetry
+    virtualenv: .venv
+config:
+  aws:region:
+    default: us-east-1
