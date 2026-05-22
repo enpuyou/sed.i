@@ -15,7 +15,7 @@ Reference doc with full rationale for each choice: [sedi-sota-stack-plan](sedi-s
 | 1 | Braintrust LLM observability | ✓ Done (bundled with Layer 0) |
 | 2 | OTEL + Sentry + Grafana | ✓ Done |
 | 3 | Eval harness | ✓ Done |
-| 4 | Bedrock + provider abstraction | ☐ Not started |
+| 4 | Bedrock + provider abstraction | ✓ Done |
 | 5 | Reranker | ☐ Not started |
 | 6 | S3 + object storage | ☐ Not started |
 | 7 | Temporal + research agent | ☐ Not started |

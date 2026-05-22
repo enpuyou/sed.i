@@ -510,6 +510,51 @@ def get_content_item_full(
     return item
 
 
+@router.get("/{item_id}/pdf-url")
+def get_pdf_presigned_url(
+    item_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return a short-lived presigned S3 URL for downloading the original PDF.
+
+    Returns 404 if the item doesn't exist or has no S3-stored PDF.
+    Returns 503 if S3 is not configured.
+    """
+    from app.core.storage import presign_url
+
+    item = (
+        db.query(ContentItem)
+        .filter(
+            ContentItem.id == item_id,
+            ContentItem.user_id == current_user.id,
+            ContentItem.deleted_at.is_(None),
+        )
+        .first()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Content item not found"
+        )
+
+    if not item.s3_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No PDF stored for this item",
+        )
+
+    url = presign_url(item.s3_key)
+    if url is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Object storage not configured",
+        )
+
+    return {"url": url}
+
+
 @router.patch("/{item_id}", response_model=ContentItemResponse)
 async def update_content_item(
     item_id: UUID,

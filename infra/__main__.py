@@ -6,7 +6,10 @@ Layer 4: Bedrock IAM
   - sedi-bedrock-dev: credentials for local development
   - Budget alarm at $20/month (set before enabling Bedrock traffic)
 
-Layer 6 (not yet): S3 bucket for PDFs and media assets.
+Layer 6: S3 object storage
+  - Private bucket for PDFs and media, SSE-S3 encrypted
+  - Lifecycle: Standard → IA after 90 days → Glacier after 365
+  - App IAM user extended with s3:PutObject / s3:GetObject on the bucket
 
 Run:
     cd infra && pulumi up
@@ -119,17 +122,108 @@ aws.budgets.Budget(
     ],
 )
 
+# ── S3 bucket (Layer 6) ───────────────────────────────────────────────────────
+bucket = aws.s3.BucketV2(
+    "sedi-assets",
+    bucket=f"sedi-assets-{env}",
+    tags={"project": "sedi", "env": env},
+)
+
+# Block all public access — content is served only via presigned URLs
+aws.s3.BucketPublicAccessBlock(
+    "sedi-assets-block-public",
+    bucket=bucket.id,
+    block_public_acls=True,
+    block_public_policy=True,
+    ignore_public_acls=True,
+    restrict_public_buckets=True,
+)
+
+# SSE-S3 encryption (no KMS cost, sufficient for this data sensitivity)
+aws.s3.BucketServerSideEncryptionConfigurationV2(
+    "sedi-assets-sse",
+    bucket=bucket.id,
+    rules=[
+        aws.s3.BucketServerSideEncryptionConfigurationV2RuleArgs(
+            apply_server_side_encryption_by_default=aws.s3.BucketServerSideEncryptionConfigurationV2RuleApplyServerSideEncryptionByDefaultArgs(
+                sse_algorithm="AES256",
+            ),
+        )
+    ],
+)
+
+# Lifecycle: Standard → IA after 90 days → Glacier after 365 days
+aws.s3.BucketLifecycleConfigurationV2(
+    "sedi-assets-lifecycle",
+    bucket=bucket.id,
+    rules=[
+        aws.s3.BucketLifecycleConfigurationV2RuleArgs(
+            id="tiered-storage",
+            status="Enabled",
+            transitions=[
+                aws.s3.BucketLifecycleConfigurationV2RuleTransitionArgs(
+                    days=90,
+                    storage_class="STANDARD_IA",
+                ),
+                aws.s3.BucketLifecycleConfigurationV2RuleTransitionArgs(
+                    days=365,
+                    storage_class="GLACIER",
+                ),
+            ],
+        )
+    ],
+)
+
+# Extend bedrock policy to also cover S3 access
+s3_policy_doc = aws.iam.get_policy_document(
+    statements=[
+        aws.iam.GetPolicyDocumentStatementArgs(
+            effect="Allow",
+            actions=["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+            resources=[bucket.arn.apply(lambda arn: f"{arn}/*")],
+        ),
+        aws.iam.GetPolicyDocumentStatementArgs(
+            effect="Allow",
+            actions=["s3:ListBucket"],
+            resources=[bucket.arn],
+        ),
+    ]
+)
+
+s3_policy = aws.iam.Policy(
+    "sedi-s3-policy",
+    name=f"sedi-s3-{env}",
+    description="S3 read/write access for sed.i assets bucket",
+    policy=s3_policy_doc.json,
+)
+
+aws.iam.UserPolicyAttachment(
+    "sedi-bedrock-app-s3",
+    user=app_user.name,
+    policy_arn=s3_policy.arn,
+)
+
+aws.iam.UserPolicyAttachment(
+    "sedi-bedrock-dev-s3",
+    user=dev_user.name,
+    policy_arn=s3_policy.arn,
+)
+
 # ── Outputs ───────────────────────────────────────────────────────────────────
 # Access keys are sensitive — export as secrets so Pulumi encrypts them in state.
 pulumi.export("app_access_key_id", app_access_key.id)
 pulumi.export("app_secret_access_key", pulumi.Output.secret(app_access_key.secret))
 pulumi.export("dev_access_key_id", dev_access_key.id)
 pulumi.export("dev_secret_access_key", pulumi.Output.secret(dev_access_key.secret))
+pulumi.export("s3_bucket_name", bucket.id)
 pulumi.export(
     "env_snippet",
-    pulumi.Output.all(
-        app_access_key.id, app_access_key.secret
-    ).apply(
-        lambda args: f"AWS_ACCESS_KEY_ID={args[0]}\nAWS_SECRET_ACCESS_KEY={args[1]}\nLLM_PROVIDER=bedrock"
+    pulumi.Output.all(app_access_key.id, app_access_key.secret, bucket.id).apply(
+        lambda args: (
+            f"AWS_ACCESS_KEY_ID={args[0]}\n"
+            f"AWS_SECRET_ACCESS_KEY={args[1]}\n"
+            f"AWS_S3_BUCKET={args[2]}\n"
+            f"LLM_PROVIDER=bedrock"
+        )
     ),
 )

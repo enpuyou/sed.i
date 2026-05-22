@@ -458,6 +458,17 @@ def extract_metadata(self, item_id: str):
 
         if content_type == "pdf":
             _process_pdf(item, resp.content, url)
+            # Upload raw bytes to S3 so the original PDF is retrievable later.
+            # No-op when AWS_S3_BUCKET is not configured.
+            from app.core.storage import upload_pdf
+
+            s3_key = upload_pdf(
+                user_id=str(item.user_id),
+                item_id=str(item.id),
+                pdf_bytes=resp.content,
+            )
+            if s3_key:
+                item.s3_key = s3_key
             item.processing_status = "completed"
             self.db.commit()
             logger.info(f"PDF extraction complete for {url}")

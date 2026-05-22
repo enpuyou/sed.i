@@ -77,6 +77,9 @@ class ContentItem(Base):
     read_at = Column(DateTime(timezone=True))
     deleted_at = Column(DateTime(timezone=True), index=True)  # Soft delete
 
+    # Object storage (Layer 6) — S3 key for raw PDF bytes, null when not stored
+    s3_key = Column(Text, nullable=True)
+
     # Processing status
     processing_status = Column(String(50), default="pending", index=True)
     processing_error = Column(Text)

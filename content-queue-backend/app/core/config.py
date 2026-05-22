@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     BEDROCK_FAST_MODEL: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     BEDROCK_SMART_MODEL: str = "us.anthropic.claude-sonnet-4-5-20251001-v1:0"
 
+    # S3 object storage (Layer 6)
+    # Leave empty to disable S3 upload (PDFs processed in-memory only, bytes discarded).
+    AWS_S3_BUCKET: str = ""
+    # Presigned URL expiry in seconds (default 1 hour)
+    AWS_S3_PRESIGN_EXPIRY: int = 3600
+
     # Braintrust — LLM observability (Layer 1)
     # Leave empty to disable tracing (safe in dev/test without an account).
     BRAINTRUST_API_KEY: str = ""
