@@ -1,8 +1,11 @@
 """
-Module-scoped fixtures for eval tests.
+Fixtures for eval tests.
 
-Evals need articles to persist across all test methods in a class,
-so we use module scope instead of function scope.
+Module-scoped fixtures (db_module, user_module) keep articles seeded across
+all methods in a class (needed for search/hybrid evals).
+
+Function-scoped fixtures (db, user, other_user) give MCP contract tests a
+clean slate per test — same pattern as the main conftest.
 """
 
 import pytest
@@ -11,6 +14,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
+import app.models  # noqa: F401
 from app.models.user import User
 from app.core.security import get_password_hash
 
@@ -91,4 +95,61 @@ def user_module(db_module):
     db_module.add(u)
     db_module.commit()
     db_module.refresh(u)
+    return u
+
+
+# ── Function-scoped fixtures for MCP contract tests ──────────────────────────
+# These mirror the main conftest pattern so MCP tests get a clean DB per test.
+
+
+@pytest.fixture(scope="function")
+def db(setup_database):
+    from tests.conftest import TestingSessionLocal, engine
+
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = TestingSessionLocal(bind=connection)
+    nested = connection.begin_nested()
+
+    @event.listens_for(session, "after_transaction_end")
+    def end_savepoint(session, trans):
+        nonlocal nested
+        if not nested.is_active:
+            nested = connection.begin_nested()
+
+    try:
+        yield session
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+@pytest.fixture(scope="function")
+def user(db):
+    u = User(
+        email="mcp_eval_user@example.com",
+        username="mcp_eval_user",
+        hashed_password=get_password_hash("password"),
+        full_name="MCP Eval User",
+        is_active=True,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@pytest.fixture(scope="function")
+def other_user(db):
+    u = User(
+        email="mcp_eval_other@example.com",
+        username="mcp_eval_other",
+        hashed_password=get_password_hash("password"),
+        full_name="Other MCP Eval User",
+        is_active=True,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
     return u

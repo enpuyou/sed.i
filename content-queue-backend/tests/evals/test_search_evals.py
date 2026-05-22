@@ -62,19 +62,12 @@ def eval_articles_with_embeddings(eval_articles, db_module):
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set — skipping embedding-dependent evals")
 
-    from openai import OpenAI
-    from app.core.config import settings
-
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    from app.core.llm_client import llm_client
 
     for key, article in eval_articles.items():
         text = f"{article.title}\n\n{article.description}\n\n{article.full_text}"
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text,
-            encoding_format="float",
-        )
-        article.embedding = response.data[0].embedding
+        result = llm_client.embed(text)
+        article.embedding = result.embeddings[0]
     db_module.commit()
     return eval_articles
 
