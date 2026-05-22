@@ -1368,10 +1368,12 @@ h4:hover .heading-anchor {
 /* Blockquotes - Editorial style */
 #reader-content blockquote {
   margin: 1.5em 0 !important;
-  padding: 0.75em 1.25em !important;
-  border-left: 3px solid var(--color-accent) !important;
+  padding: 1em 1.75em !important;
+  border: none !important;
+  border-left: none !important;
   background: var(--color-bg-secondary) !important;
-  font-style: italic !important;
+  font-style: normal !important;
+  font-size: 1.05em !important;
   color: var(--color-text-secondary) !important;
 }
 
@@ -1417,15 +1419,43 @@ h4:hover .heading-anchor {
   border-radius: 4px !important;
   display: block !important;
   margin: 0 auto !important;
+  cursor: zoom-in !important;
+  content-visibility: auto !important;
 }
 
 #reader-content figcaption {
-  margin-top: 0.75em !important;
-  font-size: 0.875rem !important;
+  margin-top: 0.5em !important;
+  font-size: 0.8rem !important;
   color: var(--color-text-muted) !important;
-  font-style: italic !important;
+  font-style: normal !important;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace !important;
   text-align: left !important;
   padding: 0 !important;
+}
+
+/* Image gallery — adjacent figures laid out as a horizontal grid */
+#reader-content .sedi-gallery {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+  gap: 6px !important;
+  margin: 2em 0 !important;
+}
+
+#reader-content .sedi-gallery figure {
+  margin: 0 !important;
+}
+
+#reader-content .sedi-gallery img {
+  width: 100% !important;
+  height: 200px !important;
+  object-fit: cover !important;
+  border-radius: 3px !important;
+}
+
+#reader-content .sedi-gallery figcaption {
+  grid-column: 1 / -1 !important;
+  margin-top: 0.4em !important;
 }
 
 /* Adaptive spacing - reduce gaps between related elements */
@@ -1676,8 +1706,14 @@ h4:hover .heading-anchor {
 
 /* Text swap: fades in when React re-renders with new key */
 @keyframes text-swap {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-text-swap {
@@ -1696,8 +1732,14 @@ h4:hover .heading-anchor {
 }
 
 @keyframes demo-card-in {
-  from { opacity: 0; transform: translateY(32px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Fallback: if browser doesn't support scroll-driven animations, just show the cards */

@@ -7,6 +7,37 @@ a reader, highlights, search, and a writing workspace. Domain vocabulary: **CONT
 
 ---
 
+## Cold start
+
+Before doing anything else, orient without searching:
+
+1. **Check for a handoff doc** — `ls -lt docs/handoffs/ 2>/dev/null | head -3`. If one exists, read the most recent one for session continuity before touching any code.
+2. **Use the file map below** — don't grep/find to locate common files.
+3. **Git state is in your system context** — use it, don't re-fetch.
+
+## Key file paths
+
+| Working on | Files |
+|------------|-------|
+| Reader / article view | `frontend/components/Reader.tsx`, `frontend/components/ReaderArticle.tsx` |
+| Dashboard / queue | `frontend/app/dashboard/page.tsx`, `frontend/components/ContentList.tsx`, `frontend/components/ContentItem.tsx` |
+| Extension | `extension/content/content.js`, `extension/popup/popup.js`, `extension/background/service_worker.js` |
+| Extension reader overlay | `extension/content/reader-overlay.js` |
+| Safari extension | `safari-extension/sed.i/sed.i Extension/Resources/` (mirror of `extension/`) |
+| Connections panel | `frontend/components/ConnectionsPanel.tsx` |
+| Shared UI components | `frontend/components/InlineError.tsx`, `frontend/components/EmptyState.tsx`, `frontend/components/Navbar.tsx` |
+| Auth & current user | `content-queue-backend/app/core/deps.py`, `content-queue-backend/app/api/auth.py` |
+| API routes | `content-queue-backend/app/api/<name>.py` (public-only routes: `app/api/endpoints/public.py`) |
+| DB models | `content-queue-backend/app/models/<name>.py` |
+| Celery tasks | `content-queue-backend/app/tasks/<name>.py` |
+| Search engine | `content-queue-backend/app/core/hybrid_search.py`, `content-queue-backend/app/api/search.py` |
+| DB migrations | `content-queue-backend/alembic/versions/` |
+| Feature flags | `frontend/lib/flags.ts` |
+| API client | `frontend/lib/api.ts` |
+| Reading settings | `frontend/contexts/ReadingSettingsContext.tsx` |
+
+---
+
 ## Run commands
 
 ```bash
@@ -67,7 +98,7 @@ Use skills in this order for significant work:
 | Handoff   | `/handoff`               | **Auto-triggered** when context is getting long or session is ending mid-work — do not wait for user to ask |
 | Zoom      | `/zoom-out`              | Unfamiliar code — get a module map before editing  |
 
-Plans → `docs/plans/`. Retros → `docs/retros/`.
+Plans → `docs/plans/`. Retros → `docs/retros/`. **Handoffs → `docs/handoffs/`** (read these at cold start for session continuity).
 
 ### Automatic handoff rule
 

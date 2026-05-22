@@ -16,12 +16,11 @@ import logging
 import re
 from uuid import UUID
 
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
-from app.core.config import settings
 from app.core.database import SessionLocal
+from app.core.llm_client import llm_client
 from app.models.chunk import ContentChunk
 from app.models.content import ContentItem
 from app.tasks.base import DatabaseTask, html_to_plain
@@ -167,13 +166,8 @@ def generate_chunk_embeddings(content_item_id: str, db: Session | None = None) -
         ]
 
         # Batch embed all chunks in one API call
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=texts_to_embed,
-            encoding_format="float",
-        )
-        embeddings = [e.embedding for e in response.data]
+        result = llm_client.embed(texts_to_embed)
+        embeddings = result.embeddings
 
         # Delete existing chunks first (idempotent)
         db.query(ContentChunk).filter(ContentChunk.content_item_id == item.id).delete()

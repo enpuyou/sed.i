@@ -10,13 +10,12 @@ Dispatch: generate_embedding.delay(content_item_id)
 """
 
 from app.core.celery_app import celery_app
-from app.core.config import settings
+from app.core.llm_client import llm_client
 from app.models.content import ContentItem
 from app.models.highlight import Highlight
 from app.tasks.base import DatabaseTask, html_to_plain
 from uuid import UUID
 import logging
-from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -89,14 +88,9 @@ def generate_embedding(self, content_item_id: str):
             else:
                 text_to_embed = combined_text
 
-        # Generate embedding using OpenAI
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.embeddings.create(
-            model="text-embedding-3-small", input=text_to_embed, encoding_format="float"
-        )
-
-        # Extract embedding vector
-        embedding = response.data[0].embedding
+        # Generate embedding
+        result = llm_client.embed(text_to_embed)
+        embedding = result.embeddings[0]
 
         # Store in database
         item.embedding = embedding
@@ -185,18 +179,12 @@ def generate_highlight_embeddings_batch(self, user_id: str):
             logger.info(f"No valid highlight text to embed for user {user_id}")
             return {"user_id": user_id, "count": 0, "status": "completed"}
 
-        # Batch API call: embed all texts at once
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Batch embed all texts at once
         texts_to_embed = [text for _, text in embed_tasks]
-
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=texts_to_embed,
-            encoding_format="float",
-        )
+        result = llm_client.embed(texts_to_embed)
 
         # Update highlights with embeddings
-        embeddings_map = {i: emb.embedding for i, emb in enumerate(response.data)}
+        embeddings_map = {i: emb for i, emb in enumerate(result.embeddings)}
         embedded_count = 0
 
         for idx, (highlight_id, _) in enumerate(embed_tasks):

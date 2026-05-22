@@ -17,13 +17,13 @@ import json
 import time
 from uuid import UUID
 
-from openai import OpenAI
 from sqlalchemy import func, text as sa_text
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.core.llm_client import llm_client
 from app.models.content import ContentItem
 from app.models.tag_embedding import TagEmbedding
 from app.tasks.base import DatabaseTask, html_to_plain
@@ -132,15 +132,10 @@ def upsert_tag_embeddings(labels: list[str], db: Session | None = None) -> None:
         if not new_labels:
             return
 
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        resp = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=new_labels,
-            encoding_format="float",
-        )
+        result = llm_client.embed(new_labels)
 
-        for label, data in zip(new_labels, resp.data):
-            row = TagEmbedding(label=label, embedding=data.embedding)
+        for label, embedding in zip(new_labels, result.embeddings):
+            row = TagEmbedding(label=label, embedding=embedding)
             db.merge(row)  # upsert on unique label
 
         db.commit()
@@ -274,8 +269,6 @@ def generate_tags_with_llm(
     existing_tags are treated as the user's categorization context — preserved
     where meaningful, replaced where too generic.
     """
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-
     parts = [p for p in [title, description] if p]
     if full_text:
         plain = html_to_plain(full_text)
@@ -326,13 +319,13 @@ Article:
 Return JSON: {{"tags": ["domain1", "concept1", "concept2", ...]}} — 4-6 tags total."""
 
     try:
-        response = client.chat.completions.create(
+        chat_result = llm_client.chat(
+            messages=[{"role": "user", "content": prompt}],
             model="gpt-4o-mini",
             max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         )
-        content = response.choices[0].message.content
+        content = chat_result.content
         data = json.loads(content)
 
         if isinstance(data, list):

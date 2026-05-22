@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "LATEST=$(ls -lt docs/handoffs/*.md 2>/dev/null | awk 'NR==1{print $NF}'); if [ -n \"$LATEST\" ]; then echo \"[session-context] Latest handoff: $LATEST — read it at session start for continuity.\"; fi"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest*)",
+      "Bash(PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff*)",
+      "Bash(cd frontend && npx tsc*)",
+      "Bash(cd frontend && npx eslint*)",
+      "Bash(cd frontend && npx jest*)",
+      "Bash(cd frontend && npm run*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git status*)",
+      "Bash(ls*)",
+      "Bash(find . -*)"
+    ]
+  }
+}

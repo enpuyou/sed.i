@@ -10,7 +10,7 @@ Behaviors tested:
 - items with no full_text fall back to title + description without error
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from app.models.content import ContentItem
 from app.tasks.tagging import generate_tags, upsert_tag_embeddings
@@ -129,14 +129,14 @@ class TestUpsertTagEmbeddings:
 
     def test_writes_new_labels_to_db(self, db_session):
         """New labels are embedded and stored."""
-        mock_embedding = [0.2] * 1536
+        from app.core.llm_client import EmbedResult
 
-        with patch("app.tasks.tagging.OpenAI") as mock_openai_cls:
-            mock_client = MagicMock()
-            mock_openai_cls.return_value = mock_client
-            mock_client.embeddings.create.return_value = MagicMock(
-                data=[MagicMock(embedding=mock_embedding)]
-            )
+        mock_embedding = [0.2] * 1536
+        fake_result = EmbedResult(
+            embeddings=[mock_embedding], model="text-embedding-3-small", prompt_tokens=5
+        )
+
+        with patch("app.core.llm_client.llm_client.embed", return_value=fake_result):
             upsert_tag_embeddings(["deceptive alignment"], db=db_session)
 
         row = (
@@ -149,14 +149,14 @@ class TestUpsertTagEmbeddings:
 
     def test_is_idempotent(self, db_session):
         """Running twice with the same labels does not create duplicates."""
-        mock_embedding = [0.3] * 1536
+        from app.core.llm_client import EmbedResult
 
-        with patch("app.tasks.tagging.OpenAI") as mock_openai_cls:
-            mock_client = MagicMock()
-            mock_openai_cls.return_value = mock_client
-            mock_client.embeddings.create.return_value = MagicMock(
-                data=[MagicMock(embedding=mock_embedding)]
-            )
+        mock_embedding = [0.3] * 1536
+        fake_result = EmbedResult(
+            embeddings=[mock_embedding], model="text-embedding-3-small", prompt_tokens=5
+        )
+
+        with patch("app.core.llm_client.llm_client.embed", return_value=fake_result):
             upsert_tag_embeddings(["mesa-optimization"], db=db_session)
             upsert_tag_embeddings(["mesa-optimization"], db=db_session)
 
@@ -171,8 +171,6 @@ class TestUpsertTagEmbeddings:
         db_session.add(existing)
         db_session.commit()
 
-        with patch("app.tasks.tagging.OpenAI") as mock_openai_cls:
-            mock_client = MagicMock()
-            mock_openai_cls.return_value = mock_client
+        with patch("app.core.llm_client.llm_client.embed") as mock_embed:
             upsert_tag_embeddings(["existing concept"], db=db_session)
-            mock_client.embeddings.create.assert_not_called()
+            mock_embed.assert_not_called()

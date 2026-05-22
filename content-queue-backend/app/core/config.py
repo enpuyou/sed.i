@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     POSTHOG_API_KEY: str = ""
     POSTHOG_HOST: str = "https://us.i.posthog.com"
 
+    # LLM provider: "openai" | "bedrock"
+    # Bedrock implementation lives in app/core/llm_client.py — swap here, no call-site changes.
+    LLM_PROVIDER: str = "openai"
+
     model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
 
 

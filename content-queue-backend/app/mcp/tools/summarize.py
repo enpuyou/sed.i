@@ -11,14 +11,13 @@ from __future__ import annotations
 import hashlib
 import json
 
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
+from app.core.llm_client import llm_client
 from app.models.user import User
 from app.models.list import List, content_list_membership
 from app.models.content import ContentItem
 from app.models.draft import Draft
-from app.core.config import settings
 
 VALID_STYLES = {"overview", "themes", "gaps", "timeline"}
 
@@ -154,14 +153,8 @@ def summarize_list(
 
     messages = _build_prompt(articles, style, draft_content)
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        max_tokens=512,
-        temperature=0.5,
-    )
-    summary_text = response.choices[0].message.content
+    result = llm_client.chat(messages=messages, max_tokens=512, temperature=0.5)
+    summary_text = result.content
 
     result = {
         "summary": summary_text,

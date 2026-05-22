@@ -11,7 +11,7 @@ Behaviors tested:
 - contextual_prefix: prepends article title + chunk summary for richer embeddings
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from app.tasks.chunk_embeddings import split_article_into_chunks, contextual_prefix
 from app.models.content import ContentItem
@@ -127,11 +127,16 @@ class TestGenerateChunkEmbeddingsTask:
         db_session.refresh(item)
 
         fake_embedding = [0.1] * 1536
-        mock_response = MagicMock()
-        mock_response.data = [MagicMock(embedding=fake_embedding) for _ in range(20)]
+        from app.core.llm_client import EmbedResult
 
-        with patch("app.tasks.chunk_embeddings.OpenAI") as mock_openai:
-            mock_openai.return_value.embeddings.create.return_value = mock_response
+        def fake_embed(texts, **kwargs):
+            return EmbedResult(
+                embeddings=[fake_embedding] * len(texts),
+                model="text-embedding-3-small",
+                prompt_tokens=10,
+            )
+
+        with patch("app.core.llm_client.llm_client.embed", side_effect=fake_embed):
             generate_chunk_embeddings(str(item.id), db=db_session)
 
         chunks = (
@@ -161,11 +166,16 @@ class TestGenerateChunkEmbeddingsTask:
         db_session.refresh(item)
 
         fake_embedding = [0.1] * 1536
-        mock_response = MagicMock()
-        mock_response.data = [MagicMock(embedding=fake_embedding) for _ in range(5)]
+        from app.core.llm_client import EmbedResult
 
-        with patch("app.tasks.chunk_embeddings.OpenAI") as mock_openai:
-            mock_openai.return_value.embeddings.create.return_value = mock_response
+        def fake_embed(texts, **kwargs):
+            return EmbedResult(
+                embeddings=[fake_embedding] * len(texts),
+                model="text-embedding-3-small",
+                prompt_tokens=10,
+            )
+
+        with patch("app.core.llm_client.llm_client.embed", side_effect=fake_embed):
             generate_chunk_embeddings(str(item.id), db=db_session)
             count_after_first = (
                 db_session.query(ContentChunk)
@@ -199,9 +209,9 @@ class TestGenerateChunkEmbeddingsTask:
         db_session.commit()
         db_session.refresh(item)
 
-        with patch("app.tasks.chunk_embeddings.OpenAI") as mock_openai:
+        with patch("app.core.llm_client.llm_client.embed") as mock_embed:
             generate_chunk_embeddings(str(item.id), db=db_session)
-            mock_openai.return_value.embeddings.create.assert_not_called()
+            mock_embed.assert_not_called()
 
         chunks = (
             db_session.query(ContentChunk)

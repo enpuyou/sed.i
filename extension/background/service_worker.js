@@ -103,6 +103,21 @@ async function handleSave(payload) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
+    if (response.status === 409) {
+      try {
+        const body = JSON.parse(text);
+        const detail = typeof body.detail === 'string' ? JSON.parse(body.detail) : body.detail;
+        const err = new Error('ALREADY_SAVED');
+        err.code = 'ALREADY_SAVED';
+        err.isArchived = detail.is_archived;
+        throw err;
+      } catch (parseErr) {
+        if (parseErr.code === 'ALREADY_SAVED') throw parseErr;
+      }
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('AUTH_REQUIRED');
+    }
     throw new Error(`API error ${response.status}: ${text.slice(0, 200)}`);
   }
 
@@ -116,7 +131,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     case 'saveContent':
       handleSave(request.payload)
         .then((data) => sendResponse({ ok: true, data }))
-        .catch((err) => sendResponse({ ok: false, error: err.message }));
+        .catch((err) => sendResponse({ ok: false, error: err.message, code: err.code || null, isArchived: err.isArchived }));
       return true; // async
 
     case 'getToken':
