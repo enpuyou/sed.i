@@ -15,9 +15,68 @@ from app.models.content import ContentItem
 from app.models.highlight import Highlight
 from app.tasks.base import DatabaseTask, html_to_plain
 from uuid import UUID
+from sqlalchemy.orm import Session
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def generate_embedding_for_item(content_item_id: str, db: Session) -> dict:
+    """
+    Generate and store a semantic embedding for a ContentItem.
+
+    Plain function (no Celery, no downstream task triggers) — suitable for
+    calling from Prefect flows or other orchestrators that manage sequencing
+    themselves. The Celery task `generate_embedding` wraps this.
+    """
+    item = db.query(ContentItem).filter(ContentItem.id == UUID(content_item_id)).first()
+    if not item:
+        logger.error(f"Content item {content_item_id} not found")
+        return {"status": "not_found"}
+
+    if not item.full_text and not item.description:
+        logger.warning(f"No text to embed for {content_item_id}")
+        return {"status": "no_text"}
+
+    text_parts = []
+    if item.title:
+        text_parts.append(item.title)
+    if item.description:
+        text_parts.append(item.description)
+    if item.full_text:
+        text_parts.append(html_to_plain(item.full_text))
+
+    combined_text = "\n\n".join(text_parts)
+
+    try:
+        import tiktoken
+
+        encoding = tiktoken.get_encoding("cl100k_base")
+        tokens = encoding.encode(combined_text)
+        if len(tokens) > 8000:
+            tokens = tokens[:8000]
+            text_to_embed = encoding.decode(tokens)
+        else:
+            text_to_embed = combined_text
+    except Exception:
+        max_chars = 8000 * 4
+        text_to_embed = (
+            combined_text[:max_chars]
+            if len(combined_text) > max_chars
+            else combined_text
+        )
+
+    result = llm_client.embed(text_to_embed)
+    embedding = result.embeddings[0]
+    item.embedding = embedding
+    db.commit()
+
+    logger.info(f"Embedding generated for {item.original_url} (dim: {len(embedding)})")
+    return {
+        "content_item_id": content_item_id,
+        "embedding_dimension": len(embedding),
+        "status": "completed",
+    }
 
 
 @celery_app.task(base=DatabaseTask, bind=True, max_retries=3)

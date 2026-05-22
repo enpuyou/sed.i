@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # Presigned URL expiry in seconds (default 1 hour)
     AWS_S3_PRESIGN_EXPIRY: int = 3600
 
+    # Prefect pipeline observability (Layer 8)
+    # When true, Phase 2+ of ingestion runs as a Prefect flow instead of
+    # the Celery fire-and-forget chain. False by default — existing behavior unchanged.
+    PREFECT_ENABLED: bool = False
+
     # Braintrust — LLM observability (Layer 1)
     # Leave empty to disable tracing (safe in dev/test without an account).
     BRAINTRUST_API_KEY: str = ""

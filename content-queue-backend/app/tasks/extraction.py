@@ -493,8 +493,15 @@ def extract_metadata(self, item_id: str):
             # processing_status stays "processing" — full content not yet extracted
             self.db.commit()
             logger.info(f"Metadata extracted for {url}, queuing full content")
-            # Phase 2: extract full text + images as a separate task
-            extract_full_content.delay(item_id)
+            # Phase 2+: run as Prefect flow (observable) or Celery chain (default)
+            from app.core.config import settings
+
+            if settings.PREFECT_ENABLED:
+                from app.workflows.ingestion import ingest_content
+
+                ingest_content(item_id)
+            else:
+                extract_full_content.delay(item_id)
 
         return {"item_id": item_id, "status": "ok"}
 
@@ -1631,3 +1638,67 @@ def extract_pdf_content(pdf_bytes: bytes, url: str = "") -> str:
 
 def extract_pdf_metadata(pdf_bytes: bytes, url: str) -> dict:
     return {"content_type": "pdf", "title": "PDF Document"}
+
+
+def extract_full_content_for_item(item_id: str, db) -> None:
+    """
+    Phase 2 extraction as a plain function (no Celery, no downstream .delay()).
+
+    Re-fetches the URL and extracts full article HTML via trafilatura. Suitable
+    for calling from Prefect flows or other orchestrators.
+    """
+    item = db.query(ContentItem).filter(ContentItem.id == item_id).first()
+    if not item:
+        logger.error(f"ContentItem {item_id} not found")
+        return
+
+    if item.full_text and len(item.full_text.strip()) > 100:
+        logger.info(
+            f"Skipping extraction for {item_id} — pre-extracted content present"
+        )
+        return
+
+    if not item.title:
+        item.title = _extract_domain_from_url(item.original_url)
+
+    request_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Connection": "keep-alive",
+    }
+    resp = requests.get(item.original_url, timeout=30, headers=request_headers)
+    resp.raise_for_status()
+
+    downloaded = resp.content
+    xml_content = trafilatura.extract(
+        downloaded,
+        include_comments=False,
+        include_tables=True,
+        include_images=True,
+        include_links=True,
+        output_format="xml",
+        no_fallback=False,
+    )
+
+    html_text = None
+    if xml_content:
+        html_text = xml_to_html(xml_content, original_html=downloaded)
+
+    if not html_text or len(html_text.strip()) < 100:
+        plain_text = trafilatura.extract(
+            downloaded, include_comments=False, no_fallback=False
+        )
+        if plain_text:
+            html_text = _text_to_html_paragraphs(plain_text)
+
+    if html_text and len(html_text.strip()) > 100:
+        item.full_text = html_text
+        plain = BeautifulSoup(html_text, "html.parser").get_text()
+        words = plain.split()
+        item.word_count = len(words)
+        item.reading_time_minutes = max(1, round(len(words) / 200))
+        item.processing_error = None
+
+    item.processing_status = "completed"
+    db.commit()
