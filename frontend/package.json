@@ -24,6 +24,7 @@
     ]
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.53.1",
     "@tailwindcss/typography": "^0.5.19",
     "@tiptap/core": "^3.20.0",
     "@tiptap/extension-bubble-menu": "^3.20.0",

@@ -52,6 +52,12 @@ dependencies = [
     "posthog (>=3.0.0,<4.0.0)",
     "mcp (>=1.13.1,<2.0.0)",
     "braintrust (>=0.22.0,<0.23.0)",
+    "opentelemetry-sdk (>=1.42.1,<2.0.0)",
+    "opentelemetry-instrumentation-fastapi (>=0.63b1,<0.64)",
+    "opentelemetry-instrumentation-sqlalchemy (>=0.63b1,<0.64)",
+    "opentelemetry-instrumentation-celery (>=0.63b1,<0.64)",
+    "opentelemetry-exporter-otlp-proto-http (>=1.42.1,<2.0.0)",
+    "sentry-sdk[fastapi] (>=2.60.0,<3.0.0)",
 ]
 
 [tool.poetry]

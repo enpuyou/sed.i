@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     # Leave empty to disable tracing (safe in dev/test without an account).
     BRAINTRUST_API_KEY: str = ""
 
+    # Sentry — error tracking (Layer 2)
+    SENTRY_DSN: str = ""
+
+    # OpenTelemetry — infra tracing (Layer 2)
+    # OTLP endpoint for trace export (e.g. Grafana Cloud OTLP URL).
+    # Leave empty to use console exporter for local inspection.
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
+    OTEL_SERVICE_NAME: str = "sedi-backend"
+
     model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
 
 
