@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Bedrock implementation lives in app/core/llm_client.py — swap here, no call-site changes.
     LLM_PROVIDER: str = "openai"
 
+    # Braintrust — LLM observability (Layer 1)
+    # Leave empty to disable tracing (safe in dev/test without an account).
+    BRAINTRUST_API_KEY: str = ""
+
     model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
 
 

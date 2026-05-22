@@ -5,11 +5,16 @@ All tasks (embedding, tagging, summarization, chat) go through here.
 Provider is configured via settings.LLM_PROVIDER ("openai" | "bedrock").
 Adding a new provider means implementing it once here, not touching call sites.
 
+Observability: when BRAINTRUST_API_KEY is set, the OpenAI client is wrapped
+with braintrust.wrap_openai so every call is traced in Braintrust with cost,
+latency, input, and output. Leave the key empty to disable tracing (safe in
+dev and test).
+
 Usage:
     from app.core.llm_client import llm_client
 
-    embedding = await llm_client.embed("some text")
-    tags = llm_client.chat(model="tag", messages=[...])
+    result = llm_client.embed("some text")
+    result = llm_client.chat(messages=[...])
 """
 
 from __future__ import annotations
@@ -27,6 +32,22 @@ logger = logging.getLogger(__name__)
 # Default models per task — override via settings in future layers
 _EMBED_MODEL = "text-embedding-3-small"
 _CHAT_MODEL_FAST = "gpt-4o-mini"
+
+
+def _make_openai_client() -> OpenAI:
+    """Build an OpenAI client, wrapped with Braintrust tracing if configured."""
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    if settings.BRAINTRUST_API_KEY:
+        try:
+            import braintrust
+
+            braintrust.login(api_key=settings.BRAINTRUST_API_KEY)
+            client = braintrust.wrap_openai(client)
+            logger.info("Braintrust tracing enabled for LLM calls")
+        except Exception as e:
+            # Never block the app if Braintrust is misconfigured
+            logger.warning(f"Braintrust init failed, tracing disabled: {e}")
+    return client
 
 
 @dataclass
@@ -58,7 +79,7 @@ class LLMClient:
 
     def _openai(self) -> OpenAI:
         if self._openai_client is None:
-            self._openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            self._openai_client = _make_openai_client()
         return self._openai_client
 
     # ------------------------------------------------------------------
