@@ -27,6 +27,7 @@ class DatabaseTask(Task):
     def after_return(self, *args, **kwargs):
         if self._db is not None:
             self._db.close()
+            self._db = None
 
     @property
     def db(self) -> Session:
