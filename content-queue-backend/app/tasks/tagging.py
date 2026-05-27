@@ -13,7 +13,6 @@ Direct call (tests): generate_tags(content_item_id, db=session)
 """
 
 import logging
-import json
 import time
 from uuid import UUID
 
@@ -23,7 +22,8 @@ from sqlalchemy.orm import Session
 from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.llm_client import llm_client
+from app.core.llm_client import llm_client, TASK_TAGGING
+from app.core.llm_schemas import TagResponse
 from app.models.content import ContentItem
 from app.models.tag_embedding import TagEmbedding
 from app.tasks.base import DatabaseTask, html_to_plain
@@ -319,23 +319,13 @@ Article:
 Return JSON: {{"tags": ["domain1", "concept1", "concept2", ...]}} — 4-6 tags total."""
 
     try:
-        chat_result = llm_client.chat(
+        tag_response = llm_client.structured_chat(
             messages=[{"role": "user", "content": prompt}],
-            model="gpt-4o-mini",
+            response_model=TagResponse,
+            task=TASK_TAGGING,
             max_tokens=200,
-            response_format={"type": "json_object"},
         )
-        content = chat_result.content
-        data = json.loads(content)
-
-        if isinstance(data, list):
-            raw_tags = data
-        elif isinstance(data, dict):
-            raw_tags = next((v for v in data.values() if isinstance(v, list)), [])
-        else:
-            raw_tags = []
-
-        validated = [_validate_label(str(t)) for t in raw_tags[:6]]
+        validated = [_validate_label(str(t)) for t in tag_response.tags[:6]]
         return [t for t in validated if t]
 
     except Exception as e:

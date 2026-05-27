@@ -12,14 +12,17 @@ Requires OPENAI_API_KEY. Skipped automatically when key is absent.
 """
 
 import os
-import pytest
 
+import pytest
+from dotenv import load_dotenv
 from .tagging_eval_dataset import TAGGING_EXAMPLES
+
+load_dotenv()
 
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY"),
-    reason="OPENAI_API_KEY not set — skipping tagging evals",
+    not os.getenv("OPENAI_API_KEY") and not os.getenv("AWS_ACCESS_KEY_ID"),
+    reason="No LLM credentials set — skipping tagging evals",
 )
 
 

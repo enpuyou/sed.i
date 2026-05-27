@@ -1,28 +1,22 @@
 """
 LLMClient — single entry point for all LLM calls in sed.i.
 
-All tasks (embedding, tagging, summarization, chat) go through here.
-Provider is configured via settings.LLM_PROVIDER ("openai" | "bedrock").
-Adding a new provider means implementing it once here, not touching call sites.
+Embeddings always use EMBED_PROVIDER (default "openai") regardless of LLM_PROVIDER.
+Changing EMBED_PROVIDER after content is indexed requires a full re-embed migration.
 
-Observability: when BRAINTRUST_API_KEY is set, the OpenAI client is wrapped
-with braintrust.wrap_openai so every call is traced in Braintrust with cost,
-latency, input, and output. Leave the key empty to disable tracing (safe in
-dev and test).
+Chat routes to LLM_PROVIDER ("openai" | "bedrock") with per-task model selection.
+Failover: if chat fails on primary provider, retries on the other. Embed has no
+fallback — it fails loudly rather than producing vectors in a different space.
 
-Provider notes:
-- "openai": text-embedding-3-small for embeddings, gpt-4o-mini for fast chat.
-- "bedrock": Amazon Titan Embed v2 for embeddings (Anthropic doesn't offer
-  embeddings on Bedrock), Claude Haiku for fast chat, Claude Sonnet for
-  synthesis. Uses the Converse API (unified across Claude model families).
-  Failover: if primary provider errors, retries on the fallback provider.
+Observability: OpenAI calls are traced in Braintrust when BRAINTRUST_API_KEY is set.
+Bedrock calls are covered only by OTEL/Sentry task-level spans — no prompt-level detail.
 
 Usage:
-    from app.core.llm_client import llm_client
+    from app.core.llm_client import llm_client, TASK_TAGGING, TASK_SQL_GEN
 
     result = llm_client.embed("some text")
-    result = llm_client.chat(messages=[...])
-    result = llm_client.chat(messages=[...], prefer_quality=True)  # Sonnet
+    result = llm_client.chat(messages=[...], task=TASK_TAGGING)
+    result = llm_client.structured_chat(messages=[...], response_model=TagResponse, task=TASK_TAGGING)
 """
 
 from __future__ import annotations
@@ -32,18 +26,26 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel
 from openai import OpenAI
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Default OpenAI models
-_EMBED_MODEL = "text-embedding-3-small"
-_CHAT_MODEL_FAST = "gpt-4o-mini"
+# Task name constants — use these at call sites instead of raw strings
+TASK_TAGGING = "tagging"
+TASK_SUMMARY = "summary"
+TASK_MCP_SUMMARY = "mcp_summary"
+TASK_SQL_GEN = "sql_gen"
+TASK_INSIGHT = "insight"
 
-# Bedrock embed model — Titan Embed v2 (1536 dims, same as text-embedding-3-small)
-_BEDROCK_EMBED_MODEL = "amazon.titan-embed-text-v2:0"
+_EMBED_MODEL_OPENAI = "text-embedding-3-small"
+_EMBED_MODEL_BEDROCK = (
+    "amazon.titan-embed-text-v1"  # 1536-dim, compatible with existing schema
+)
+
+_US_BEDROCK_REGIONS = {"us-east-1", "us-east-2", "us-west-2"}
 
 
 def _make_openai_client() -> OpenAI:
@@ -54,19 +56,30 @@ def _make_openai_client() -> OpenAI:
             import braintrust
 
             braintrust.login(api_key=settings.BRAINTRUST_API_KEY)
+            braintrust.init_logger(project="sedi")
             client = braintrust.wrap_openai(client)
             logger.info("Braintrust tracing enabled for LLM calls")
         except Exception as e:
-            # Never block the app if Braintrust is misconfigured
             logger.warning(f"Braintrust init failed, tracing disabled: {e}")
     return client
 
 
 def _make_bedrock_client() -> Any:
-    """Build a boto3 bedrock-runtime client."""
+    """Build a boto3 bedrock-runtime client with connection timeouts."""
     import boto3
+    from botocore.config import Config
 
-    kwargs: dict[str, Any] = {"region_name": settings.AWS_REGION}
+    if settings.AWS_REGION not in _US_BEDROCK_REGIONS:
+        logger.warning(
+            f"AWS_REGION={settings.AWS_REGION} is outside US regions. "
+            "us.* Claude model IDs route across us-east-1/us-east-2/us-west-2 — "
+            "set AWS_REGION=us-east-2 to avoid cross-region latency."
+        )
+
+    kwargs: dict[str, Any] = {
+        "region_name": settings.AWS_REGION,
+        "config": Config(connect_timeout=5, read_timeout=30),
+    }
     if settings.AWS_ACCESS_KEY_ID:
         kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
         kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
@@ -92,13 +105,9 @@ class LLMClient:
     """
     Provider-agnostic LLM client.
 
-    LLM_PROVIDER="openai" (default): uses OpenAI for both embed and chat.
-    LLM_PROVIDER="bedrock": uses Amazon Titan Embed v2 for embeddings and
-      Claude Haiku/Sonnet via the Bedrock Converse API for chat.
-
-    Failover: if the configured provider raises, the client logs a warning
-    and retries on the other provider. This keeps the app running during
-    partial outages without silent data loss.
+    embed()          — always uses EMBED_PROVIDER (default "openai")
+    chat()           — routes to LLM_PROVIDER; task= selects the right model
+    structured_chat()— returns a validated Pydantic model; retries on parse failure
     """
 
     def __init__(self) -> None:
@@ -116,42 +125,38 @@ class LLMClient:
             self._bedrock_client = _make_bedrock_client()
         return self._bedrock_client
 
+    def _resolve_model(self, task: str, provider: str) -> str:
+        attr = f"LLM_MODEL_{task.upper()}_{provider.upper()}"
+        return getattr(settings, attr)
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     def embed(self, texts: list[str] | str, *, model: str | None = None) -> EmbedResult:
         """
-        Embed one or more texts. Returns EmbedResult with .embeddings list
-        in the same order as input. Single string input returns a list of one.
+        Embed one or more texts. Always uses EMBED_PROVIDER (default "openai").
+        No provider fallback — fails loudly rather than producing incompatible vectors.
         """
         if isinstance(texts, str):
             texts = [texts]
-
-        primary = self._provider
-        fallback = "bedrock" if primary == "openai" else "openai"
-
-        try:
-            return self._embed_with(primary, texts, model=model)
-        except Exception as e:
-            logger.warning(f"embed failed on {primary} ({e}), retrying on {fallback}")
-            return self._embed_with(fallback, texts, model=model)
+        return self._embed_with(settings.EMBED_PROVIDER, texts, model=model)
 
     def chat(
         self,
         messages: list[dict[str, str]],
         *,
         model: str | None = None,
+        task: str | None = None,
         max_tokens: int = 512,
         temperature: float = 0.0,
         response_format: dict[str, Any] | None = None,
-        prefer_quality: bool = False,
     ) -> ChatResult:
         """
         Single-turn or multi-turn chat completion.
 
-        prefer_quality=True selects Sonnet (Bedrock) or gpt-4o (OpenAI)
-        for tasks that need better reasoning (MCP synthesis, summaries).
+        task: routes to the configured model for that task (e.g. TASK_TAGGING, TASK_SQL_GEN).
+        model: explicit override, bypasses all routing.
         """
         primary = self._provider
         fallback = "bedrock" if primary == "openai" else "openai"
@@ -161,10 +166,10 @@ class LLMClient:
                 primary,
                 messages,
                 model=model,
+                task=task,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_format=response_format,
-                prefer_quality=prefer_quality,
             )
         except Exception as e:
             logger.warning(f"chat failed on {primary} ({e}), retrying on {fallback}")
@@ -172,11 +177,42 @@ class LLMClient:
                 fallback,
                 messages,
                 model=model,
+                task=task,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_format=response_format,
-                prefer_quality=prefer_quality,
             )
+
+    def structured_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        response_model: type[BaseModel],
+        task: str,
+        max_tokens: int = 512,
+        max_retries: int = 2,
+    ) -> BaseModel:
+        """
+        Chat that returns a validated Pydantic model instance.
+
+        OpenAI: uses instructor for retry-on-validation-error.
+        Bedrock: instruction-injection + manual retry loop with validation feedback.
+        """
+        if self._provider == "openai":
+            return self._openai_structured_chat(
+                messages,
+                response_model=response_model,
+                task=task,
+                max_tokens=max_tokens,
+                max_retries=max_retries,
+            )
+        return self._bedrock_structured_chat(
+            messages,
+            response_model=response_model,
+            task=task,
+            max_tokens=max_tokens,
+            max_retries=max_retries,
+        )
 
     # ------------------------------------------------------------------
     # Provider dispatch
@@ -186,10 +222,10 @@ class LLMClient:
         self, provider: str, texts: list[str], *, model: str | None
     ) -> EmbedResult:
         if provider == "openai":
-            return self._openai_embed(texts, model=model or _EMBED_MODEL)
+            return self._openai_embed(texts, model=model or _EMBED_MODEL_OPENAI)
         if provider == "bedrock":
-            return self._bedrock_embed(texts, model=model or _BEDROCK_EMBED_MODEL)
-        raise NotImplementedError(f"Unknown provider '{provider}'")
+            return self._bedrock_embed(texts, model=model or _EMBED_MODEL_BEDROCK)
+        raise NotImplementedError(f"Unknown embed provider '{provider}'")
 
     def _chat_with(
         self,
@@ -197,29 +233,31 @@ class LLMClient:
         messages: list[dict[str, str]],
         *,
         model: str | None,
+        task: str | None,
         max_tokens: int,
         temperature: float,
         response_format: dict[str, Any] | None,
-        prefer_quality: bool,
     ) -> ChatResult:
         if provider == "openai":
-            resolved_model = model or ("gpt-4o" if prefer_quality else _CHAT_MODEL_FAST)
+            resolved = model or (
+                self._resolve_model(task, "openai") if task else "gpt-4o-mini"
+            )
             return self._openai_chat(
                 messages,
-                model=resolved_model,
+                model=resolved,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_format=response_format,
             )
         if provider == "bedrock":
-            resolved_model = model or (
-                settings.BEDROCK_SMART_MODEL
-                if prefer_quality
-                else settings.BEDROCK_FAST_MODEL
+            resolved = model or (
+                self._resolve_model(task, "bedrock")
+                if task
+                else settings.LLM_MODEL_SUMMARY_BEDROCK
             )
             return self._bedrock_chat(
                 messages,
-                model=resolved_model,
+                model=resolved,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_format=response_format,
@@ -272,20 +310,42 @@ class LLMClient:
             completion_tokens=usage.completion_tokens,
         )
 
+    def _openai_structured_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        response_model: type[BaseModel],
+        task: str,
+        max_tokens: int,
+        max_retries: int,
+    ) -> BaseModel:
+        import instructor
+
+        model = self._resolve_model(task, "openai")
+        client = instructor.from_openai(self._openai())
+        return client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_model=response_model,
+            max_tokens=max_tokens,
+            max_retries=max_retries,
+        )
+
     # ------------------------------------------------------------------
     # Bedrock implementation
     # ------------------------------------------------------------------
 
     def _bedrock_embed(self, texts: list[str], *, model: str) -> EmbedResult:
         """
-        Embed via Amazon Titan Embed v2. Titan processes one text at a time,
+        Embed via Amazon Titan. Titan processes one text at a time,
         so we loop and aggregate — same interface as OpenAI batch endpoint.
+        Titan v1 is 1536-dim compatible with the existing pgvector schema.
         """
         client = self._bedrock()
         embeddings = []
         total_tokens = 0
         for text in texts:
-            body = json.dumps({"inputText": text, "dimensions": 1536})
+            body = json.dumps({"inputText": text})
             response = client.invoke_model(
                 modelId=model,
                 body=body,
@@ -315,8 +375,7 @@ class LLMClient:
         Chat via Bedrock Converse API (unified across all Claude families).
         system messages are extracted and passed in the system parameter.
         response_format={"type": "json_object"} is emulated by appending a
-        JSON instruction to the last user message — Bedrock doesn't have a
-        native JSON mode.
+        JSON instruction to the last user message — Bedrock has no native JSON mode.
         """
         client = self._bedrock()
 
@@ -330,33 +389,78 @@ class LLMClient:
             else:
                 converse_messages.append({"role": role, "content": [{"text": content}]})
 
-        # Emulate JSON mode by instruction injection
-        if response_format and response_format.get("type") == "json_object":
-            if converse_messages and converse_messages[-1]["role"] == "user":
-                last = converse_messages[-1]["content"][0]["text"]
-                converse_messages[-1]["content"][0]["text"] = (
-                    last + "\n\nRespond with valid JSON only."
-                )
+        json_mode = response_format and response_format.get("type") == "json_object"
+        if json_mode and converse_messages and converse_messages[-1]["role"] == "user":
+            last = converse_messages[-1]["content"][0]["text"]
+            converse_messages[-1]["content"][0]["text"] = (
+                last
+                + "\n\nOutput raw JSON only. No markdown, no code blocks, no explanation."
+            )
 
         kwargs: dict[str, Any] = {
             "modelId": model,
             "messages": converse_messages,
-            "inferenceConfig": {
-                "maxTokens": max_tokens,
-                "temperature": temperature,
-            },
+            "inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature},
         }
         if system_parts:
             kwargs["system"] = system_parts
 
         response = client.converse(**kwargs)
         output = response["output"]["message"]["content"][0]["text"]
+
+        if json_mode and output.startswith("```"):
+            output = output.split("\n", 1)[-1]
+            output = output.rsplit("```", 1)[0].strip()
+
         usage = response.get("usage", {})
         return ChatResult(
             content=output,
             model=model,
             prompt_tokens=usage.get("inputTokens", 0),
             completion_tokens=usage.get("outputTokens", 0),
+        )
+
+    def _bedrock_structured_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        response_model: type[BaseModel],
+        task: str,
+        max_tokens: int,
+        max_retries: int,
+    ) -> BaseModel:
+        """Structured output via Bedrock with manual retry-on-validation-error loop."""
+        model = self._resolve_model(task, "bedrock")
+        current_messages = list(messages)
+        last_error: Exception = ValueError("no attempts made")
+
+        for attempt in range(max_retries + 1):
+            chat_result = self._bedrock_chat(
+                current_messages,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+            )
+            try:
+                data = json.loads(chat_result.content)
+                return response_model.model_validate(data)
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    current_messages = current_messages + [
+                        {"role": "assistant", "content": chat_result.content},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Invalid response: {e}. "
+                                "Return valid JSON matching the required schema."
+                            ),
+                        },
+                    ]
+
+        raise ValueError(
+            f"structured_chat failed after {max_retries} retries: {last_error}"
         )
 
 

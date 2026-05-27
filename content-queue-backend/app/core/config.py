@@ -44,14 +44,29 @@ class Settings(BaseSettings):
     # Bedrock implementation lives in app/core/llm_client.py — swap here, no call-site changes.
     LLM_PROVIDER: str = "openai"
 
+    # Embed provider: always "openai" by default.
+    # Changing this requires re-embedding all content (vector space mismatch).
+    EMBED_PROVIDER: str = "openai"
+
+    # Per-task model overrides (all optional — defaults match the routing table in llm_client.py).
+    # OpenAI chat models
+    LLM_MODEL_TAGGING_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_SUMMARY_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_MCP_SUMMARY_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_SQL_GEN_OPENAI: str = "gpt-4o"
+    LLM_MODEL_INSIGHT_OPENAI: str = "gpt-4o-mini"
+    # Bedrock chat models
+    LLM_MODEL_TAGGING_BEDROCK: str = "amazon.nova-micro-v1:0"
+    LLM_MODEL_SUMMARY_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_MCP_SUMMARY_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_SQL_GEN_BEDROCK: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    LLM_MODEL_INSIGHT_BEDROCK: str = "amazon.nova-micro-v1:0"
+
     # AWS / Bedrock (Layer 4)
     # Required when LLM_PROVIDER="bedrock". Leave empty when using OpenAI.
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
-    AWS_REGION: str = "us-east-1"
-    # Model IDs — override to pin a specific version
-    BEDROCK_FAST_MODEL: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-    BEDROCK_SMART_MODEL: str = "us.anthropic.claude-sonnet-4-5-20251001-v1:0"
+    AWS_REGION: str = "us-east-2"
 
     # S3 object storage (Layer 6)
     # Leave empty to disable S3 upload (PDFs processed in-memory only, bytes discarded).
@@ -63,6 +78,8 @@ class Settings(BaseSettings):
     # When true, Phase 2+ of ingestion runs as a Prefect flow instead of
     # the Celery fire-and-forget chain. False by default — existing behavior unchanged.
     PREFECT_ENABLED: bool = False
+    PREFECT_API_URL: str = ""
+    PREFECT_API_KEY: str = ""
 
     # Braintrust — LLM observability (Layer 1)
     # Leave empty to disable tracing (safe in dev/test without an account).
@@ -75,7 +92,11 @@ class Settings(BaseSettings):
     # OTLP endpoint for trace export (e.g. Grafana Cloud OTLP URL).
     # Leave empty to use console exporter for local inspection.
     OTEL_EXPORTER_OTLP_ENDPOINT: str = ""
-    OTEL_SERVICE_NAME: str = "sedi-backend"
+    OTEL_EXPORTER_OTLP_HEADERS: str = ""
+    OTEL_EXPORTER_OTLP_PROTOCOL: str = ""
+    OTEL_RESOURCE_ATTRIBUTES: str = ""
+    OTEL_SERVICE_NAME: str = "sedi"
+    SEDI_ENV: str = "production"
 
     model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
 

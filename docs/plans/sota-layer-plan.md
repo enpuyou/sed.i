@@ -18,9 +18,9 @@ Reference doc with full rationale for each choice: [sedi-sota-stack-plan](sedi-s
 | 4 | Bedrock + provider abstraction | ✓ Done |
 | 5 | Reranker | ⏭ Deferred (decision: revisit when retrieval quality is the bottleneck) |
 | 6 | S3 + object storage | ✓ Done |
-| 7 | Temporal + research agent | ☐ Not started |
-| 8 | Prefect + pipeline observability | ☐ Not started |
-| 9 | Text-to-SQL MCP tool | ☐ Not started |
+| 7 | Temporal + research agent | ⏭ Deferred (largest layer — tackle after Layer 9) |
+| 8 | Prefect + pipeline observability | ✓ Done |
+| 9 | Text-to-SQL MCP tool | ✓ Done |
 | 10 | Secrets + docs polish | ☐ Not started |
 
 ---
