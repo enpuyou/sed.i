@@ -45,7 +45,7 @@ pulumi stack output env_snippet
 
 ```bash
 cd content-queue-backend
-PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/evals/test_mcp_evals.py -v
+PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/evals/test_mcp_evals.py -v
 ```
 
 ### Step 5: Compare eval scores

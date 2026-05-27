@@ -451,13 +451,10 @@ def _get_redis_client():
     return redis_lib.from_url(settings.REDIS_URL, socket_connect_timeout=1)
 
 
-def _call_openai_insight(
-    source_text: str, passages: list[str], article_title: str
-) -> str:
-    """Call gpt-4o-mini and return a one-sentence connection insight."""
-    from openai import OpenAI
+def _call_insight(source_text: str, passages: list[str], article_title: str) -> str:
+    """Return a one-sentence connection insight via llm_client."""
+    from app.core.llm_client import llm_client, TASK_INSIGHT
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
     passages_block = "\n".join(f"- {p}" for p in passages)
     prompt = (
         f'Highlight: "{source_text}"\n\n'
@@ -465,13 +462,13 @@ def _call_openai_insight(
         "In one sentence, explain the specific idea that connects the highlight to these passages. "
         "Be precise, not generic. Reply with only the sentence."
     )
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    result = llm_client.chat(
         messages=[{"role": "user", "content": prompt}],
+        task=TASK_INSIGHT,
         max_tokens=120,
         temperature=0.3,
     )
-    return response.choices[0].message.content.strip()
+    return result.content.strip()
 
 
 class InsightResponse(BaseModel):
@@ -535,7 +532,7 @@ def generate_highlight_insight(
     article_title = connected_article.title if connected_article else ""
 
     try:
-        insight = _call_openai_insight(source_highlight.text, passages, article_title)
+        insight = _call_insight(source_highlight.text, passages, article_title)
         if redis_client is not None:
             try:
                 redis_client.setex(cache_key, 604800, insight)  # 7 days

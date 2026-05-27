@@ -36,9 +36,11 @@ All LLM calls route through `app/core/llm_client.py::LLMClient`. The singleton `
 
 | Task | `LLM_PROVIDER=openai` | `LLM_PROVIDER=bedrock` |
 |---|---|---|
-| Embeddings | text-embedding-3-small (1536 dims) | Amazon Titan Embed v2 (1536 dims) |
-| Fast chat (tagging, summaries) | gpt-4o-mini | Claude Haiku 4.5 |
-| Quality chat (MCP synthesis) | gpt-4o (`prefer_quality=True`) | Claude Sonnet 4.5 (`prefer_quality=True`) |
+| Embeddings | text-embedding-3-small (1536 dims) | Always OpenAI (EMBED_PROVIDER=openai) |
+| Tagging | gpt-4o-mini (`LLM_MODEL_TAGGING_OPENAI`) | nova-micro (`LLM_MODEL_TAGGING_BEDROCK`) |
+| Summarization | gpt-4o-mini (`LLM_MODEL_SUMMARY_OPENAI`) | nova-lite (`LLM_MODEL_SUMMARY_BEDROCK`) |
+| SQL generation | gpt-4o (`LLM_MODEL_SQL_GEN_OPENAI`) | claude-sonnet (`LLM_MODEL_SQL_GEN_BEDROCK`) |
+| Connection insight | gpt-4o-mini (`LLM_MODEL_INSIGHT_OPENAI`) | nova-micro (`LLM_MODEL_INSIGHT_BEDROCK`) |
 
 Both embedding models produce 1536-dimensional vectors, so the existing pgvector HNSW index is compatible with both providers — no migration required when switching.
 

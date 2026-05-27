@@ -13,7 +13,7 @@ make test
 # Backend only
 make test-backend
 # or directly:
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q
 
 # Frontend only
 make test-frontend
@@ -21,7 +21,7 @@ make test-frontend
 cd frontend && npx jest --ci --passWithNoTests
 
 # Single backend test file
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/test_content_api.py -v
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/test_content_api.py -v
 ```
 
 ---

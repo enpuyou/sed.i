@@ -37,7 +37,7 @@ The Bash tool does NOT source `~/.zshrc`, so `poetry` resolves to the wrong pyen
 **Always prefix backend commands with:**
 
 ```bash
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run <command>
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run <command>
 ```
 
 Or use the Makefile targets: `make test-backend`, `make lint`, `make migrate`.

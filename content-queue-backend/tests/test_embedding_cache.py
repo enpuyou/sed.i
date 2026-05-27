@@ -17,7 +17,7 @@ class TestEmbeddingCache:
 
         fake_embedding = [0.1] * 1536
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             result = get_or_create_query_embedding(
@@ -33,7 +33,7 @@ class TestEmbeddingCache:
 
         fake_embedding = [0.1] * 1536
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             get_or_create_query_embedding("test query", redis_client=mock_redis)
@@ -47,7 +47,7 @@ class TestEmbeddingCache:
         mock_redis = MagicMock()
         mock_redis.get.return_value = json.dumps(fake_embedding)
 
-        with patch("app.core.embedding_cache.call_openai_embedding") as mock_openai:
+        with patch("app.core.embedding_cache.call_embed") as mock_openai:
             result = get_or_create_query_embedding(
                 "test query", redis_client=mock_redis
             )
@@ -61,7 +61,7 @@ class TestEmbeddingCache:
         fake_embedding = [0.1] * 1536
 
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             get_or_create_query_embedding("test query", redis_client=mock_redis)
@@ -70,7 +70,7 @@ class TestEmbeddingCache:
         mock_redis.reset_mock()
         mock_redis.get.return_value = None
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             get_or_create_query_embedding("test query", redis_client=mock_redis)
@@ -84,7 +84,7 @@ class TestEmbeddingCache:
         fake_embedding = [0.1] * 1536
 
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             get_or_create_query_embedding("query one", redis_client=mock_redis)
@@ -93,7 +93,7 @@ class TestEmbeddingCache:
         mock_redis.reset_mock()
         mock_redis.get.return_value = None
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             get_or_create_query_embedding("query two", redis_client=mock_redis)
@@ -108,7 +108,7 @@ class TestEmbeddingCache:
         fake_embedding = [0.1] * 1536
 
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             get_or_create_query_embedding("  Test Query  ", redis_client=mock_redis)
@@ -117,7 +117,7 @@ class TestEmbeddingCache:
         mock_redis.reset_mock()
         mock_redis.get.return_value = None
         with patch(
-            "app.core.embedding_cache.call_openai_embedding",
+            "app.core.embedding_cache.call_embed",
             return_value=fake_embedding,
         ):
             get_or_create_query_embedding("test query", redis_client=mock_redis)

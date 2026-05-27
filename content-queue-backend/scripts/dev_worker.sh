@@ -16,7 +16,7 @@ echo ""
 # Use pyenv if available (e.g. local macOS dev), otherwise fall through to
 # whatever `poetry` is on PATH (CI, Linux, nix, etc.)
 if command -v pyenv > /dev/null 2>&1; then
-  PYENV_VERSION=3.11.7 pyenv exec poetry run \
+  PYENV_VERSION=3.11.12 pyenv exec poetry run \
     watchfiles \
       --filter python \
       "celery -A app.core.celery_app worker --loglevel=info --concurrency=1 --pool=solo --beat" \

@@ -51,7 +51,7 @@ _mcp_proxy = _MCPProxy()
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     # Startup: observability (OTEL + Sentry) — no-ops when keys are absent
-    setup_observability(application, debug=settings.DEBUG)
+    setup_observability(application)
     # PostHog (no-ops when key is absent)
     if settings.POSTHOG_API_KEY:
         posthog.project_api_key = settings.POSTHOG_API_KEY

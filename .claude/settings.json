@@ -14,8 +14,8 @@
   },
   "permissions": {
     "allow": [
-      "Bash(PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest*)",
-      "Bash(PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff*)",
+      "Bash(PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest*)",
+      "Bash(PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff*)",
       "Bash(cd frontend && npx tsc*)",
       "Bash(cd frontend && npx eslint*)",
       "Bash(cd frontend && npx jest*)",
