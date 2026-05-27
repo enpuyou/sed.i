@@ -23,31 +23,44 @@ import pulumi_aws as aws
 config = pulumi.Config()
 env = pulumi.get_stack()  # "dev" | "prod"
 
-# ── Bedrock IAM policy ────────────────────────────────────────────────────────
-# Least-privilege: only InvokeModel on the specific Claude and Titan models we use.
-# Extend this list when adding new models — don't use wildcard.
-bedrock_policy_doc = aws.iam.get_policy_document(
-    statements=[
-        aws.iam.GetPolicyDocumentStatementArgs(
-            effect="Allow",
-            actions=["bedrock:InvokeModel"],
-            resources=[
-                # Claude Haiku 4.5 (fast chat, tagging)
-                "arn:aws:bedrock:us-east-1::foundation-model/us.anthropic.claude-haiku-4-5-20251001-v1:0",
-                # Claude Sonnet 4.5 (synthesis, MCP)
-                "arn:aws:bedrock:us-east-1::foundation-model/us.anthropic.claude-sonnet-4-5-20251001-v1:0",
-                # Amazon Titan Embed v2 (embeddings)
-                "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0",
-            ],
-        )
-    ]
-)
+# Account ID needed for inference-profile ARNs (cross-region profiles use account-scoped ARNs)
+account_id = aws.get_caller_identity().account_id
 
+# ── Bedrock IAM policy ────────────────────────────────────────────────────────
+# Cross-region inference profiles (us.*) require two ARN forms:
+#   - foundation-model: what the model physically is
+#   - inference-profile: what IAM checks when the Converse API routes the call
 bedrock_policy = aws.iam.Policy(
     "sedi-bedrock-policy",
     name=f"sedi-bedrock-{env}",
     description="InvokeModel access for sed.i Bedrock LLM provider",
-    policy=bedrock_policy_doc.json,
+    policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["bedrock:InvokeModel"],
+                "Resource": [
+                    # Foundation model ARNs (wildcard region — available in all Bedrock regions)
+                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                    "arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0",   # tagging + insight
+                    "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0",    # summary + mcp_summary
+                    # Titan v1 (1536-dim) is the configured embed model (_EMBED_MODEL_BEDROCK in llm_client.py)
+                    # v2 has a different vector dimension — adding both avoids a hard break if migrated later
+                    "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v1:0",
+                    "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0",
+                    # Cross-region inference profile ARNs — IAM checks these when model ID is prefixed us.*
+                    # claude-sonnet-4-5-20250929 is used for SQL generation (LLM_MODEL_SQL_GEN_BEDROCK)
+                    f"arn:aws:bedrock:us-east-2:{account_id}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                    f"arn:aws:bedrock:us-east-2:{account_id}:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                    # Nova cross-region profiles — permit if model IDs are prefixed us.amazon.* in future
+                    f"arn:aws:bedrock:us-east-2:{account_id}:inference-profile/us.amazon.nova-micro-v1:0",
+                    f"arn:aws:bedrock:us-east-2:{account_id}:inference-profile/us.amazon.nova-lite-v1:0",
+                ],
+            }
+        ],
+    }),
 )
 
 # ── App user (Railway production) ─────────────────────────────────────────────
@@ -174,27 +187,30 @@ aws.s3.BucketLifecycleConfigurationV2(
     ],
 )
 
-# Extend bedrock policy to also cover S3 access
-s3_policy_doc = aws.iam.get_policy_document(
-    statements=[
-        aws.iam.GetPolicyDocumentStatementArgs(
-            effect="Allow",
-            actions=["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-            resources=[bucket.arn.apply(lambda arn: f"{arn}/*")],
-        ),
-        aws.iam.GetPolicyDocumentStatementArgs(
-            effect="Allow",
-            actions=["s3:ListBucket"],
-            resources=[bucket.arn],
-        ),
-    ]
+# Build S3 policy inline — get_policy_document can't accept Output args without deadlocking
+s3_policy_json = bucket.arn.apply(
+    lambda arn: json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+                "Resource": f"{arn}/*",
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": arn,
+            },
+        ],
+    })
 )
 
 s3_policy = aws.iam.Policy(
     "sedi-s3-policy",
     name=f"sedi-s3-{env}",
     description="S3 read/write access for sed.i assets bucket",
-    policy=s3_policy_doc.json,
+    policy=s3_policy_json,
 )
 
 aws.iam.UserPolicyAttachment(

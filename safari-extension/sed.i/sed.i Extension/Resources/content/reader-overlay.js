@@ -19,6 +19,8 @@
     if (readerHost) readerHost.remove();
     const varsHost = document.getElementById('__sedi_vars__');
     if (varsHost) varsHost.remove();
+    const zoomHost = document.getElementById('__sedi_zoom__');
+    if (zoomHost) zoomHost.remove();
     window.removeEventListener('keydown', window.__sediEscHandler__, true);
     if (window.__sediSpClickOutside__) { document.removeEventListener('click', window.__sediSpClickOutside__); window.__sediSpClickOutside__ = null; }
     if (window.__sediSpyCleanup__) window.__sediSpyCleanup__(); window.__sediSpyCleanup__ = null;

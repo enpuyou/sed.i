@@ -98,7 +98,7 @@ _TABLE_SCHEMA = {
         "id (uuid)",
         "content_item_id (uuid) → content_items.id",
         "chunk_index (int)",
-        "chunk_text (text)",
+        "text (text)",
         "user_id (uuid) — always filter WHERE user_id = :user_id",
     ],
     "reading_clusters": [
@@ -183,6 +183,48 @@ def _validate_sql(sql: str) -> str:
     return sql.strip()
 
 
+def _enforce_user_isolation(sql: str) -> None:
+    """
+    Reject SQL that does not actually bind :user_id before execution.
+
+    Two-tier check:
+    1. Text scan: :user_id must appear in the SQL string — ensures the bound
+       parameter is referenced and not silently ignored by SQLAlchemy.
+    2. AST check (when sqlglot is available): :user_id must appear as one side
+       of an equality predicate so it can't appear only in a string literal or
+       comment.
+
+    Raises ValueError if either check fails.
+    """
+    if ":user_id" not in sql:
+        raise ValueError(
+            "Generated SQL must filter by :user_id — the query would otherwise "
+            "return rows from all users."
+        )
+
+    try:
+        import sqlglot
+        import sqlglot.expressions as exp
+    except ImportError:
+        return  # text check above is sufficient without sqlglot
+
+    try:
+        stmt = sqlglot.parse_one(sql, dialect="postgres")
+    except Exception:
+        return  # parse errors already caught in _validate_sql; don't re-raise
+
+    # Walk all equality nodes looking for one side being :user_id placeholder
+    for eq in stmt.find_all(exp.EQ):
+        for side in (eq.this, eq.expression):
+            if isinstance(side, exp.Placeholder) and side.name == "user_id":
+                return  # found — isolation is enforced
+
+    raise ValueError(
+        "Generated SQL references :user_id but not in an equality predicate — "
+        "the user filter may be ineffective."
+    )
+
+
 def _validate_sql_regex(sql: str) -> str:
     """Regex fallback when sqlglot is not installed."""
     upper = sql.upper()
@@ -228,10 +270,6 @@ def _format_results(rows: list[dict], question: str) -> str:
     if not rows:
         return "No results found for your query."
 
-    # Plain table fallback (also used as context for LLM summarization)
-    if not rows:
-        return "No results."
-
     headers = list(rows[0].keys())
     table_lines = [" | ".join(headers)]
     table_lines.append("-" * len(table_lines[0]))
@@ -241,7 +279,11 @@ def _format_results(rows: list[dict], question: str) -> str:
 
     if len(rows) > 20:
         # For large result sets, return the table directly without LLM summarization
-        suffix = f"\n\n({len(rows)} rows)" if len(rows) == _MAX_ROWS else ""
+        suffix = (
+            f"\n\n({len(rows)} rows — result may be truncated)"
+            if len(rows) >= _MAX_ROWS
+            else ""
+        )
         return table_text + suffix
 
     try:
@@ -313,13 +355,19 @@ def query_library(*, question: str, user: User, db: Session) -> dict:
         raw_sql = re.sub(r"\n?```$", "", raw_sql)
     raw_sql = raw_sql.strip()
 
-    # Step 2: validate
+    # Step 2: validate — allow-list + read-only
     try:
         safe_sql = _validate_sql(raw_sql)
     except ValueError as e:
         raise ValueError(f"Generated SQL failed validation: {e}") from e
 
-    # Step 3: execute with timeout and user scoping
+    # Step 3: enforce user isolation — reject if :user_id not bound as an EQ predicate
+    try:
+        _enforce_user_isolation(safe_sql)
+    except ValueError as e:
+        raise ValueError(f"Generated SQL failed user isolation check: {e}") from e
+
+    # Step 4: execute with timeout
     try:
         db.execute(text(f"SET LOCAL statement_timeout = '{_QUERY_TIMEOUT_MS}ms'"))
         result = db.execute(text(safe_sql), {"user_id": str(user.id)})
@@ -327,7 +375,7 @@ def query_library(*, question: str, user: User, db: Session) -> dict:
     except Exception as e:
         raise ValueError(f"Query execution failed: {e}") from e
 
-    # Step 4: format results
+    # Step 5: format results
     answer = _format_results(rows, question)
 
     return {

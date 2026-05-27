@@ -1083,13 +1083,15 @@ AWS infrastructure provisioned via Pulumi in `infra/`. IAM users are least-privi
 
 All observability is opt-in: any key left empty silently disables that tool. Safe in dev and test with no config.
 
+Celery workers bootstrap observability via `worker_process_init` signal → `setup_worker_observability()` (skips FastAPIInstrumentor since no FastAPI app is present). FastAPI calls `setup_observability(app)` from its lifespan.
+
 ### S3 object storage (`app/core/storage.py`)
 
 PDFs saved to `s3://sedi-assets-{env}/pdfs/{user_id}/{item_id}.pdf`. Presigned URL endpoint: `GET /content/{item_id}/pdf-url` (1h expiry, configurable via `AWS_S3_PRESIGN_EXPIRY`). `AWS_S3_BUCKET` empty = S3 skipped, bytes discarded.
 
 ### Text-to-SQL MCP tool (`app/mcp/tools/query.py`)
 
-`query_library` MCP tool lets Claude query the user's library via natural language → SQL. Security: AST validation via `sqlglot` (SELECT-only, allow-list of 7 tables), `user_id` bound parameter, 500ms `statement_timeout`. See `docs/decisions/0006-text-to-sql-security.md`.
+`query_library` MCP tool lets Claude query the user's library via natural language → SQL. Security: AST validation via `sqlglot` (SELECT-only, allow-list of 7 tables), `_enforce_user_isolation()` rejects any SQL where `:user_id` is absent or not in an equality predicate (two-tier: text scan + AST EQ walk), `user_id` bound parameter, 500ms `statement_timeout`. See `docs/decisions/0006-text-to-sql-security.md`.
 
 ### Pipeline observability (Prefect — Layer 8)
 

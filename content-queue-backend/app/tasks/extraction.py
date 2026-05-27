@@ -497,9 +497,20 @@ def extract_metadata(self, item_id: str):
             from app.core.config import settings
 
             if settings.PREFECT_ENABLED:
+                import os
+                import threading
                 from app.workflows.ingestion import ingest_content
 
-                ingest_content(item_id)
+                if settings.PREFECT_API_URL:
+                    os.environ["PREFECT_API_URL"] = settings.PREFECT_API_URL
+                if settings.PREFECT_API_KEY:
+                    os.environ["PREFECT_API_KEY"] = settings.PREFECT_API_KEY
+                # Run in a daemon thread so the Celery task returns immediately.
+                # A direct ingest_content(item_id) call blocks the worker for
+                # the entire pipeline duration (60–90 s per item).
+                threading.Thread(
+                    target=ingest_content, args=(item_id,), daemon=True
+                ).start()
             else:
                 extract_full_content.delay(item_id)
 

@@ -133,10 +133,36 @@ def ingest_content(item_id: str) -> dict:
     run_logger = get_run_logger()
     run_logger.info(f"Starting ingestion flow for item {item_id}")
 
-    extract_full_content(item_id)
-    generate_embedding(item_id)
-    generate_tags(item_id)
-    generate_chunk_embeddings(item_id)
+    try:
+        extract_full_content(item_id)
+        generate_embedding(item_id)
+        generate_tags(item_id)
+        generate_chunk_embeddings(item_id)
+    except Exception as exc:
+        # Mark the item as failed in the DB — without this, the item stays
+        # stuck in "processing" because only the Celery path sets "failed".
+        run_logger.error(f"Ingestion flow failed for {item_id}: {exc}")
+        try:
+            from app.core.database import SessionLocal
+            from app.models.content import ContentItem
+            from uuid import UUID
+
+            db = SessionLocal()
+            try:
+                item = (
+                    db.query(ContentItem)
+                    .filter(ContentItem.id == UUID(item_id))
+                    .first()
+                )
+                if item:
+                    item.processing_status = "failed"
+                    item.processing_error = str(exc)
+                    db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+        raise
 
     run_logger.info(f"Ingestion flow complete for {item_id}")
     return {"item_id": item_id, "status": "completed"}

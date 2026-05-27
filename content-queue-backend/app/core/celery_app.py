@@ -51,4 +51,38 @@ from app.tasks import (
     tagging,
     clustering,
     email,
+    chunk_embeddings,
 )
+
+
+# Observability bootstrap — must run in each worker process, not the main process.
+# FastAPI's lifespan (which calls setup_observability) never runs in the worker.
+from celery.signals import worker_process_init, worker_process_shutdown
+
+
+@worker_process_init.connect
+def init_worker_observability(**kwargs):
+    from app.core.observability import setup_worker_observability
+
+    setup_worker_observability()
+
+
+# Flush all observability buffers before the worker process exits.
+# worker_max_tasks_per_child kills the process; background threads won't drain.
+@worker_process_shutdown.connect
+def flush_on_shutdown(**kwargs):
+    # OTEL BatchSpanProcessor — drain buffered spans before exit
+    try:
+        from opentelemetry import trace
+
+        trace.get_tracer_provider().shutdown()
+    except Exception:
+        pass
+    # Braintrust async logger
+    if settings.BRAINTRUST_API_KEY:
+        try:
+            import braintrust
+
+            braintrust.flush()
+        except Exception:
+            pass

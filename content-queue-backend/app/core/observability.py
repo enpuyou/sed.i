@@ -20,12 +20,35 @@ logger = logging.getLogger(__name__)
 
 def setup_tracing(service_name: str, otlp_endpoint: str) -> None:
     """Wire up OpenTelemetry SDK with FastAPI + SQLAlchemy + Celery instrumentation."""
+    import os
     from opentelemetry import trace
     from opentelemetry.sdk.resources import Resource, SERVICE_NAME
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
-    resource = Resource(attributes={SERVICE_NAME: service_name})
+    # pydantic-settings reads .env into its model but doesn't write values back
+    # to os.environ. Mirror them first so the OTEL SDK (which reads os.environ
+    # directly) sees them — including before Resource.create() is called.
+    from app.core.config import settings as _s
+
+    for _k, _v in [
+        ("OTEL_EXPORTER_OTLP_ENDPOINT", otlp_endpoint),
+        ("OTEL_EXPORTER_OTLP_HEADERS", _s.OTEL_EXPORTER_OTLP_HEADERS),
+        ("OTEL_EXPORTER_OTLP_PROTOCOL", _s.OTEL_EXPORTER_OTLP_PROTOCOL),
+        ("OTEL_RESOURCE_ATTRIBUTES", _s.OTEL_RESOURCE_ATTRIBUTES),
+    ]:
+        if _v:
+            os.environ[_k] = _v
+
+    # Resource.create() merges the passed dict with OTEL_RESOURCE_ATTRIBUTES
+    # from os.environ (now populated above). deployment.environment comes from
+    # settings.SEDI_ENV so it doesn't need to be duplicated in OTEL_RESOURCE_ATTRIBUTES.
+    resource = Resource.create(
+        {
+            SERVICE_NAME: service_name,
+            "deployment.environment": _s.SEDI_ENV,
+        }
+    )
     provider = TracerProvider(resource=resource)
 
     if otlp_endpoint:
@@ -33,7 +56,7 @@ def setup_tracing(service_name: str, otlp_endpoint: str) -> None:
             OTLPSpanExporter,
         )
 
-        exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+        exporter = OTLPSpanExporter()
         logger.info("OTEL: exporting traces to %s", otlp_endpoint)
     else:
         exporter = ConsoleSpanExporter()
@@ -89,7 +112,7 @@ def setup_sentry(dsn: str, environment: str = "production") -> None:
     logger.info("Sentry error tracking enabled (environment=%s)", environment)
 
 
-def setup_observability(app, *, debug: bool = False) -> None:
+def setup_observability(app) -> None:
     """
     Bootstrap all observability tooling. Call once at lifespan startup.
 
@@ -113,7 +136,33 @@ def setup_observability(app, *, debug: bool = False) -> None:
 
     # Sentry
     try:
-        environment = "development" if debug else "production"
-        setup_sentry(dsn=settings.SENTRY_DSN, environment=environment)
+        setup_sentry(dsn=settings.SENTRY_DSN, environment=settings.SEDI_ENV)
     except Exception as e:
         logger.warning("Sentry setup failed, error tracking disabled: %s", e)
+
+
+def setup_worker_observability() -> None:
+    """
+    Bootstrap observability for the Celery worker process.
+
+    Called from the worker_process_init signal in celery_app.py — no FastAPI
+    app instance is available here, so FastAPIInstrumentor is skipped.
+    SQLAlchemy, Celery spans, and Sentry error capture are all wired up.
+    """
+    from app.core.config import settings
+
+    try:
+        setup_tracing(
+            service_name=f"{settings.OTEL_SERVICE_NAME}-worker",
+            otlp_endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+        )
+        instrument_sqlalchemy()
+        instrument_celery()
+        logger.info("OTEL instrumentation active (worker)")
+    except Exception as e:
+        logger.warning("OTEL setup failed in worker, tracing disabled: %s", e)
+
+    try:
+        setup_sentry(dsn=settings.SENTRY_DSN, environment=settings.SEDI_ENV)
+    except Exception as e:
+        logger.warning("Sentry setup failed in worker: %s", e)
