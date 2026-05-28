@@ -108,7 +108,6 @@ class TestClassificationAccuracy:
             result, _ = classify_query(
                 eq["query"],
                 user_authors=user_authors,
-                user_tags=user_tags,
             )
             total += 1
             if result == eq["expected_intent"]:

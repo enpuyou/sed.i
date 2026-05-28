@@ -137,13 +137,14 @@ EVAL_QUERIES = [
         "expected_top1_key": "react_hooks",
         "category": "filter_author",
     },
-    # ── FILTER: tag inference ──
+    # ── KEYWORD: tag names route to keyword because tags are in tsvector ──
+    # Use tag: operator for explicit tag filtering.
     {
         "query": "stoicism",
-        "expected_intent": "filter",
+        "expected_intent": "keyword",
         "expected_article_keys": ["stoicism_guide"],
         "expected_top1_key": "stoicism_guide",
-        "category": "filter_tag",
+        "category": "keyword_exact",
     },
     # ── FILTER: domain inference ──
     {

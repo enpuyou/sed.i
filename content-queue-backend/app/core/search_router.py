@@ -10,7 +10,12 @@ Returns:
     metadata: dict with inferred filter values (e.g. {"author": "Paul Graham"})
 
 Priority order:
-    operators > exact phrase > domain > known author > known tag > short keyword > question > hybrid
+    operators > exact phrase > domain > known author > question > short keyword > hybrid
+
+Tag filtering is only available via the explicit tag: operator. Implicit tag
+detection was removed: tags are already indexed in the tsvector (weight B), so
+keyword search finds tag-matched articles with better recall (stemming, full-text
+matches) and no extra round-trip.
 """
 
 from __future__ import annotations
@@ -69,7 +74,6 @@ def classify_query(
     query: str,
     *,
     user_authors: set[str] | None = None,
-    user_tags: set[str] | None = None,
 ) -> tuple[str, dict]:
     """
     Classify a search query into a search type and extract filter metadata.
@@ -77,7 +81,6 @@ def classify_query(
     Args:
         query: The raw search string from the user.
         user_authors: Lowercased set of known author names for this user.
-        user_tags: Lowercased set of known tags for this user.
 
     Returns:
         (search_type, metadata) where search_type is one of:
@@ -104,14 +107,7 @@ def classify_query(
     if user_authors and q_lower in user_authors:
         return "filter", {"author": q}
 
-    # 5. KNOWN TAG — matches user's existing tags → filter by tag
-    # Only trigger when the query is already lowercase. Uppercase/mixed-case queries
-    # (e.g. "RLHF", "GPT-4") look like acronyms or proper nouns the user wants to
-    # search by content, not narrow to tag-filtered results.
-    if user_tags and q_lower in user_tags and q == q_lower:
-        return "filter", {"tag": q}
-
-    # 6. QUESTION — interrogative start or trailing ? (checked before short-keyword
+    # 5. QUESTION — interrogative start or trailing ? (checked before short-keyword
     #    so "anything about stoicism?" doesn't get misrouted as keyword)
     if q.endswith("?") or _QUESTION_STARTS.match(q):
         return "semantic", {}

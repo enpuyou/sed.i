@@ -423,9 +423,7 @@ def hybrid_search(
     if mode == "full":
         # Run all three engines regardless of query type, fuse with RRF
         fetch_limit = fetch * 3
-        filter_meta = classify_query(
-            query, user_authors=user_authors, user_tags=user_tags
-        )[1]
+        filter_meta = classify_query(query, user_authors=user_authors)[1]
         filter_results = (
             parse_filter_query(meta=filter_meta, user=user, db=db, limit=fetch_limit)
             if filter_meta
@@ -471,9 +469,7 @@ def hybrid_search(
         paged = fused_results[offset : offset + limit]
         return _apply_date_filter(paged, after_date, before_date)
 
-    search_type, meta = classify_query(
-        query, user_authors=user_authors, user_tags=user_tags
-    )
+    search_type, meta = classify_query(query, user_authors=user_authors)
 
     # For non-full mode: strip date operators from query passed to keyword/semantic
     # (filter path handles dates natively via parse_filter_query)
