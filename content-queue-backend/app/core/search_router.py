@@ -105,7 +105,10 @@ def classify_query(
         return "filter", {"author": q}
 
     # 5. KNOWN TAG — matches user's existing tags → filter by tag
-    if user_tags and q_lower in user_tags:
+    # Only trigger when the query is already lowercase. Uppercase/mixed-case queries
+    # (e.g. "RLHF", "GPT-4") look like acronyms or proper nouns the user wants to
+    # search by content, not narrow to tag-filtered results.
+    if user_tags and q_lower in user_tags and q == q_lower:
         return "filter", {"tag": q}
 
     # 6. QUESTION — interrogative start or trailing ? (checked before short-keyword
@@ -115,8 +118,9 @@ def classify_query(
 
     words = q.split()
 
-    # 7. SHORT KEYWORD — 1-4 words, not a question → full-text keyword search
+    # 7. SHORT KEYWORD — 1-3 words, not a question → full-text keyword search
     #    Falls back to semantic in hybrid_search() if keyword returns 0 results.
+    #    4+ word queries are assumed to be conceptual phrases → hybrid (step 8).
     _question_words = {
         "how",
         "what",
@@ -130,7 +134,7 @@ def classify_query(
         "find",
         "show",
     }
-    if len(words) <= 4 and not any(w.lower() in _question_words for w in words):
+    if len(words) <= 3 and not any(w.lower() in _question_words for w in words):
         return "keyword", {}
 
     # 8. DEFAULT — run both keyword + semantic and fuse
