@@ -119,9 +119,9 @@ cd frontend && npx eslint . --max-warnings=0 2>&1 | head -50
 ```
 **Backend (if backend files changed):**
 ```bash
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/ 2>&1 | head -50
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/ 2>&1 | head -50
 ```
-- Auto-fix safe issues: `npx eslint . --fix` / `PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check --fix app/`
+- Auto-fix safe issues: `npx eslint . --fix` / `PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check --fix app/`
 - Report any issues that need manual attention.
 
 ### 2c. Tests
@@ -131,7 +131,7 @@ cd frontend && npx jest --ci --passWithNoTests 2>&1 | tail -30
 ```
 **Backend (if backend files changed):**
 ```bash
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q 2>&1 | tail -30
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q 2>&1 | tail -30
 ```
 - All tests must pass. If a test fails:
   - Read the failure output.

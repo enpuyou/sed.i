@@ -8,7 +8,7 @@
 ## Prerequisites
 
 - Test database running on port 5433 (`content_queue_test`)
-- Run tests with: `cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/mcp/test_hybrid_search.py -v`
+- Run tests with: `cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/mcp/test_hybrid_search.py -v`
 - All tests use the existing MCP conftest pattern (direct function calls, not HTTP)
 
 ---
@@ -433,7 +433,7 @@ def parse_filter_query(
 
 **Create file:** `content-queue-backend/alembic/versions/XXX_add_search_vector_to_content_items.py`
 
-Generate with: `cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run alembic revision --autogenerate -m "add_search_vector_to_content_items"`
+Generate with: `cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run alembic revision --autogenerate -m "add_search_vector_to_content_items"`
 
 Then **manually edit** the migration because SQLAlchemy autogenerate won't handle generated columns:
 
@@ -464,7 +464,7 @@ def downgrade() -> None:
 
 **Run migration on test DB:**
 ```bash
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run alembic upgrade head
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run alembic upgrade head
 ```
 
 **Note:** Also add the column to the SQLAlchemy model in `app/models/content.py` so `Base.metadata.create_all()` in tests creates it:
@@ -1949,23 +1949,23 @@ def user_module(db_module):
 
 ```bash
 # Classification eval only (no OpenAI needed, fast):
-cd content-queue-backend && PYENV_VERSION=3.11.7 \
+cd content-queue-backend && PYENV_VERSION=3.11.12 \
   /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest \
   tests/evals/test_search_evals.py::TestClassificationAccuracy -v -s
 
 # Keyword search eval (no OpenAI needed):
-cd content-queue-backend && PYENV_VERSION=3.11.7 \
+cd content-queue-backend && PYENV_VERSION=3.11.12 \
   /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest \
   tests/evals/test_search_evals.py::TestKeywordSearchQuality -v -s
 
 # Full eval suite (needs OPENAI_API_KEY):
-cd content-queue-backend && PYENV_VERSION=3.11.7 \
+cd content-queue-backend && PYENV_VERSION=3.11.12 \
   OPENAI_API_KEY=sk-... \
   /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest \
   tests/evals/test_search_evals.py -v -s
 
 # Before/after comparison (the money eval):
-cd content-queue-backend && PYENV_VERSION=3.11.7 \
+cd content-queue-backend && PYENV_VERSION=3.11.12 \
   OPENAI_API_KEY=sk-... \
   /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest \
   tests/evals/test_search_evals.py::TestBeforeAfterComparison -v -s

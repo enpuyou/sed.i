@@ -20,10 +20,15 @@ const MIN_IMAGE_SIZE = 80; // px — skip tracking pixels / icons
 const NOISE_SELECTORS = [
   'nav', 'footer', 'aside',
   '[class*="related"]', '[class*="recommended"]',
-  '[class*="sidebar"]', '[class*="newsletter"]',
+  '[class*="sidebar"]',
+  // newsletter: avoid matching Substack's 'newsletter-post' article class
+  '[class*="newsletter-signup"]', '[class*="newsletter-embed"]',
+  '[class*="newsletter-widget"]', '[class*="newsletter-form"]',
+  '[class*="newsletter-subscribe"]', '[class*="newsletter-cta"]',
   '[class*="promo"]', '[class*="advertisement"]',
   '[class*="comment"]', '[class*="social-share"]',
   '[id*="related"]', '[id*="sidebar"]',
+  '[id*="newsletter"]',
   '[data-testid*="ad"]',
 ];
 
@@ -239,7 +244,30 @@ async function extractAndInlineContent() {
   // Pre-clean noise from the clone before Readability runs.
   const cloneBody = docClone.querySelector('body');
   if (cloneBody) {
-    // 1. Remove structural noise elements (nav, footer, ads, etc.)
+    // 0. Hoist the known article container to body so Readability scores only real content
+    const ARTICLE_CONTAINERS = [
+      '.available-content',   // Substack
+      '.post-content',
+      '.entry-content',
+      'article',
+    ];
+    for (const sel of ARTICLE_CONTAINERS) {
+      const articleEl = cloneBody.querySelector(sel);
+      if (articleEl && articleEl.textContent.trim().length > 200) {
+        cloneBody.innerHTML = '';
+        cloneBody.appendChild(articleEl);
+        break;
+      }
+    }
+
+    // 1. Strip classes/ids from headings so Readability's _cleanHeaders can't give
+    //    them negative weight and remove them (e.g. Substack h2s have "widget" in class)
+    cloneBody.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(h => {
+      h.removeAttribute('class');
+      h.removeAttribute('id');
+    });
+
+    // 2. Remove structural noise elements (nav, footer, ads, etc.)
     NOISE_SELECTORS.forEach((sel) => {
       try { cloneBody.querySelectorAll(sel).forEach((el) => el.remove()); } catch {}
     });
@@ -256,13 +284,23 @@ async function extractAndInlineContent() {
         el.remove();
       }
     });
+
+    // Pre-mark Substack ImageGallery figures with their shared gallery class as data-sedi-gid.
+    // keepClasses:false strips classes after Readability, but data attributes survive.
+    cloneBody.querySelectorAll('figure[data-component-name="ImageGallery"]').forEach(f => {
+      const galleryClass = Array.from(f.classList).find(c => c.startsWith('gallery-'));
+      if (galleryClass) f.setAttribute('data-sedi-gid', galleryClass);
+    });
   }
 
   const reader = new Readability(docClone, {
     charThreshold: 20,
     keepClasses: false,
+    nbTopCandidates: 20,
   });
   const article = reader.parse();
+
+  console.log('[sedi][content.js][safari-resources] loaded patch: gallery grouping rules updated');
 
   if (!article || !article.content) {
     return { error: 'Could not extract article content from this page.' };
@@ -273,6 +311,7 @@ async function extractAndInlineContent() {
   // Parse the extracted HTML into a temp element for image processing and dedup
   const container = document.createElement('div');
   container.innerHTML = content;
+
 
   // Strip standalone ad-label text artifacts that slipped through Readability.
   // Only removes leaf-ish nodes (no <p>/<h*>/<img> children) whose entire text
@@ -294,6 +333,42 @@ async function extractAndInlineContent() {
   if (h1El && h1Text.toLowerCase() === effectiveTitle.toLowerCase()) {
     h1El.remove();
   }
+
+  // Remove subtitle elements — shown separately in the reader header.
+  const subtitleSelectors = [
+    '[class*="subtitle"]', '[class*="post-subtitle"]', '[class*="article-subtitle"]',
+    '[class*="deck"]', '[class*="article-deck"]',
+  ];
+  subtitleSelectors.forEach((sel) => {
+    try { container.querySelectorAll(sel).forEach((el) => el.remove()); } catch {}
+  });
+  if (pageMeta.description) {
+    const descNormSub = pageMeta.description.trim().toLowerCase();
+    const candidates = Array.from(container.querySelectorAll('h2, h3, p')).slice(0, 5);
+    for (const el of candidates) {
+      const text = el.textContent.trim().toLowerCase();
+      if (!text || text.length > 300) continue;
+      const minLen = 20;
+      const isMatch = text === descNormSub
+        || (text.length >= minLen && descNormSub.startsWith(text))
+        || (descNormSub.length >= minLen && text.startsWith(descNormSub));
+      if (isMatch) {
+        el.remove();
+        break;
+      }
+    }
+  }
+
+  // Remove author avatar / profile images — small circular images that appear in bylines.
+  // Identified by: avatar/author/profile in class or alt, or very small naturalWidth.
+  container.querySelectorAll('img').forEach((img) => {
+    const cls = (img.className || '').toLowerCase();
+    const alt = (img.getAttribute('alt') || '').toLowerCase();
+    const parentCls = (img.parentElement?.className || '').toLowerCase();
+    if (/avatar|author|profile|byline|headshot/.test(cls + alt + parentCls)) {
+      img.closest('figure')?.remove() || img.remove();
+    }
+  });
 
   // ── Strip metadata that the reader shows separately ──────────────────────────
   //
@@ -383,14 +458,24 @@ async function extractAndInlineContent() {
   const images = Array.from(container.querySelectorAll('img')).slice(0, MAX_IMAGES);
 
   if (window.__SEDI_SKIP_IMAGE_INLINE) {
-    // Just resolve relative srcs to absolute — no fetch needed
+    // Resolve to absolute src — prefer the live DOM .src property (already resolved
+    // by lazy-load JS) over attributes which may still hold placeholder data URIs.
     images.forEach((img) => {
+      const liveSrc = img.src || '';
+      const isLiveReal = liveSrc && !liveSrc.startsWith('data:') && liveSrc.startsWith('http');
+
       const srcsetVal = img.getAttribute('srcset');
-      let src = srcsetVal ? bestSrcFromSrcset(srcsetVal) : '';
-      if (!src) src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || '';
+      let attrSrc = srcsetVal ? bestSrcFromSrcset(srcsetVal) : '';
+      if (!attrSrc) attrSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || img.getAttribute('src') || '';
+      const isAttrReal = attrSrc && !attrSrc.startsWith('data:');
+
+      let src = '';
+      if (isLiveReal) src = liveSrc;
+      else if (isAttrReal) src = new URL(attrSrc, location.href).href;
+
       if (!src) { img.remove(); return; }
-      if (src.startsWith('data:')) return;
-      img.src = new URL(src, location.href).href;
+      img.src = src;
+      img.setAttribute('loading', 'lazy');
       img.removeAttribute('srcset');
       img.removeAttribute('data-src');
       img.removeAttribute('data-lazy-src');
@@ -423,6 +508,7 @@ async function extractAndInlineContent() {
       // Make sure src is absolute
       const absoluteSrc = new URL(src, location.href).href;
       img.src = absoluteSrc;
+      img.setAttribute('loading', 'lazy');
       img.removeAttribute('srcset');
       img.removeAttribute('data-src');
       img.removeAttribute('data-lazy-src');
@@ -433,6 +519,75 @@ async function extractAndInlineContent() {
       // On failure, keep the absolute src — backend can still display it
     }));
   }
+
+  // ── Gallery grouping ─────────────────────────────────────────────────────────
+  // Substack structure: <figure><div>[<img/><img/>...]</div><figcaption/></figure>
+  // The div inside the figure holds all the images — mark that div as .sedi-gallery.
+  // Also handle adjacent <figure> siblings as a fallback for other sites.
+  (function groupGalleries() {
+    // Pattern A: figures were pre-marked with data-sedi-gid before Readability.
+    // Group them now by extracting each gid group and wrapping in a .sedi-gallery div
+    // inserted at the position of the first figure in the group.
+    // Group only contiguous runs of figures that share the same data-sedi-gid.
+    // This preserves original positions in the DOM and avoids moving distant images.
+    const allFigures = Array.from(container.querySelectorAll('figure[data-sedi-gid]'));
+    // Walk per parent to preserve local ordering
+    const parents = new Map();
+    allFigures.forEach(f => {
+      const p = f.parentNode;
+      if (!parents.has(p)) parents.set(p, []);
+      parents.get(p).push(f);
+    });
+    parents.forEach((figs, parent) => {
+      // Iterate the parent's children and collect contiguous runs
+      let run = [];
+      for (let node = parent.firstElementChild; node; node = node.nextElementSibling) {
+        if (node.tagName === 'FIGURE' && node.hasAttribute('data-sedi-gid')) {
+          const gid = node.getAttribute('data-sedi-gid');
+          if (run.length === 0) run.push(node);
+          else {
+            const lastGid = run[0].getAttribute('data-sedi-gid');
+            if (lastGid === gid) run.push(node);
+            else {
+              if (run.length >= 2) {
+                const gallery = document.createElement('div');
+                gallery.className = 'sedi-gallery';
+                parent.insertBefore(gallery, run[0]);
+                run.forEach(f => { f.removeAttribute('data-sedi-gid'); gallery.appendChild(f); });
+                try { console.log('[sedi][content.js][safari-resources] created contiguous gallery preview=', gallery.outerHTML.slice(0,400)); } catch (e) {}
+              }
+              run = [node];
+            }
+          }
+        } else {
+          if (run.length >= 2) {
+            const gallery = document.createElement('div');
+            gallery.className = 'sedi-gallery';
+            parent.insertBefore(gallery, run[0]);
+            run.forEach(f => { f.removeAttribute('data-sedi-gid'); gallery.appendChild(f); });
+            try { console.log('[sedi][content.js][safari-resources] created contiguous gallery preview=', gallery.outerHTML.slice(0,400)); } catch (e) {}
+          }
+          run = [];
+        }
+      }
+      // tail run
+      if (run.length >= 2) {
+        const gallery = document.createElement('div');
+        gallery.className = 'sedi-gallery';
+        parent.insertBefore(gallery, run[0]);
+        run.forEach(f => { f.removeAttribute('data-sedi-gid'); gallery.appendChild(f); });
+        try { console.log('[sedi][content.js][safari-resources] created contiguous gallery preview=', gallery.outerHTML.slice(0,400)); } catch (e) {}
+      }
+    });
+
+    // Pattern B: figure > div containing multiple imgs (single figure with inline gallery)
+    container.querySelectorAll('figure > div').forEach((div) => {
+      if (div.closest('.sedi-gallery')) return;
+      if (div.querySelectorAll('img').length >= 2) {
+        div.classList.add('sedi-gallery');
+      }
+    });
+  })();
 
   const html = container.innerHTML;
   const wordCount = html.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length;

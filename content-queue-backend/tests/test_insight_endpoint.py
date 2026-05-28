@@ -77,7 +77,7 @@ class TestInsightEndpoint:
         with (
             patch("app.api.search._get_redis_client", return_value=fake_redis),
             patch(
-                "app.api.search._call_openai_insight",
+                "app.api.search._call_insight",
                 return_value="Both explore mesa-optimization.",
             ),
         ):
@@ -104,7 +104,7 @@ class TestInsightEndpoint:
 
         with (
             patch("app.api.search._get_redis_client", return_value=fake_redis),
-            patch("app.api.search._call_openai_insight") as mock_openai,
+            patch("app.api.search._call_insight") as mock_openai,
         ):
             resp = client.get(self._url(src_h.id, dst.id), headers=auth_headers)
             mock_openai.assert_not_called()
@@ -128,9 +128,7 @@ class TestInsightEndpoint:
 
         with (
             patch("app.api.search._get_redis_client", return_value=fake_redis),
-            patch(
-                "app.api.search._call_openai_insight", side_effect=Exception("API down")
-            ),
+            patch("app.api.search._call_insight", side_effect=Exception("API down")),
         ):
             resp = client.get(self._url(src_h.id, dst.id), headers=auth_headers)
 

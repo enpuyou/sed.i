@@ -1,0 +1,213 @@
+name: Eval Gate
+
+# Run evals when code that affects retrieval, tagging, or MCP tools changes.
+# Posts a summary comment on PRs with metric results.
+on:
+  pull_request:
+    paths:
+      - 'content-queue-backend/app/core/hybrid_search.py'
+      - 'content-queue-backend/app/core/search_router.py'
+      - 'content-queue-backend/app/tasks/tagging.py'
+      - 'content-queue-backend/app/mcp/tools/**'
+      - 'content-queue-backend/tests/evals/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    # Only run when OPENAI_API_KEY is available (not on forks without secrets)
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 2.0.1
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        uses: actions/cache@v4
+        with:
+          path: content-queue-backend/.venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        working-directory: ./content-queue-backend
+        run: poetry install --no-interaction
+
+      - name: Set up PostgreSQL with pgvector
+        run: |
+          docker run -d \
+            --name postgres-pgvector \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=content_queue_test \
+            -p 5432:5432 \
+            pgvector/pgvector:pg16
+          for i in {1..30}; do
+            if docker exec postgres-pgvector pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          docker exec postgres-pgvector psql -U postgres -d content_queue_test \
+            -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Run MCP behavioral evals (no API key required)
+        working-directory: ./content-queue-backend
+        run: |
+          poetry run pytest tests/evals/test_mcp_evals.py -v -s \
+            --tb=short 2>&1 | tee /tmp/mcp_eval_output.txt
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+
+      - name: Run search quality evals (requires OPENAI_API_KEY)
+        working-directory: ./content-queue-backend
+        run: |
+          poetry run pytest tests/evals/test_search_evals.py -v -s \
+            --tb=short 2>&1 | tee /tmp/search_eval_output.txt
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run tagging quality evals (requires OPENAI_API_KEY)
+        working-directory: ./content-queue-backend
+        run: |
+          poetry run pytest tests/evals/test_tagging_evals.py -v -s \
+            --tb=short 2>&1 | tee /tmp/tagging_eval_output.txt
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Post eval summary as PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // What each suite measures — shown even when skipped so reviewers
+            // know what they're looking at.
+            const DESCRIPTIONS = {
+              'MCP Behavioral': 'Contract tests: every MCP tool returns the correct response shape, handles empty state without errors, and enforces user isolation (no cross-user data access).',
+              'Search Quality': '4 evals: (1) query classifier routes filter/keyword/semantic queries correctly (≥80% accuracy); (2) keyword search hit rate and MRR against a ground-truth dataset (≥70% hit); (3) hybrid search full-pipeline hit rate/MRR (≥75% hit, MRR ≥0.60); (4) before/after comparison — hybrid vs pure-semantic.',
+              'Tagging Quality': 'LLM tag generation: specificity (multi-word tags preferred), count in 4-6 range (≥80% of examples), domain match against expected tags, and zero-tolerance for generic forbidden tags like "AI" or "Technology".',
+            };
+
+            function parseOutput(path) {
+              try { return fs.readFileSync(path, 'utf8'); }
+              catch { return null; }
+            }
+
+            // Extract full report blocks. Each block is:
+            //   ={50+}\nEVAL: <title>\n={50+}\n<content>\n={50+}
+            // We need a greedy inner match so the closing === is the LAST one,
+            // not the second one (which would only capture the title).
+            function extractBlocks(output) {
+              // Split on lines that are purely = characters (50+ chars).
+              // The reports use 60, 65, or 70 = chars.
+              const sepRe = /\n={50,}\n/g;
+              const parts = ('\n' + output).split(sepRe);
+              const blocks = [];
+              for (let i = 0; i < parts.length - 2; i++) {
+                const titleLine = parts[i].trimEnd().split('\n').pop();
+                if (titleLine && titleLine.startsWith('EVAL:')) {
+                  // parts[i+1] is the content between 2nd and 3rd separator
+                  blocks.push(`${'='.repeat(60)}\n${titleLine}\n${'='.repeat(60)}\n${parts[i + 1].trim()}\n${'='.repeat(60)}`);
+                  i++; // consumed the content part
+                }
+              }
+              return blocks;
+            }
+
+            function parseCounts(output) {
+              return {
+                passed:  +(output.match(/(\d+) passed/)?.[1]  ?? 0),
+                failed:  +(output.match(/(\d+) failed/)?.[1]  ?? 0),
+                skipped: +(output.match(/(\d+) skipped/)?.[1] ?? 0),
+                errors:  +(output.match(/(\d+) error/)?.[1]   ?? 0),
+              };
+            }
+
+            // pytest -v prints: "SKIPPED path::class::method - <reason>"
+            function extractSkipReasons(output) {
+              const seen = new Set();
+              for (const m of output.matchAll(/SKIPPED[^\n]* - ([^\n]+)/g)) {
+                seen.add(m[1].trim());
+              }
+              return [...seen];
+            }
+
+            const SUITES = [
+              ['MCP Behavioral',  '/tmp/mcp_eval_output.txt'],
+              ['Search Quality',  '/tmp/search_eval_output.txt'],
+              ['Tagging Quality', '/tmp/tagging_eval_output.txt'],
+            ];
+
+            const parts = [];
+
+            for (const [label, path] of SUITES) {
+              const output = parseOutput(path);
+              if (!output) {
+                parts.push(`### ⚠️ ${label} Evals\n_Output file not found — step may have been skipped entirely._\n\n_${DESCRIPTIONS[label]}_`);
+                continue;
+              }
+
+              const { passed, failed, skipped, errors } = parseCounts(output);
+              const blocks  = extractBlocks(output);
+              const skipReasons = extractSkipReasons(output);
+
+              const allSkipped = skipped > 0 && passed === 0 && failed === 0;
+              const anyFailed  = failed > 0 || errors > 0;
+              const icon = anyFailed ? '❌' : allSkipped ? '⏭️' : '✅';
+
+              const countParts = [
+                passed  > 0 && `${passed} passed`,
+                failed  > 0 && `**${failed} failed**`,
+                skipped > 0 && `${skipped} skipped`,
+                errors  > 0 && `**${errors} errors**`,
+              ].filter(Boolean).join(' · ');
+
+              let section = `### ${icon} ${label} Evals`;
+              if (countParts) section += `\n${countParts}`;
+              section += `\n\n_${DESCRIPTIONS[label]}_`;
+
+              if (skipReasons.length) {
+                const unique = [...new Set(skipReasons)];
+                section += `\n\n> **Skipped because:** ${unique.join('; ')}`;
+              }
+
+              if (blocks.length) {
+                section += `\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\``;
+              } else if (!allSkipped) {
+                // No structured blocks found — show tail of output for debugging
+                section += `\n\n<details><summary>Raw output</summary>\n\n\`\`\`\n${output.slice(-1200)}\n\`\`\`\n</details>`;
+              }
+
+              parts.push(section);
+            }
+
+            const body = `## Eval Gate Results\n\n${parts.join('\n\n---\n\n')}`;
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: body.slice(0, 65000),
+            });

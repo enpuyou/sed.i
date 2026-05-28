@@ -186,7 +186,7 @@ grep -rL '"""' content-queue-backend/app --include="*.py" | grep -v __init__ | g
 # Should return empty (every non-init module has a docstring)
 
 # 4. No regressions
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run pytest tests/ -x -q
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run pytest tests/ -x -q
 cd frontend && npx tsc --noEmit && npx eslint . --max-warnings=0
 ```
 
@@ -270,7 +270,7 @@ ls docs/instructions/  # frontend-patterns.md, backend-patterns.md, testing-stan
 #    d. How do I run the backend tests?
 
 # 5. No regressions — full test suite passes
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run pytest tests/ -x -q
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run pytest tests/ -x -q
 cd frontend && npx tsc --noEmit
 ```
 
@@ -351,17 +351,17 @@ ls content-queue-backend/app/services/content.py  # exists
 ls content-queue-backend/tests/test_content_service.py  # exists
 
 # 3. All existing content API tests still pass
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run pytest tests/test_content_api.py tests/test_content_extended.py -v
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run pytest tests/test_content_api.py tests/test_content_extended.py -v
 
 # 4. New service tests pass (covers: normal path, extension path, duplicate active URL,
 #    duplicate deleted URL allowed, list attachment, invalid list ID ignored)
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run pytest tests/test_content_service.py -v
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run pytest tests/test_content_service.py -v
 
 # 5. Full test suite passes
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run pytest tests/ -x -q
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run pytest tests/ -x -q
 
 # 6. Ruff clean
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run ruff check app/
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run ruff check app/
 ```
 
 ---
@@ -444,10 +444,10 @@ curl -s "http://localhost:8000/search/semantic?query=test&limit=5" \
 # 4. MCP find_similar returns results (manual test via Claude Desktop or MCP inspector)
 
 # 5. All search tests pass
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run pytest tests/test_search_api.py -v
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run pytest tests/test_search_api.py -v
 
 # 6. Full test suite
-cd content-queue-backend && PYENV_VERSION=3.11.7 poetry run pytest tests/ -x -q
+cd content-queue-backend && PYENV_VERSION=3.11.12 poetry run pytest tests/ -x -q
 ```
 
 ---
@@ -565,7 +565,7 @@ the repo doesn't exist for the agent."
 ```makefile
 .PHONY: dev backend worker frontend migrate test test-backend test-frontend generate-types lint
 
-PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run
+PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run
 
 # Start all services (requires tmux or runs sequentially in bg)
 dev:
@@ -703,10 +703,10 @@ Each initiative is independently committable. Do not bundle them.
 
 ```bash
 # Backend full suite
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q
 
 # Backend lint
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/
 
 # Frontend type check
 cd frontend && npx tsc --noEmit

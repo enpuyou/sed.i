@@ -27,7 +27,7 @@ These conventions apply to all skills. Follow them exactly.
 
 ## Backend Stack
 - FastAPI, SQLAlchemy, PostgreSQL, Celery, Redis
-- Python 3.11.7, Poetry for dependency management
+- Python 3.11.12, Poetry for dependency management
 
 ## Commands
 ```bash
@@ -38,8 +38,8 @@ cd frontend && npx jest --ci --passWithNoTests # tests
 cd frontend && npx next build            # build
 
 # Backend
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/  # lint
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q  # tests
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/  # lint
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/ -x -q  # tests
 ```
 
 ## Documentation

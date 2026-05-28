@@ -336,6 +336,17 @@ document.getElementById('btn-read').addEventListener('click', async () => {
     const extracted = results?.[0]?.result;
     if (!extracted || extracted.error) throw new Error(extracted?.error || 'Extraction failed.');
 
+    // Capture scroll position so the overlay can resume where the user was
+    const [scrollResult] = await chrome.scripting.executeScript({
+      target: { tabId: _tab.id },
+      func: () => {
+        const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+        const totalH = document.documentElement.scrollHeight - window.innerHeight;
+        return totalH > 0 ? scrollY / totalH : 0;
+      },
+    });
+    const scrollFraction = scrollResult?.result ?? 0;
+
     const article = {
       url: _tab.url,
       html: extracted.html,
@@ -345,6 +356,7 @@ document.getElementById('btn-read').addEventListener('click', async () => {
       thumbnail: extracted.thumbnail || '',
       publishedDate: extracted.publishedDate || '',
       accessRestricted: extracted.accessRestricted || false,
+      initialScrollFraction: scrollFraction,
     };
     await chrome.scripting.executeScript({
       target: { tabId: _tab.id },

@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 CONFIG = {
-    "vision_dpi": 200,
-    "crop_dpi": 200,
+    "vision_dpi": 150,
+    "crop_dpi": 150,
     "region_padding_pts": 2,
     "min_region_area": 800,
 }
@@ -362,10 +362,37 @@ def _prescan_document(doc: fitz.Document) -> DocumentScanResult:
 _yolo_model = None
 
 
+def _rss_mb() -> int:
+    """Return current process RSS in MB using /proc/self/status (Linux) or resource module."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) // 1024  # kB → MB
+    except OSError:
+        pass
+    try:
+        import resource
+
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
+    except Exception:
+        return -1
+
+
 def _get_yolo_model():
     """Load and cache the YOLO doclaynet model."""
     global _yolo_model
     if _yolo_model is None:
+        import tracemalloc
+
+        tracemalloc.start()
+        before_rss = _rss_mb()
+
+        logger.warning(
+            "YOLO model cold-load starting (torch + ultralytics lazy import) — "
+            "RSS before=%dMB; expect 1-3GB spike",
+            before_rss,
+        )
         from ultralytics import YOLO
         from huggingface_hub import hf_hub_download
 
@@ -374,19 +401,25 @@ def _get_yolo_model():
             repo_id="hantian/yolo-doclaynet", filename="yolov8n-doclaynet.pt"
         )
         _yolo_model = YOLO(model_path)
-        logger.info(f"YOLO doclaynet model loaded from {model_path}")
+
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        after_rss = _rss_mb()
+        logger.warning(
+            "YOLO model loaded from %s — RSS delta=%dMB peak_alloc=%dMB",
+            model_path,
+            after_rss - before_rss,
+            peak // (1024 * 1024),
+        )
     return _yolo_model
 
 
-def extract_with_yolo(pdf_bytes: bytes, url: str = "") -> str:
+def _extract_yolo_sync(pdf_bytes: bytes, url: str = "") -> str:
     """
-    Use YOLOv8-doclaynet (hantian/yolo-doclaynet) for layout detection.
-
-    Same 11 DocLayNet classes as pymupdf-layout:
-    Picture, Table, Formula, Caption, Text, Title, etc.
-
-    First run downloads the model (~100MB), then caches it.
+    Core YOLO extraction logic. Runs inside an isolated subprocess spawned by
+    extract_with_yolo() — never called directly from the main worker process.
     """
+    doc = None
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         html_pages = []
@@ -407,12 +440,63 @@ def extract_with_yolo(pdf_bytes: bytes, url: str = "") -> str:
             html_pages.append(f"<div class='page'>{page_html}</div>")
             logger.info(f"  ✓ Extracted {num_images} images")
 
-        doc.close()
         confidence = _compute_confidence_score(scan)
         return _wrap_html("\n".join(html_pages), confidence, scan.title, scan.abstract)
 
     except Exception as e:
         logger.error(f"YOLO extraction failed: {e}", exc_info=True)
+        return ""
+    finally:
+        if doc is not None:
+            doc.close()
+
+
+def extract_with_yolo(pdf_bytes: bytes, url: str = "") -> str:
+    """
+    Run YOLO PDF extraction in an isolated subprocess.
+
+    torch + ultralytics (~1.5GB) load inside the subprocess and are freed by
+    the OS when it exits — they never enter the main worker's address space.
+    stderr from the subprocess flows to the parent so logs appear normally.
+    """
+    import pathlib
+    import pickle
+    import subprocess
+    import sys
+
+    # Compute paths from __file__ so this works regardless of cwd.
+    # __file__ = .../content-queue-backend/app/tasks/extraction_implementations.py
+    _here = pathlib.Path(__file__).parent  # .../app/tasks/
+    _project_root = str(_here.parent.parent)  # .../content-queue-backend/
+    _worker = str(_here / "_yolo_worker.py")
+
+    try:
+        payload = pickle.dumps((pdf_bytes, url))
+        env = {
+            **os.environ,
+            "OMP_NUM_THREADS": "2",
+            "MKL_NUM_THREADS": "2",
+            "PYTHONPATH": _project_root,
+        }
+        result = subprocess.run(
+            [sys.executable, _worker],
+            input=payload,
+            stdout=subprocess.PIPE,
+            env=env,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            logger.error("YOLO subprocess exited with code %d", result.returncode)
+            return ""
+        if not result.stdout:
+            logger.error("YOLO subprocess produced no output")
+            return ""
+        return pickle.loads(result.stdout)
+    except subprocess.TimeoutExpired:
+        logger.error("YOLO subprocess timed out after 300s")
+        return ""
+    except Exception as e:
+        logger.error("YOLO subprocess failed: %s", e)
         return ""
 
 
@@ -446,7 +530,12 @@ def _detect_layout_yolo(page: fitz.Page, model) -> Tuple[List[Dict], List[fitz.R
             tmp.write(png_bytes)
             tmp_path = tmp.name
 
-        results = model(tmp_path, conf=0.35, verbose=False)
+        del pix, png_bytes  # free ~8-14MB per page before YOLO runs
+
+        import torch
+
+        with torch.inference_mode():
+            results = model(tmp_path, conf=0.35, verbose=False)
         os.unlink(tmp_path)
 
         regions = []

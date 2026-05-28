@@ -298,10 +298,7 @@ def _semantic_search(
     try:
         from app.core.config import settings
 
-        if not settings.OPENAI_API_KEY:
-            return []
-
-        # Check if any embeddings exist before calling OpenAI
+        # Check if any embeddings exist before calling the embed provider
         has_any = (
             db.query(ContentItem)
             .filter(
@@ -322,9 +319,9 @@ def _semantic_search(
             query_embedding = get_or_create_query_embedding(query, redis_client=r)
         except Exception:
             # Redis unavailable — call OpenAI directly
-            from app.core.embedding_cache import call_openai_embedding
+            from app.core.embedding_cache import call_embed
 
-            query_embedding = call_openai_embedding(query)
+            query_embedding = call_embed(query)
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
@@ -426,9 +423,7 @@ def hybrid_search(
     if mode == "full":
         # Run all three engines regardless of query type, fuse with RRF
         fetch_limit = fetch * 3
-        filter_meta = classify_query(
-            query, user_authors=user_authors, user_tags=user_tags
-        )[1]
+        filter_meta = classify_query(query, user_authors=user_authors)[1]
         filter_results = (
             parse_filter_query(meta=filter_meta, user=user, db=db, limit=fetch_limit)
             if filter_meta
@@ -474,9 +469,7 @@ def hybrid_search(
         paged = fused_results[offset : offset + limit]
         return _apply_date_filter(paged, after_date, before_date)
 
-    search_type, meta = classify_query(
-        query, user_authors=user_authors, user_tags=user_tags
-    )
+    search_type, meta = classify_query(query, user_authors=user_authors)
 
     # For non-full mode: strip date operators from query passed to keyword/semantic
     # (filter path handles dates natively via parse_filter_query)

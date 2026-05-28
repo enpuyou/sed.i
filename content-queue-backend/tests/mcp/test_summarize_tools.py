@@ -1,23 +1,21 @@
 """
 TDD tests for MCP summarize tools: summarize_list, get_summary_job.
-OpenAI calls are mocked — we test orchestration logic, not the model output.
+LLM calls are mocked via llm_client.chat — we test orchestration logic, not model output.
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from app.mcp.tools.summarize import summarize_list, get_summary_job
+from app.core.llm_client import ChatResult
 
 
 FAKE_SUMMARY = "Key themes: AI, agents, reasoning."
 
 
-def _mock_openai(text=FAKE_SUMMARY):
-    """Return a mock that makes openai.OpenAI().chat.completions.create() return text."""
-    mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = MagicMock(
-        choices=[MagicMock(message=MagicMock(content=text))]
+def _fake_chat_result(text=FAKE_SUMMARY):
+    return ChatResult(
+        content=text, model="gpt-4o-mini", prompt_tokens=10, completion_tokens=20
     )
-    return mock_client
 
 
 class TestSummarizeList:
@@ -41,7 +39,9 @@ class TestSummarizeList:
         assert "no articles" in result["summary"].lower() or result["item_count"] == 0
 
     def test_calls_openai_and_returns_summary(self, db, user, list_with_articles):
-        with patch("app.mcp.tools.summarize.OpenAI", return_value=_mock_openai()):
+        with patch(
+            "app.core.llm_client.llm_client.chat", return_value=_fake_chat_result()
+        ):
             result = summarize_list(
                 list_id=str(list_with_articles.id), user=user, db=db
             )
@@ -51,7 +51,9 @@ class TestSummarizeList:
         assert result["cached"] is False
 
     def test_result_contains_required_fields(self, db, user, list_with_articles):
-        with patch("app.mcp.tools.summarize.OpenAI", return_value=_mock_openai()):
+        with patch(
+            "app.core.llm_client.llm_client.chat", return_value=_fake_chat_result()
+        ):
             result = summarize_list(
                 list_id=str(list_with_articles.id), user=user, db=db
             )
@@ -59,7 +61,9 @@ class TestSummarizeList:
             assert field in result, f"Missing field: {field}"
 
     def test_respects_max_items(self, db, user, list_with_articles):
-        with patch("app.mcp.tools.summarize.OpenAI", return_value=_mock_openai()):
+        with patch(
+            "app.core.llm_client.llm_client.chat", return_value=_fake_chat_result()
+        ):
             result = summarize_list(
                 list_id=str(list_with_articles.id), user=user, db=db, max_items=1
             )
@@ -67,7 +71,9 @@ class TestSummarizeList:
 
     def test_all_styles_accepted(self, db, user, list_with_articles):
         for style in ("overview", "themes", "gaps", "timeline"):
-            with patch("app.mcp.tools.summarize.OpenAI", return_value=_mock_openai()):
+            with patch(
+                "app.core.llm_client.llm_client.chat", return_value=_fake_chat_result()
+            ):
                 result = summarize_list(
                     list_id=str(list_with_articles.id), user=user, db=db, style=style
                 )
@@ -76,49 +82,37 @@ class TestSummarizeList:
     def test_gaps_style_includes_draft_context(
         self, db, user, list_with_articles, draft
     ):
-        """gaps style should mention draft in the prompt sent to OpenAI."""
-        captured_prompt = {}
+        """gaps style should mention draft in the prompt sent to llm_client.chat."""
+        captured_messages = {}
 
-        def capture_call(*args, **kwargs):
-            captured_prompt["messages"] = kwargs.get("messages", [])
-            return MagicMock(
-                choices=[MagicMock(message=MagicMock(content=FAKE_SUMMARY))]
-            )
+        def capture_call(messages, **kwargs):
+            captured_messages["messages"] = messages
+            return _fake_chat_result()
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = capture_call
-
-        with patch("app.mcp.tools.summarize.OpenAI", return_value=mock_client):
+        with patch("app.core.llm_client.llm_client.chat", side_effect=capture_call):
             summarize_list(
                 list_id=str(list_with_articles.id), user=user, db=db, style="gaps"
             )
 
-        # The draft content should appear somewhere in the messages
         all_text = " ".join(
             m["content"]
-            for m in captured_prompt.get("messages", [])
+            for m in captured_messages.get("messages", [])
             if isinstance(m.get("content"), str)
         )
         assert draft.content in all_text or "draft" in all_text.lower()
 
     def test_returns_cached_result_on_second_call(self, db, user, list_with_articles):
         call_count = {"n": 0}
-        fake_response = MagicMock(
-            choices=[MagicMock(message=MagicMock(content=FAKE_SUMMARY))]
-        )
 
-        def counting_create(*a, **kw):
+        def counting_chat(*a, **kw):
             call_count["n"] += 1
-            return fake_response
+            return _fake_chat_result()
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = counting_create
-
-        with patch("app.mcp.tools.summarize.OpenAI", return_value=mock_client):
+        with patch("app.core.llm_client.llm_client.chat", side_effect=counting_chat):
             r1 = summarize_list(list_id=str(list_with_articles.id), user=user, db=db)
             r2 = summarize_list(list_id=str(list_with_articles.id), user=user, db=db)
 
-        assert call_count["n"] == 1  # OpenAI called only once
+        assert call_count["n"] == 1  # LLM called only once (second is cached)
         assert r2["cached"] is True
         assert r1["summary"] == r2["summary"]
 
@@ -136,7 +130,9 @@ class TestGetSummaryJob:
 
     def test_returns_result_for_completed_job(self, db, user, list_with_articles):
         # Run a summary to create a cached entry, then retrieve it by job_id
-        with patch("app.mcp.tools.summarize.OpenAI", return_value=_mock_openai()):
+        with patch(
+            "app.core.llm_client.llm_client.chat", return_value=_fake_chat_result()
+        ):
             r = summarize_list(list_id=str(list_with_articles.id), user=user, db=db)
 
         if "job_id" in r:

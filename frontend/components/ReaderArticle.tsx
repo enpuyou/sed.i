@@ -570,24 +570,62 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
       };
     }, [content.id, embedded]);
 
-    // Restore scroll position when article loads
+    // Restore scroll position when article loads.
+    // Uses ResizeObserver on the scroll container so the scroll fires after
+    // images have loaded and the layout has reached its final height — the
+    // 100ms setTimeout approach fired too early on heavy articles.
     useEffect(() => {
-      if (content.read_position && content.read_position > 0) {
-        const savedPosition = content.read_position;
-        setTimeout(() => {
-          if (embedded && containerRef.current) {
-            const el = containerRef.current;
-            const scrollTo =
-              (el.scrollHeight - el.clientHeight) * savedPosition;
-            el.scrollTo({ top: scrollTo, behavior: "smooth" });
-          } else {
-            const docHeight =
-              document.documentElement.scrollHeight - window.innerHeight;
-            const scrollTo = docHeight * savedPosition;
-            window.scrollTo({ top: scrollTo, behavior: "smooth" });
-          }
-        }, 100);
+      if (!content.read_position || content.read_position <= 0) return;
+      const savedPosition = content.read_position;
+
+      const scrollTo = () => {
+        if (embedded && containerRef.current) {
+          const el = containerRef.current;
+          const top = (el.scrollHeight - el.clientHeight) * savedPosition;
+          el.scrollTo({ top, behavior: "smooth" });
+        } else {
+          const docHeight =
+            document.documentElement.scrollHeight - window.innerHeight;
+          window.scrollTo({
+            top: docHeight * savedPosition,
+            behavior: "smooth",
+          });
+        }
+      };
+
+      // Fire once the layout settles: observe the scroll target for size changes,
+      // disconnect after the first stable-height fire (or after 3s fallback).
+      const target = embedded ? containerRef.current : document.documentElement;
+      if (!target) {
+        scrollTo();
+        return;
       }
+
+      let lastHeight = 0;
+      let stableTimer: ReturnType<typeof setTimeout>;
+      const ro = new ResizeObserver(() => {
+        const h = (target as HTMLElement).scrollHeight ?? 0;
+        if (h === lastHeight) return;
+        lastHeight = h;
+        clearTimeout(stableTimer);
+        stableTimer = setTimeout(() => {
+          ro.disconnect();
+          scrollTo();
+        }, 120);
+      });
+      ro.observe(target as Element);
+
+      // Fallback: give up waiting after 3s and just scroll with whatever height we have
+      const fallback = setTimeout(() => {
+        ro.disconnect();
+        scrollTo();
+      }, 3000);
+
+      return () => {
+        ro.disconnect();
+        clearTimeout(stableTimer);
+        clearTimeout(fallback);
+      };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [content.id]);
 
@@ -1565,9 +1603,9 @@ const ReaderArticle = forwardRef<ReaderArticleHandle, ReaderArticleProps>(
                         : "max-w-[42rem]"
                   }`}
                 >
-                  <div className="font-serif border-l-4 border-[var(--color-border)] pl-4 text-[var(--color-text-secondary)] text-lg leading-relaxed">
+                  <p className="text-[var(--color-text-secondary)] text-lg leading-relaxed font-serif opacity-80">
                     {content.description}
-                  </div>
+                  </p>
                 </div>
               </div>
             )

@@ -58,23 +58,24 @@ def eval_articles_with_embeddings(eval_articles, db_module):
     Requires OPENAI_API_KEY in env. If not set, skip semantic evals.
     """
     import os
-
-    if not os.getenv("OPENAI_API_KEY"):
-        pytest.skip("OPENAI_API_KEY not set — skipping embedding-dependent evals")
-
-    from openai import OpenAI
     from app.core.config import settings
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    embed_provider = os.getenv("EMBED_PROVIDER", settings.EMBED_PROVIDER)
+    if embed_provider == "bedrock" and not os.getenv("AWS_ACCESS_KEY_ID"):
+        pytest.skip(
+            "EMBED_PROVIDER=bedrock but AWS_ACCESS_KEY_ID not set — skipping embedding evals"
+        )
+    elif embed_provider != "bedrock" and not os.getenv("OPENAI_API_KEY"):
+        pytest.skip(
+            f"EMBED_PROVIDER={embed_provider} but OPENAI_API_KEY not set — skipping embedding evals"
+        )
+
+    from app.core.llm_client import llm_client
 
     for key, article in eval_articles.items():
         text = f"{article.title}\n\n{article.description}\n\n{article.full_text}"
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text,
-            encoding_format="float",
-        )
-        article.embedding = response.data[0].embedding
+        result = llm_client.embed(text)
+        article.embedding = result.embeddings[0]
     db_module.commit()
     return eval_articles
 
@@ -107,7 +108,6 @@ class TestClassificationAccuracy:
             result, _ = classify_query(
                 eq["query"],
                 user_authors=user_authors,
-                user_tags=user_tags,
             )
             total += 1
             if result == eq["expected_intent"]:

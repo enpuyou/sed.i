@@ -7,18 +7,23 @@
  */
 
 (function () {
-  const ACTIVE_ATTR  = 'data-sedi-reader-active';
-  const THEME_KEY    = '__sedi_theme__';
-  const SETTINGS_KEY = '__sedi_reader_settings__';
+  const ACTIVE_ATTR   = 'data-sedi-reader-active';
+  const THEME_KEY     = '__sedi_theme__';
+  const SETTINGS_KEY  = '__sedi_reader_settings__';
+  const SCROLL_PREFIX = '__sedi_scroll__';
 
   // ── Toggle off if already active ──────────────────────────────────────────
   if (document.documentElement.hasAttribute(ACTIVE_ATTR)) {
     document.documentElement.removeAttribute(ACTIVE_ATTR);
-    document.getElementById('__sedi_reader__')?.remove();
-    document.getElementById('__sedi_vars__')?.remove();
+    const readerHost = document.getElementById('__sedi_reader__');
+    if (readerHost) readerHost.remove();
+    const varsHost = document.getElementById('__sedi_vars__');
+    if (varsHost) varsHost.remove();
+    const zoomHost = document.getElementById('__sedi_zoom__');
+    if (zoomHost) zoomHost.remove();
     document.removeEventListener('keydown', window.__sediEscHandler__, true);
     if (window.__sediSpClickOutside__) { document.removeEventListener('click', window.__sediSpClickOutside__); window.__sediSpClickOutside__ = null; }
-    window.__sediSpyCleanup__?.(); window.__sediSpyCleanup__ = null;
+    if (window.__sediSpyCleanup__) window.__sediSpyCleanup__(); window.__sediSpyCleanup__ = null;
     return;
   }
 
@@ -34,12 +39,15 @@
   try { const s = sessionStorage.getItem(SETTINGS_KEY); if (s) rs = { ...DEF, ...JSON.parse(s) }; } catch {}
   function saveRS() { try { sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(rs)); } catch {} }
 
+  // Capture page scroll before we hide the body — restored when reader closes
+  const pageScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+
   document.documentElement.setAttribute(ACTIVE_ATTR, '');
 
   // ── Minimal document-head style: hide original body content only ───────────
   const varsStyle = document.createElement('style');
   varsStyle.id = '__sedi_vars__';
-  varsStyle.textContent = `[${ACTIVE_ATTR}] body > :not(#__sedi_reader__) { display:none!important; }`;
+  varsStyle.textContent = `[${ACTIVE_ATTR}] body > :not(#__sedi_reader__):not(#__sedi_zoom__) { display:none!important; }`;
   document.head.appendChild(varsStyle);
 
   // ── Shadow host ────────────────────────────────────────────────────────────
@@ -58,7 +66,7 @@
       display:block;
       position:fixed;
       inset:0;
-      z-index:2147483647;
+      z-index:2147483646;
       overflow-y:auto;
       overflow-x:hidden;
       background:var(--bg);
@@ -163,7 +171,7 @@
     #reader-content ul { list-style-type:disc; }
     #reader-content ol { list-style-type:decimal; }
     #reader-content li { margin-bottom:0.5em;line-height:1.7;font-size:inherit;color:inherit;font-family:inherit; }
-    #reader-content blockquote { display:block;margin:1.5em 0;padding:0.75em 1.25em;border-left:3px solid var(--ac);background:var(--bg2);font-style:italic;color:var(--fg2); }
+    #reader-content blockquote { display:block;margin:1.5em 0;padding:1em 1.75em;background:var(--bg2);font-style:normal;font-size:1.05em;color:var(--fg2); }
     #reader-content blockquote p { margin-bottom:0.75em; }
     #reader-content blockquote p:last-child { margin-bottom:0; }
     #reader-content pre { display:block;margin:1.5em 0;padding:1em 1.25em;background:var(--bg2);border:1px solid var(--bd);border-radius:4px;overflow-x:auto;font-family:ui-monospace,monospace;font-size:0.9em; }
@@ -171,7 +179,39 @@
     #reader-content pre code { background:transparent;padding:0; }
     #reader-content figure { display:block;margin:2em 0;text-align:left; }
     #reader-content img { max-width:100%;height:auto;border-radius:4px;display:block; }
-    #reader-content figcaption { font-family:ui-monospace,monospace;font-size:0.8em;color:var(--fgm);margin-top:0.5em;text-align:left; }
+    #reader-content figcaption { font-family:ui-monospace,monospace;font-size:0.8em;color:var(--fgm);margin-top:0.5em;text-align:left;font-style:normal; }
+    /* Image gallery — consecutive ImageGallery figures wrapped in .sedi-gallery */
+    /* Stronger rules to ensure galleries render as a responsive grid */
+    #reader-content .sedi-gallery { display:grid !important; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)) !important; gap:6px; margin:2em 0; align-items:start; grid-auto-flow:row; }
+    #reader-content .sedi-gallery > .sedi-gallery-item { margin:0; min-width:0; display:block; }
+    #reader-content .sedi-gallery > .sedi-gallery-item > figure,
+    #reader-content .sedi-gallery > .sedi-gallery-item > div { margin:0; min-width:0; display:block; }
+    #reader-content .sedi-gallery > .sedi-gallery-item figure[data-component-name="ImageGallery"] { display:block !important; }
+    #reader-content .sedi-gallery > .sedi-gallery-item figure[data-component-name="ImageGallery"] > div { display:block !important; min-width:0; }
+    #reader-content .sedi-gallery > .sedi-gallery-item figure[data-component-name="ImageGallery"] > div > div {
+      display:flex !important;
+      flex-direction:row !important;
+      flex-wrap:nowrap !important;
+      gap:6px;
+      align-items:flex-start;
+      min-width:0;
+      overflow-x:auto;
+    }
+    #reader-content .sedi-gallery > .sedi-gallery-item figure[data-component-name="ImageGallery"] > div > div > * {
+      flex:1 1 0 !important;
+      min-width:0 !important;
+      aspect-ratio:1 / 1;
+      overflow:hidden;
+    }
+    #reader-content .sedi-gallery > .sedi-gallery-item figure[data-component-name="ImageGallery"] > div > div > * > * {
+      width:100% !important;
+      max-width:100% !important;
+      height:100% !important;
+    }
+    /* Force images to fill their tile and avoid inherited constraints */
+    #reader-content .sedi-gallery img, #reader-content .sedi-gallery picture { width:100% !important; height:100% !important; max-width:100% !important; object-fit:cover; border-radius:3px; cursor:zoom-in; display:block !important; }
+    #reader-content figure { margin:2em 0; }
+    #reader-content figure .sedi-gallery { margin:0 0 0.5em; }
     #reader-content hr { display:block;border:none;border-top:1px solid var(--bd);margin:2.5em 0; }
 
     /* Font size */
@@ -394,8 +434,177 @@
     }
   });
   while (_tmp.firstChild) articleBody.appendChild(_tmp.firstChild);
+  // Normalize galleries: find the actual nested tile row in each ImageGallery figure
+  // and force that exact node into a horizontal layout.
+  try {
+    articleBody.querySelectorAll('figure[data-component-name="ImageGallery"]').forEach((figure) => {
+      const outer = figure.querySelector(':scope > div');
+      const row = outer ? outer.querySelector(':scope > div') : null;
+
+      if (!row) return;
+
+      const tiles = Array.from(row.children).filter((child) => child.tagName !== 'FIGCAPTION');
+      if (!tiles.length) return;
+
+      const rowCount = Math.ceil(tiles.length / 3);
+      const rowSizes = Array.from({ length: rowCount }, (_, i) => {
+        const base = Math.floor(tiles.length / rowCount);
+        const remainder = tiles.length % rowCount;
+        return base + (i < remainder ? 1 : 0);
+      });
+
+      if (outer) outer.style.setProperty('display', 'block', 'important');
+      row.style.setProperty('display', 'flex', 'important');
+      row.style.setProperty('flex-direction', 'column', 'important');
+      row.style.setProperty('gap', '6px', 'important');
+      row.style.setProperty('width', '100%', 'important');
+
+      const fragment = document.createDocumentFragment();
+      let index = 0;
+
+      rowSizes.forEach((size) => {
+        const line = document.createElement('div');
+        line.style.display = 'grid';
+        line.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+        line.style.gap = '6px';
+        line.style.width = '100%';
+
+        for (let i = 0; i < size && index < tiles.length; i += 1) {
+          const tile = tiles[index++];
+          tile.style.setProperty('display', 'block', 'important');
+          tile.style.setProperty('width', 'auto', 'important');
+          tile.style.setProperty('min-width', '0', 'important');
+          tile.style.setProperty('overflow', 'hidden', 'important');
+          tile.style.setProperty('aspect-ratio', '1 / 1', 'important');
+          tile.style.setProperty('flex', 'none', 'important');
+          tile.querySelectorAll('img, picture').forEach((img) => {
+            img.style.setProperty('width', '100%', 'important');
+            img.style.setProperty('height', '100%', 'important');
+            img.style.setProperty('max-width', '100%', 'important');
+            img.style.setProperty('display', 'block', 'important');
+            img.style.setProperty('object-fit', 'cover', 'important');
+          });
+          line.appendChild(tile);
+        }
+
+        fragment.appendChild(line);
+      });
+
+      row.replaceChildren(fragment);
+
+      // Let the figure itself stack caption/content normally.
+      figure.style.setProperty('display', 'block', 'important');
+    });
+  } catch (e) { /* ignore */ }
   container.appendChild(articleBody);
   shadow.appendChild(container);
+
+  // Runtime debug: report number of detected galleries and a short preview
+  try {
+    const gEls = shadow.querySelectorAll('.sedi-gallery');
+    console.log('[sedi][reader-overlay][extension] galleries=%d', gEls.length, gEls[0] ? gEls[0].innerHTML.slice(0,200) : '');
+    if (gEls.length) {
+      const gallery = gEls[0];
+      const cs = getComputedStyle(gallery);
+      console.log('[sedi][reader-overlay][extension] gallery computed display=%s, grid-template-columns=%s, width=%s', cs.display, cs.gridTemplateColumns, cs.width);
+      console.log('[sedi][reader-overlay][extension] gallery children count=%d', gallery.children.length);
+      Array.from(gallery.children).slice(0,6).forEach((c,i) => console.log('[sedi][reader-overlay][extension] child[%d]=%s width=%s tag=%s', i, c.className || '-', getComputedStyle(c).width, c.tagName));
+    }
+  } catch (e) { console.log('[sedi][reader-overlay][extension] debug error', e); }
+
+  // ── Image zoom modal ──────────────────────────────────────────────────────
+  // Must live in document.body, NOT inside shadow — the shadow host is a
+  // scrolling fixed container, which makes position:fixed children fixed
+  // relative to it rather than the viewport, so they disappear behind content.
+  const zoomOverlay = document.createElement('div');
+  zoomOverlay.id = '__sedi_zoom__';
+  zoomOverlay.style.cssText = [
+    'display:none', 'position:fixed', 'inset:0',
+    'z-index:2147483647',   // one above the reader host (2147483646)
+    'background:rgba(0,0,0,0.88)',
+    'align-items:center', 'justify-content:center',
+    'cursor:zoom-out',
+  ].join(';');
+  const zoomImg = document.createElement('img');
+  zoomImg.style.cssText = 'max-width:90vw;max-height:85vh;object-fit:contain;border-radius:4px;box-shadow:0 8px 40px rgba(0,0,0,0.6);cursor:zoom-in;transform-origin:center center;will-change:transform;';
+  zoomImg.onclick = e => e.stopPropagation();
+
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 4;
+  const ZOOM_SENSITIVITY = 0.0007;
+
+  // Scale HUD shown bottom-center when zoomed
+  const zoomHud = document.createElement('div');
+  zoomHud.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:2147483647;display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid rgba(255,255,255,0.14);border-radius:999px;background:rgba(15,15,15,0.74);backdrop-filter:blur(14px) saturate(1.1);box-shadow:0 12px 40px rgba(0,0,0,0.28);color:#fff;opacity:0;transition:opacity 0.18s ease;pointer-events:none;';
+  const zoomHudLabel = document.createElement('div');
+  zoomHudLabel.style.cssText = 'font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.72);min-width:42px;text-align:right;';
+  zoomHudLabel.textContent = '100%';
+  const zoomRail = document.createElement('div');
+  zoomRail.style.cssText = 'position:relative;width:148px;height:4px;border-radius:999px;background:rgba(255,255,255,0.12);overflow:hidden;';
+  const zoomFill = document.createElement('div');
+  zoomFill.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:50%;border-radius:999px;background:linear-gradient(90deg, rgba(255,255,255,0.86), rgba(120,124,255,0.9));box-shadow:0 0 18px rgba(120,124,255,0.38);';
+  const zoomThumb = document.createElement('div');
+  zoomThumb.style.cssText = 'position:absolute;top:50%;left:50%;width:10px;height:10px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 0 0 4px rgba(255,255,255,0.08), 0 0 18px rgba(255,255,255,0.24);';
+  zoomRail.appendChild(zoomFill);
+  zoomRail.appendChild(zoomThumb);
+  zoomHud.appendChild(zoomHudLabel);
+  zoomHud.appendChild(zoomRail);
+  zoomOverlay.appendChild(zoomImg);
+  zoomOverlay.appendChild(zoomHud);
+
+  let zoomScale = 1;
+  let zoomHudTimer = null;
+  const updateZoomHud = () => {
+    const pct = Math.round(zoomScale * 100);
+    const range = ZOOM_MAX - ZOOM_MIN;
+    const progress = Math.max(0, Math.min(1, (zoomScale - ZOOM_MIN) / range));
+    zoomHudLabel.textContent = `${pct}%`;
+    zoomFill.style.width = `${progress * 100}%`;
+    zoomThumb.style.left = `${progress * 100}%`;
+    zoomHud.style.opacity = '1';
+    clearTimeout(zoomHudTimer);
+    zoomHudTimer = setTimeout(() => { zoomHud.style.opacity = '0'; }, 1100);
+  };
+  const closeZoom = () => {
+    zoomOverlay.style.display = 'none';
+    zoomImg.src = '';
+    zoomScale = 1;
+    zoomImg.style.transform = 'scale(1)';
+    zoomImg.style.maxWidth = '90vw';
+    zoomImg.style.maxHeight = '85vh';
+    zoomHud.style.opacity = '0';
+    clearTimeout(zoomHudTimer);
+  };
+  zoomOverlay.onclick = closeZoom;
+  // Scroll wheel: instant scale, no CSS transition to avoid jitter between rapid events.
+  zoomOverlay.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    const next = zoomScale * Math.exp(-delta * ZOOM_SENSITIVITY);
+    zoomScale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+    zoomImg.style.transform = `scale(${zoomScale})`;
+    updateZoomHud();
+  }, { passive: false });
+  // Append to real body so position:fixed is viewport-relative
+  document.body.appendChild(zoomOverlay);
+
+  // Wire up zoom-in for all article images
+  articleBody.addEventListener('click', e => {
+    const img = e.target.closest('img');
+    if (!img || !img.src || img.src.startsWith('data:image/gif')) return;
+    zoomImg.src = img.src;
+    zoomScale = 1;
+    zoomImg.style.transform = 'scale(1)';
+    // Remove max constraints while open so scale() isn't fighting layout limits.
+    // The initial max-width/max-height on the element constrains the natural size;
+    // once open we only drive size via transform.
+    zoomImg.style.maxWidth = '90vw';
+    zoomImg.style.maxHeight = '85vh';
+    zoomOverlay.style.display = 'flex';
+    updateZoomHud();
+    e.stopPropagation();
+  });
+  articleBody.querySelectorAll('img').forEach(img => { img.style.cursor = 'zoom-in'; });
 
   // ── Settings panel ────────────────────────────────────────────────────────
   const sp = document.createElement('div'); sp.id = '__sedi_sp__';
@@ -438,6 +647,52 @@
   // Append shadow host to original body
   document.body.appendChild(host);
 
+  // Post-attach debug: log computed styles after layout settles
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      try {
+        const gEls = shadow.querySelectorAll('.sedi-gallery');
+        console.log('[sedi][reader-overlay][extension][postattach] galleries=%d', gEls.length);
+        if (gEls.length) {
+          const gallery = gEls[0];
+          const cs = getComputedStyle(gallery);
+          console.log('[sedi][reader-overlay][extension][postattach] gallery computed display=%s, grid-template-columns=%s, width=%s', cs.display, cs.gridTemplateColumns, cs.width);
+          console.log('[sedi][reader-overlay][extension][postattach] gallery children count=%d', gallery.children.length);
+            Array.from(gallery.children).slice(0,6).forEach((c,i) => {
+              console.log('[sedi][reader-overlay][extension][postattach] child[%d]=%s width=%s tag=%s', i, c.className || '-', getComputedStyle(c).width, c.tagName);
+              const img = c.querySelector('img');
+              if (img) {
+                const ics = getComputedStyle(img);
+                console.log('[sedi][reader-overlay][extension][postattach] child[%d] img src=%s computed display=%s width=%s height=%s natural=%dx%d', i, img.currentSrc || img.src, ics.display, ics.width, ics.height, img.naturalWidth || 0, img.naturalHeight || 0);
+              } else {
+                console.log('[sedi][reader-overlay][extension][postattach] child[%d] has no img', i);
+              }
+            });
+          const innerGrid = gallery.querySelector('figure[data-component-name="ImageGallery"] > div > div');
+          if (innerGrid) {
+            const igcs = getComputedStyle(innerGrid);
+            console.log('[sedi][reader-overlay][extension][postattach] innerGrid display=%s flexDirection=%s flexWrap=%s children=%d', igcs.display, igcs.flexDirection, igcs.flexWrap, innerGrid.children.length);
+          }
+        }
+      } catch (e) { console.log('[sedi][reader-overlay][extension][postattach] debug error', e); }
+    });
+  });
+
+  // ── Restore scroll position ───────────────────────────────────────────────
+  // Priority: sessionStorage (previous reader session on this URL) > initialScrollFraction (page position)
+  const scrollKey = SCROLL_PREFIX + (article.url || location.href);
+  let savedFraction = 0;
+  try { savedFraction = parseFloat(sessionStorage.getItem(scrollKey) || '0') || 0; } catch {}
+  const restoreFraction = savedFraction > 0 ? savedFraction : (article.initialScrollFraction || 0);
+  if (restoreFraction > 0) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const dh = host.scrollHeight - host.clientHeight;
+        if (dh > 0) host.scrollTop = restoreFraction * dh;
+      });
+    });
+  }
+
   // ── Scroll tracking on the host element ───────────────────────────────────
   const updateProg = () => {
     const dh = host.scrollHeight - host.clientHeight;
@@ -458,12 +713,12 @@
   const seenIds = new Map();
   const tocH = [];
   Array.from(articleBody.querySelectorAll('h2,h3,h4')).forEach(h => {
-    const text = h.textContent?.trim() || '';
+    const text = h.textContent ? h.textContent.trim() : '';
     if (text.toLowerCase() === titleNorm) return;
     let id = h.id;
     if (!id && text) id = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     if (!id || !text) return;
-    const c = seenIds.get(id) ?? 0; seenIds.set(id, c + 1);
+    const c = seenIds.has(id) ? seenIds.get(id) : 0; seenIds.set(id, c + 1);
     const uid = c === 0 ? id : `${id}-${c + 1}`; h.id = uid;
     tocH.push({ id: uid, text, level: parseInt(h.tagName[1]) });
   });
@@ -539,10 +794,21 @@
       paras.forEach(p => p.classList.remove('focused', 'near-focused'));
     };
   }
-  function teardownFocusMode() { focusCleanup?.(); focusCleanup = null; }
+  function teardownFocusMode() { if (focusCleanup) focusCleanup(); focusCleanup = null; }
 
-  // ── Esc ───────────────────────────────────────────────────────────────────
-  window.__sediEscHandler__ = e => { if (e.key === 'Escape') toggle(); };
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  window.__sediEscHandler__ = e => {
+    if (e.key === 'Escape') {
+      if (zoomOverlay.style.display !== 'none') { closeZoom(); return; }
+      toggle();
+    }
+    // s — save to sed.i (only when not typing in an input/textarea)
+    if (e.key === 's' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      handleSave(saveBtn, article);
+    }
+  };
   document.addEventListener('keydown', window.__sediEscHandler__, true);
 
   // ── Toggle (close) ────────────────────────────────────────────────────────
@@ -551,12 +817,19 @@
     teardownFocusMode();
     document.removeEventListener('keydown', window.__sediEscHandler__, true);
     if (window.__sediSpClickOutside__) { document.removeEventListener('click', window.__sediSpClickOutside__); window.__sediSpClickOutside__ = null; }
-    window.__sediSpyCleanup__?.(); window.__sediSpyCleanup__ = null;
+    if (window.__sediSpyCleanup__) window.__sediSpyCleanup__(); window.__sediSpyCleanup__ = null;
 
     const cleanup = () => {
+      try {
+        const dh = host.scrollHeight - host.clientHeight;
+        if (dh > 0) sessionStorage.setItem(scrollKey, String(host.scrollTop / dh));
+      } catch {}
       document.documentElement.removeAttribute(ACTIVE_ATTR);
       host.remove();
       varsStyle.remove();
+      zoomOverlay.remove();
+      // Restore page scroll position — browser may reset it to 0 when body becomes visible
+      window.scrollTo(0, pageScrollY);
     };
 
     host.classList.add('sedi-closing');
@@ -571,12 +844,27 @@
 
   function handleSave(btn, art) {
     btn.disabled = true; btn.textContent = 'Saving...';
+    btn.style.borderColor = ''; btn.style.color = '';
     chrome.runtime.sendMessage({
       action: 'saveContent',
       payload: { url:art.url, html:art.html, title:art.title, author:art.author, description:art.description, thumbnail:art.thumbnail, publishedDate:art.publishedDate },
     }, resp => {
-      if (resp?.ok) { btn.textContent = 'Saved ✓'; btn.style.borderColor = '#2e7d52'; btn.style.color = '#2e7d52'; }
-      else { btn.disabled = false; btn.textContent = 'Save failed — retry'; }
+      if (resp && resp.ok) {
+        btn.textContent = 'Saved ✓';
+        btn.style.borderColor = '#2e7d52'; btn.style.color = '#2e7d52';
+      } else if (resp && resp.code === 'ALREADY_SAVED') {
+        btn.disabled = false;
+        btn.textContent = resp.isArchived ? 'Already saved (archived)' : 'Already in library';
+        btn.style.borderColor = 'var(--fgm)'; btn.style.color = 'var(--fgm)';
+      } else if (resp && resp.error === 'AUTH_REQUIRED') {
+        btn.disabled = false;
+        btn.textContent = "Couldn't save — sign in first";
+        btn.style.borderColor = ''; btn.style.color = '';
+      } else {
+        btn.disabled = false;
+        btn.textContent = "Couldn't save — try again";
+        btn.style.borderColor = ''; btn.style.color = '';
+      }
     });
   }
 })();

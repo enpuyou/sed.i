@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import posthog
 
 from app.core.config import settings
+from app.core.observability import setup_observability
 from app.api import (
     auth,
     content,
@@ -49,7 +50,9 @@ _mcp_proxy = _MCPProxy()
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    # Startup: initialise PostHog (no-ops when key is absent)
+    # Startup: observability (OTEL + Sentry) — no-ops when keys are absent
+    setup_observability(application)
+    # PostHog (no-ops when key is absent)
     if settings.POSTHOG_API_KEY:
         posthog.project_api_key = settings.POSTHOG_API_KEY
         posthog.host = settings.POSTHOG_HOST

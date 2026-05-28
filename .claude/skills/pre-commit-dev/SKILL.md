@@ -91,13 +91,13 @@ The full test suite runs in `/finalize` before any PR — not during development
 
 **Lint always:**
 ```bash
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/ 2>&1 | head -50
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run ruff check app/ 2>&1 | head -50
 ```
 
 **Tests — targeted only:**
 ```bash
 # Run only the test file for the module you changed, e.g.:
-cd content-queue-backend && PYENV_VERSION=3.11.7 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/test_content_api.py -x -q 2>&1 | tail -20
+cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run pytest tests/test_content_api.py -x -q 2>&1 | tail -20
 ```
 Full backend test suite (`pytest tests/ -x -q`) runs in `/finalize` only.
 

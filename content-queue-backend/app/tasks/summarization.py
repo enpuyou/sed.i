@@ -9,12 +9,11 @@ Dispatch: generate_summary.delay(item_id)
 """
 
 from app.core.celery_app import celery_app
-from app.core.config import settings
+from app.core.llm_client import llm_client, TASK_SUMMARY
 from app.models.content import ContentItem
 from app.tasks.base import DatabaseTask, html_to_plain
 from uuid import UUID
 import logging
-from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -60,18 +59,16 @@ def generate_summary(self, content_item_id: str):
             "Format exactly as a markdown list with no introductory or concluding text."
         )
 
-        # Generate summary using OpenAI
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        # Generate summary
+        result = llm_client.chat(
             messages=[
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": text_content},
             ],
+            task=TASK_SUMMARY,
             max_tokens=500,
         )
-
-        summary = response.choices[0].message.content
+        summary = result.content
 
         # Store in database
         item.summary = summary

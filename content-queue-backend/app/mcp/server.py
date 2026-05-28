@@ -45,6 +45,7 @@ from app.mcp.tools.write import (
     create_list as _create_list,
     add_to_list as _add_to_list,
 )
+from app.mcp.tools.query import query_library as _query_library
 
 # MCP stdio uses stdout for JSON-RPC — all logging must go to stderr.
 logging.basicConfig(
@@ -337,6 +338,41 @@ def add_to_list(list_id: str, item_id: str) -> dict:
     with get_db() as db:
         user = get_user_from_env(db)
         return _add_to_list(list_id=list_id, item_id=item_id, user=user, db=db)
+
+
+# ---------------------------------------------------------------------------
+# Query
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def query_library(question: str) -> dict:
+    """
+    Answer a natural-language question about your reading library using SQL.
+
+    Translates your question into a read-only SQL query, runs it against your
+    library database, and returns a plain-English answer along with the SQL
+    that was generated (for transparency).
+
+    Args:
+        question: A plain-English question about your library.
+                  Examples:
+                    "What have I read this week?"
+                    "Which articles are tagged 'machine learning'?"
+                    "How many articles do I have about climate change?"
+                    "What are my longest unread articles?"
+                    "Show me everything I saved but never read."
+
+    Returns:
+        {
+            "answer": str,     # Natural-language summary of results
+            "sql": str,        # SQL that was generated (for transparency)
+            "row_count": int,  # Number of rows returned
+        }
+    """
+    with get_db() as db:
+        user = get_user_from_env(db)
+        return _query_library(question=question, user=user, db=db)
 
 
 # ---------------------------------------------------------------------------

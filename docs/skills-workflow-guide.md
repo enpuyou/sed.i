@@ -255,6 +255,7 @@ decisions that were already made so they don't get relitigated.
 | `/retro` | `docs/retros/YYYY-MM-DD-<feature>.md` | Lessons learned, improvements |
 | `/improve` | `docs/improvement-plan-YYYY-MM-DD.md` | Prioritized debt items |
 | `/finalize` | GitHub PR | Structured change description |
+| `/handoff` | `docs/handoffs/YYYY-MM-DD-<slug>.md` | Session continuity for the next cold start |
 
 These documents form the project's engineering history. Future `/plan` runs
 check them so lessons aren't lost between sessions.

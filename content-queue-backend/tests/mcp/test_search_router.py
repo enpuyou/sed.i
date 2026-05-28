@@ -84,13 +84,10 @@ class TestInferredFilters:
         assert result == "filter"
         assert meta["author"] == "paul graham"
 
-    def test_known_tag_match(self):
-        result, meta = classify_query(
-            "AI",
-            user_tags={"ai"},
-        )
-        assert result == "filter"
-        assert meta["tag"] == "AI"
+    def test_known_tag_routes_to_keyword(self):
+        """Tag names route to keyword — tags are in tsvector; use tag: operator for explicit filtering."""
+        result, _ = classify_query("AI")
+        assert result == "keyword"
 
     def test_domain_pattern(self):
         """nytimes.com looks like a domain -> site filter."""
@@ -104,11 +101,10 @@ class TestInferredFilters:
         assert meta["site"] == "stratechery.substack.com"
 
     def test_unknown_short_query_not_inferred_as_filter(self):
-        """Short query that doesn't match known data falls to keyword."""
+        """Short query that doesn't match known authors falls to keyword."""
         result, meta = classify_query(
             "react hooks",
             user_authors={"paul graham"},
-            user_tags={"ai", "tech"},
         )
         assert result == "keyword"
 
@@ -146,10 +142,10 @@ class TestShortKeyword:
         result, _ = classify_query("AI ethics paper")
         assert result == "keyword"
 
-    def test_four_words_is_keyword(self):
-        """4 words without question words -> keyword (threshold is ≤4)."""
+    def test_four_words_is_hybrid(self):
+        """4 words without question words -> hybrid (threshold is ≤3 for keyword)."""
         result, _ = classify_query("machine learning transformer attention")
-        assert result == "keyword"
+        assert result == "hybrid"
 
 
 class TestQuestionDetection:
@@ -196,8 +192,9 @@ class TestHybridDefault:
         assert result == "hybrid"
 
     def test_topic_exploration(self):
+        """4-word conceptual phrase -> hybrid, not keyword."""
         result, _ = classify_query("effective altruism criticism arguments")
-        assert result == "keyword"
+        assert result == "hybrid"
 
     def test_medium_length_non_question(self):
         result, _ = classify_query("deep learning computer vision applications")

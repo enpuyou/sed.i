@@ -1046,6 +1046,59 @@ Generated from the Chrome extension using Apple's `safari-web-extension-converte
 
 ---
 
+## 24. LLM infrastructure (SOTA stack)
+
+### LLMClient (`app/core/llm_client.py`)
+
+Single entry point for all LLM calls. Provider-agnostic — call sites use task constants, never raw model strings.
+
+| Method | Purpose |
+| --- | --- |
+| `llm_client.embed(texts)` | Always uses `EMBED_PROVIDER` (default `"openai"`). No fallback — fails loudly to prevent vector-space mixing. |
+| `llm_client.chat(messages, task=TASK_*)` | Routes to `LLM_PROVIDER`. Per-task model resolved from `LLM_MODEL_{TASK}_{PROVIDER}` env var, falling back to hardcoded defaults. Primary provider failure retries on the other. |
+| `llm_client.structured_chat(messages, response_model=..., task=...)` | Returns a validated Pydantic model. OpenAI uses `instructor`; Bedrock uses a manual retry loop with validation feedback. |
+
+Task constants (import from `llm_client`): `TASK_TAGGING`, `TASK_SUMMARY`, `TASK_MCP_SUMMARY`, `TASK_SQL_GEN`, `TASK_INSIGHT`.
+
+Pydantic response models live in `app/core/llm_schemas.py` (`TagResponse`).
+
+### LLM providers
+
+| Provider | Config | Models |
+| --- | --- | --- |
+| OpenAI (default) | `LLM_PROVIDER=openai`, `OPENAI_API_KEY` | `gpt-4o-mini` (fast tasks), `gpt-4o` (SQL gen) |
+| Bedrock | `LLM_PROVIDER=bedrock`, `AWS_ACCESS_KEY_ID/SECRET`, `AWS_REGION=us-east-2` | `amazon.nova-micro-v1:0` (fast), `amazon.nova-lite-v1:0` (standard), `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (SQL gen) |
+
+Embedding always uses OpenAI (`text-embedding-3-small`, 1536-dim). Switching `EMBED_PROVIDER` requires a full re-embed migration.
+
+AWS infrastructure provisioned via Pulumi in `infra/`. IAM users are least-privilege (specific model ARNs + one S3 bucket only). See `infra/__main__.py`.
+
+### Observability
+
+| Layer | Tool | Config |
+| --- | --- | --- |
+| LLM traces | Braintrust | `BRAINTRUST_API_KEY` — wraps OpenAI client; async flush with `worker_process_shutdown` safety drain |
+| Error tracking | Sentry | `SENTRY_DSN` (backend), `NEXT_PUBLIC_SENTRY_DSN` (frontend) |
+| Distributed tracing | OTEL → Grafana Cloud | `OTEL_EXPORTER_OTLP_ENDPOINT/HEADERS/PROTOCOL`, `OTEL_RESOURCE_ATTRIBUTES` — FastAPI + SQLAlchemy + Celery instrumented. pydantic-settings values mirrored to `os.environ` before `Resource.create()` so the OTEL SDK reads them correctly. |
+
+All observability is opt-in: any key left empty silently disables that tool. Safe in dev and test with no config.
+
+Celery workers bootstrap observability via `worker_process_init` signal → `setup_worker_observability()` (skips FastAPIInstrumentor since no FastAPI app is present). FastAPI calls `setup_observability(app)` from its lifespan.
+
+### S3 object storage (`app/core/storage.py`)
+
+PDFs saved to `s3://sedi-assets-{env}/pdfs/{user_id}/{item_id}.pdf`. Presigned URL endpoint: `GET /content/{item_id}/pdf-url` (1h expiry, configurable via `AWS_S3_PRESIGN_EXPIRY`). `AWS_S3_BUCKET` empty = S3 skipped, bytes discarded.
+
+### Text-to-SQL MCP tool (`app/mcp/tools/query.py`)
+
+`query_library` MCP tool lets Claude query the user's library via natural language → SQL. Security: AST validation via `sqlglot` (SELECT-only, allow-list of 7 tables), `_enforce_user_isolation()` rejects any SQL where `:user_id` is absent or not in an equality predicate (two-tier: text scan + AST EQ walk), `user_id` bound parameter, 500ms `statement_timeout`. See `docs/decisions/0006-text-to-sql-security.md`.
+
+### Pipeline observability (Prefect — Layer 8)
+
+Opt-in (`PREFECT_ENABLED=false` default). When enabled, ingestion phases 2–5 run as a Prefect flow (`app/workflows/ingestion.py`) with per-step retries and timing. Requires a Prefect server + worker. In production: two additional Railway services (server + worker), both using `prefecthq/prefect:3-python3.11`. `PREFECT_API_URL` must point to the server's internal Railway URL.
+
+---
+
 ## 22. Engineering workflow standard
 
 The operational standard for this repository (local dev, CI, Railway deploy,

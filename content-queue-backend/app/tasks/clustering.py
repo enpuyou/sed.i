@@ -11,7 +11,6 @@ Direct call (tests): cluster_user_tags(user_id, db=session)
 import logging
 from uuid import UUID
 
-import numpy as np
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -36,12 +35,16 @@ def cluster_user_tags(user_id: str, db: Session | None = None) -> dict:
     Requires ≥10 articles with tags. Clusters with <3 articles are dropped.
     Existing clusters for the user are replaced on every run (idempotent).
     """
+    import numpy as np
+
     own_session = db is None
     if own_session:
         db = SessionLocal()
 
     try:
         uid = UUID(user_id)
+
+        from sqlalchemy.orm import load_only
 
         items = (
             db.query(ContentItem)
@@ -50,6 +53,7 @@ def cluster_user_tags(user_id: str, db: Session | None = None) -> dict:
                 ContentItem.deleted_at.is_(None),
                 func.cardinality(ContentItem.tags) > 0,
             )
+            .options(load_only(ContentItem.id, ContentItem.tags))
             .all()
         )
 
@@ -110,6 +114,8 @@ def cluster_user_tags(user_id: str, db: Session | None = None) -> dict:
             for j in range(i + 1, len(clusterable)):
                 if sim[i, j] >= _SIMILARITY_THRESHOLD:
                     union(i, j)
+
+        del embs, normed, sim  # free N×N matrices before building output
 
         # Group tag indices by cluster root
         cluster_map: dict[int, list[int]] = {}

@@ -45,6 +45,7 @@ from app.mcp.tools.write import (
     create_list as _create_list,
     add_to_list as _add_to_list,
 )
+from app.mcp.tools.query import query_library as _query_library
 
 logger = logging.getLogger("sedi.mcp.http")
 
@@ -234,6 +235,13 @@ def add_to_list(list_id: str, item_id: str) -> dict:
         return _add_to_list(
             list_id=list_id, item_id=item_id, user=_current_user(), db=db
         )
+
+
+@http_mcp.tool()
+def query_library(question: str) -> dict:
+    """Answer a natural-language question about the user's library using SQL."""
+    with get_db() as db:
+        return _query_library(question=question, user=_current_user(), db=db)
 
 
 # ---------------------------------------------------------------------------
