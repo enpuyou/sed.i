@@ -498,19 +498,31 @@ def extract_metadata(self, item_id: str):
 
             if settings.PREFECT_ENABLED:
                 import os
-                import threading
-                from app.workflows.ingestion import ingest_content
 
                 if settings.PREFECT_API_URL:
                     os.environ["PREFECT_API_URL"] = settings.PREFECT_API_URL
                 if settings.PREFECT_API_KEY:
                     os.environ["PREFECT_API_KEY"] = settings.PREFECT_API_KEY
-                # Run in a daemon thread so the Celery task returns immediately.
-                # A direct ingest_content(item_id) call blocks the worker for
-                # the entire pipeline duration (60–90 s per item).
-                threading.Thread(
-                    target=ingest_content, args=(item_id,), daemon=True
-                ).start()
+                # Submit to the Prefect server as a deployment run so Prefect
+                # owns durability and retries — not a daemon thread that dies
+                # silently when the Celery worker restarts.  If no deployment
+                # named "ingest-content/default" is registered yet, fall back
+                # to the Celery chain so ingestion always makes progress.
+                try:
+                    from prefect.deployments import run_deployment
+
+                    run_deployment(
+                        name="ingest-content/default",
+                        parameters={"item_id": item_id},
+                        timeout=0,  # fire-and-forget; Prefect tracks completion
+                    )
+                    logger.info(f"Submitted ingestion flow to Prefect for {item_id}")
+                except Exception as exc:
+                    logger.warning(
+                        f"Prefect deployment submission failed ({exc}), "
+                        "falling back to Celery chain"
+                    )
+                    extract_full_content.delay(item_id)
             else:
                 extract_full_content.delay(item_id)
 

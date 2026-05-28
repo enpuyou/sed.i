@@ -136,9 +136,13 @@ aws.budgets.Budget(
 )
 
 # ── S3 bucket (Layer 6) ───────────────────────────────────────────────────────
+# Bucket names are globally unique across all AWS accounts. A fixed low-entropy
+# name like "sedi-assets-dev" can collide with another account's bucket, causing
+# Pulumi to fail. Include the account ID (12 digits, globally unique) to guarantee
+# uniqueness without needing a random suffix that changes on each deploy.
 bucket = aws.s3.BucketV2(
     "sedi-assets",
-    bucket=f"sedi-assets-{env}",
+    bucket=f"sedi-assets-{env}-{account_id}",
     tags={"project": "sedi", "env": env},
 )
 

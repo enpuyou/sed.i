@@ -20,9 +20,19 @@ from .tagging_eval_dataset import TAGGING_EXAMPLES
 load_dotenv()
 
 
+def _has_llm_credentials() -> bool:
+    """Return True only if the configured LLM_PROVIDER has its credentials set."""
+    from app.core.config import settings
+
+    provider = os.getenv("LLM_PROVIDER", settings.LLM_PROVIDER)
+    if provider == "bedrock":
+        return bool(os.getenv("AWS_ACCESS_KEY_ID"))
+    return bool(os.getenv("OPENAI_API_KEY"))
+
+
 pytestmark = pytest.mark.skipif(
-    not os.getenv("OPENAI_API_KEY") and not os.getenv("AWS_ACCESS_KEY_ID"),
-    reason="No LLM credentials set — skipping tagging evals",
+    not _has_llm_credentials(),
+    reason="No credentials for the configured LLM_PROVIDER — skipping tagging evals",
 )
 
 

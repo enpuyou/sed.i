@@ -58,12 +58,16 @@ def eval_articles_with_embeddings(eval_articles, db_module):
     Requires OPENAI_API_KEY in env. If not set, skip semantic evals.
     """
     import os
+    from app.core.config import settings
 
-    has_openai = bool(os.getenv("OPENAI_API_KEY"))
-    has_bedrock = bool(os.getenv("AWS_ACCESS_KEY_ID"))
-    if not has_openai and not has_bedrock:
+    embed_provider = os.getenv("EMBED_PROVIDER", settings.EMBED_PROVIDER)
+    if embed_provider == "bedrock" and not os.getenv("AWS_ACCESS_KEY_ID"):
         pytest.skip(
-            "No LLM credentials set (OPENAI_API_KEY or AWS_ACCESS_KEY_ID) — skipping embedding-dependent evals"
+            "EMBED_PROVIDER=bedrock but AWS_ACCESS_KEY_ID not set — skipping embedding evals"
+        )
+    elif embed_provider != "bedrock" and not os.getenv("OPENAI_API_KEY"):
+        pytest.skip(
+            f"EMBED_PROVIDER={embed_provider} but OPENAI_API_KEY not set — skipping embedding evals"
         )
 
     from app.core.llm_client import llm_client

@@ -55,23 +55,25 @@ from app.tasks import (
 )
 
 
-# Observability bootstrap — must run in each worker process, not the main process.
-# FastAPI's lifespan (which calls setup_observability) never runs in the worker.
-from celery.signals import worker_process_init, worker_process_shutdown
+# Observability bootstrap.
+#
+# worker_process_init fires for each forked pool child — but NOT for --pool=solo
+# (the production pool), because solo runs everything in the main process with no
+# child processes at all.  Use worker_ready instead: it fires once the worker has
+# connected to the broker, regardless of pool type.
+from celery.signals import worker_ready, worker_shutdown, worker_process_shutdown
 
 
-@worker_process_init.connect
+@worker_ready.connect
 def init_worker_observability(**kwargs):
     from app.core.observability import setup_worker_observability
 
     setup_worker_observability()
 
 
-# Flush all observability buffers before the worker process exits.
-# worker_max_tasks_per_child kills the process; background threads won't drain.
-@worker_process_shutdown.connect
-def flush_on_shutdown(**kwargs):
-    # OTEL BatchSpanProcessor — drain buffered spans before exit
+def _flush_observability():
+    """Drain all buffered observability data before a process exits."""
+    # OTEL BatchSpanProcessor — drain buffered spans
     try:
         from opentelemetry import trace
 
@@ -86,3 +88,16 @@ def flush_on_shutdown(**kwargs):
             braintrust.flush()
         except Exception:
             pass
+
+
+# worker_shutdown: main worker process exits (covers --pool=solo).
+# worker_process_shutdown: forked pool child exits (covers prefork/gevent/etc).
+# Both are registered so we flush regardless of which pool type is in use.
+@worker_shutdown.connect
+def flush_on_worker_shutdown(**kwargs):
+    _flush_observability()
+
+
+@worker_process_shutdown.connect
+def flush_on_process_shutdown(**kwargs):
+    _flush_observability()

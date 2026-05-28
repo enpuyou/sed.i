@@ -8,7 +8,11 @@ Security model:
 - Schema introspection is run once per process and cached (avoids expensive
   DB round-trips on every call).
 - Generated SQL is parsed with sqlglot and rejected if it contains any DDL,
-  DML, or references to tables outside the allow-list.
+  DML, or references to tables outside the allow-list — including data-modifying
+  CTEs attached to a SELECT (e.g. WITH d AS (DELETE ...) SELECT * FROM d).
+- Every user-scoped table in the query must have a direct WHERE user_id = :user_id
+  (or owner_id = :user_id for lists) predicate. A filter on one table does not
+  satisfy the isolation requirement for other user-scoped tables in the same query.
 - All queries run with a 500ms statement_timeout and are scoped to the
   authenticated user's rows via a WHERE clause injected by the caller.
 - No raw user input is interpolated into SQL strings — the LLM generates SQL
@@ -39,12 +43,24 @@ _ALLOWED_TABLES = frozenset(
         "content_items",
         "highlights",
         "lists",
-        "list_items",
+        "content_list_membership",  # actual junction table (not list_items)
         "drafts",
         "content_chunks",
         "reading_clusters",
     }
 )
+
+# Tables that carry a user-scoping column and require a direct WHERE filter.
+# Bridge tables (content_list_membership) have no user column and are exempt —
+# they must be joined to an already-filtered table to be safely accessed.
+_USER_SCOPED_TABLES: dict[str, str] = {
+    "content_items": "user_id",
+    "highlights": "user_id",
+    "drafts": "user_id",
+    "content_chunks": "user_id",
+    "reading_clusters": "user_id",
+    "lists": "owner_id",
+}
 
 # Columns to expose per table (avoids leaking internal fields like embeddings).
 _TABLE_SCHEMA = {
@@ -81,11 +97,12 @@ _TABLE_SCHEMA = {
         "created_at (timestamptz)",
         "owner_id (uuid) — always filter WHERE owner_id = :user_id",
     ],
-    "list_items": [
-        "id (uuid)",
-        "list_id (uuid) → lists.id",
+    "content_list_membership": [
         "content_item_id (uuid) → content_items.id",
+        "list_id (uuid) → lists.id",
         "added_at (timestamptz)",
+        "added_by (uuid) → users.id",
+        "NOTE: no user column — join to lists (owner_id = :user_id) or content_items (user_id = :user_id)",
     ],
     "drafts": [
         "id (uuid)",
@@ -112,6 +129,12 @@ _TABLE_SCHEMA = {
 _MAX_ROWS = 50
 _QUERY_TIMEOUT_MS = 500
 
+# DML/DDL node types forbidden anywhere in the AST — including inside CTEs.
+# Checking only the root node misses patterns like:
+#   WITH d AS (DELETE FROM highlights WHERE user_id = :user_id RETURNING *)
+#   SELECT * FROM d
+_FORBIDDEN_NODE_TYPES: tuple = ()  # populated lazily after sqlglot import
+
 
 @lru_cache(maxsize=1)
 def _build_schema_prompt() -> str:
@@ -130,12 +153,35 @@ def _build_schema_prompt() -> str:
         "Rules:\n"
         "- Only use tables from the list above.\n"
         "- Always filter by user_id = :user_id (or owner_id = :user_id for lists).\n"
+        "- Every user-scoped table must have its own direct WHERE filter — do not\n"
+        "  rely on a filter on one table to scope another in a JOIN or cross-join.\n"
         "- SELECT only — no INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE.\n"
         "- Do not use subqueries that access tables not in the allow-list.\n"
         f"- Limit results to {_MAX_ROWS} rows maximum.\n"
         "- Return only the SQL query, nothing else."
     )
     return "\n".join(lines)
+
+
+def _get_forbidden_node_types():
+    """Return sqlglot DML/DDL node types (imported lazily)."""
+    global _FORBIDDEN_NODE_TYPES
+    if _FORBIDDEN_NODE_TYPES:
+        return _FORBIDDEN_NODE_TYPES
+    import sqlglot.expressions as exp
+
+    _FORBIDDEN_NODE_TYPES = (
+        exp.Insert,
+        exp.Update,
+        exp.Delete,
+        exp.Drop,
+        exp.Create,
+        exp.AlterTable,
+        exp.TruncateTable,
+        exp.Grant,
+        exp.Revoke,
+    )
+    return _FORBIDDEN_NODE_TYPES
 
 
 def _validate_sql(sql: str) -> str:
@@ -162,17 +208,26 @@ def _validate_sql(sql: str) -> str:
 
     stmt = statements[0]
 
-    # Only SELECT is allowed
+    # Root must be SELECT — catches obvious DML
     if not isinstance(stmt, exp.Select):
         raise ValueError(
             f"Only SELECT statements are allowed (got {type(stmt).__name__})"
         )
 
-    # Collect all table references
+    # Walk the full AST — catches DML/DDL hidden inside CTEs (e.g.
+    # WITH d AS (DELETE ... RETURNING *) SELECT * FROM d).
+    forbidden = _get_forbidden_node_types()
+    for node in stmt.walk():
+        if isinstance(node, forbidden):
+            raise ValueError(
+                f"Query contains forbidden {type(node).__name__} node. "
+                "Data-modifying CTEs and DDL are not allowed."
+            )
+
+    # Collect all table references and enforce the allow-list
     tables_referenced = {
         node.name.lower() for node in stmt.find_all(exp.Table) if node.name
     }
-
     disallowed = tables_referenced - _ALLOWED_TABLES
     if disallowed:
         raise ValueError(
@@ -185,16 +240,17 @@ def _validate_sql(sql: str) -> str:
 
 def _enforce_user_isolation(sql: str) -> None:
     """
-    Reject SQL that does not actually bind :user_id before execution.
+    Reject SQL that does not isolate each user-scoped table to the current user.
 
-    Two-tier check:
-    1. Text scan: :user_id must appear in the SQL string — ensures the bound
-       parameter is referenced and not silently ignored by SQLAlchemy.
-    2. AST check (when sqlglot is available): :user_id must appear as one side
-       of an equality predicate so it can't appear only in a string literal or
-       comment.
+    Three-tier check:
+    1. Text scan: :user_id must appear in the SQL string.
+    2. AST check: walk every user-scoped table in the query and verify it has a
+       direct equality predicate (alias.col = :user_id) in the WHERE clause.
+       A filter on one table does NOT satisfy the isolation requirement for
+       another — cross-joins and missing filters are both rejected.
+    3. The regex fallback (no sqlglot) applies a simpler text-level check.
 
-    Raises ValueError if either check fails.
+    Raises ValueError with a human-readable reason on failure.
     """
     if ":user_id" not in sql:
         raise ValueError(
@@ -213,16 +269,46 @@ def _enforce_user_isolation(sql: str) -> None:
     except Exception:
         return  # parse errors already caught in _validate_sql; don't re-raise
 
-    # Walk all equality nodes looking for one side being :user_id placeholder
-    for eq in stmt.find_all(exp.EQ):
-        for side in (eq.this, eq.expression):
-            if isinstance(side, exp.Placeholder) and side.name == "user_id":
-                return  # found — isolation is enforced
+    # Build alias → table_name map.  When no alias is given, the alias equals
+    # the table name so the logic below is uniform.
+    alias_map: dict[str, str] = {}
+    for table_node in stmt.find_all(exp.Table):
+        name = table_node.name.lower()
+        alias = (table_node.alias or name).lower()
+        alias_map[alias] = name
 
-    raise ValueError(
-        "Generated SQL references :user_id but not in an equality predicate — "
-        "the user filter may be ineffective."
-    )
+    # Collect all (alias, col) pairs that are directly equality-filtered against :user_id.
+    # We track by alias (not table name) so that a query joining a table to itself is
+    # handled correctly.
+    filtered_aliases: set[str] = set()
+    for eq in stmt.find_all(exp.EQ):
+        for col_side, val_side in ((eq.this, eq.expression), (eq.expression, eq.this)):
+            if (
+                isinstance(val_side, exp.Placeholder)
+                and val_side.name == "user_id"
+                and isinstance(col_side, exp.Column)
+            ):
+                col_name = col_side.name.lower()
+                col_table = (col_side.table or "").lower()
+                for alias, tbl in alias_map.items():
+                    expected_col = _USER_SCOPED_TABLES.get(tbl)
+                    if expected_col and col_name == expected_col:
+                        # Accept if the column is qualified with this alias,
+                        # or unqualified (could apply to any table with this col).
+                        if not col_table or col_table == alias:
+                            filtered_aliases.add(alias)
+
+    # Every alias for a user-scoped table must appear in filtered_aliases.
+    for alias, tbl in alias_map.items():
+        if tbl not in _USER_SCOPED_TABLES:
+            continue  # bridge table — no user column, exempt
+        if alias not in filtered_aliases:
+            user_col = _USER_SCOPED_TABLES[tbl]
+            raise ValueError(
+                f"Table '{tbl}' (alias '{alias}') is user-scoped but has no direct "
+                f"WHERE {user_col} = :user_id predicate. "
+                "A filter on another table in the same query does not provide isolation."
+            )
 
 
 def _validate_sql_regex(sql: str) -> str:
@@ -355,13 +441,13 @@ def query_library(*, question: str, user: User, db: Session) -> dict:
         raw_sql = re.sub(r"\n?```$", "", raw_sql)
     raw_sql = raw_sql.strip()
 
-    # Step 2: validate — allow-list + read-only
+    # Step 2: validate — allow-list + read-only (including DML-CTE detection)
     try:
         safe_sql = _validate_sql(raw_sql)
     except ValueError as e:
         raise ValueError(f"Generated SQL failed validation: {e}") from e
 
-    # Step 3: enforce user isolation — reject if :user_id not bound as an EQ predicate
+    # Step 3: enforce per-table user isolation
     try:
         _enforce_user_isolation(safe_sql)
     except ValueError as e:
