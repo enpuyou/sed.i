@@ -1,3 +1,10 @@
+---
+type: design
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # SOTA AI-Native Development Workflow Research
 
 **Date**: 2026-05-28

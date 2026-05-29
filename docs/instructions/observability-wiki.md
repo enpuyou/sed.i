@@ -1,3 +1,10 @@
+---
+type: instruction
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # sed.i Observability Wiki
 
 What each tool tracks, when to look at it, and what it costs.

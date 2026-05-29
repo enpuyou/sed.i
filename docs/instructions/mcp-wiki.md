@@ -1,3 +1,10 @@
+---
+type: instruction
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # sed.i MCP Server — Technical Wiki
 
 > **Audience:** Developer building or maintaining the sed.i MCP integration. Covers how MCP works conceptually, every architectural decision we made, the full OAuth 2.1 + PKCE flow, the Cloudflare/Railway production topology, all deployed tools, and practical troubleshooting. Written to be useful as interview prep as well as operational reference.

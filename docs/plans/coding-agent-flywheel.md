@@ -245,7 +245,7 @@ when the trigger fires, without user instruction. See docs/instructions/workflow
 - Backend API / DB / Celery work → docs/instructions/backend-patterns.md
 - Testing → docs/instructions/testing-standards.md
 - Workflow, subagents, TDD → docs/instructions/workflow.md
-- MCP tools → docs/mcp-wiki.md
+- MCP tools → docs/instructions/mcp-wiki.md
 - Architecture decisions → ARCHITECTURE.md + docs/decisions/
 - Domain vocabulary → CONTEXT.md
 ```

@@ -103,6 +103,6 @@ Plans → `docs/plans/`. Retros → `docs/retros/`. Handoffs → `docs/handoffs/
 | Backend API / DB / Celery | `docs/instructions/backend-patterns.md` |
 | Testing conventions | `docs/instructions/testing-standards.md` |
 | Workflow, TDD, subagents | `docs/instructions/workflow.md` |
-| MCP tools or OAuth | `docs/mcp-wiki.md` and `docs/mcp-server.md` |
+| MCP tools or OAuth | `docs/instructions/mcp-wiki.md` and `docs/instructions/mcp-server.md` |
 | Domain vocabulary | `CONTEXT.md` |
 | Architecture decisions | `ARCHITECTURE.md` + `docs/decisions/` |
