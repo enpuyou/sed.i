@@ -60,7 +60,7 @@ make install-hooks  # install pre-push git hook
 These are project-specific conventions Claude cannot infer from reading the code.
 
 1. **ARCHITECTURE.md** updated in the same commit as any feature change — CI enforces this
-2. **Feature doc** (`docs/features/<name>.md`) for every customer-facing change, same commit
+2. **Feature doc** (`docs/design/product/<name>.md`) for every customer-facing change, same commit
 3. **`make lint` passes** before committing — ruff + tsc + eslint — hook enforces this
 4. **`/finalize` before every PR** — no exceptions; runs full audit + doc check
 5. **One feature = one commit** — never bundle independent features; use `/pre-commit-dev` as checkpoint
@@ -103,6 +103,8 @@ Plans → `docs/plans/`. Retros → `docs/retros/`. Handoffs → `docs/handoffs/
 | Backend API / DB / Celery | `docs/instructions/backend-patterns.md` |
 | Testing conventions | `docs/instructions/testing-standards.md` |
 | Workflow, TDD, subagents | `docs/instructions/workflow.md` |
-| MCP tools or OAuth | `docs/instructions/mcp-wiki.md` and `docs/instructions/mcp-server.md` |
+| MCP tools or OAuth | `docs/design/systems/mcp-wiki.md` + `docs/design/systems/mcp-server.md` |
+| How a subsystem works | `docs/design/systems/` |
+| How a feature works (user) | `docs/design/product/` |
 | Domain vocabulary | `CONTEXT.md` |
 | Architecture decisions | `ARCHITECTURE.md` + `docs/decisions/` |

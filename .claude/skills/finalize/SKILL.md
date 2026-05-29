@@ -252,12 +252,13 @@ Report only genuine functional gaps. Skip style comments.
 - Do NOT add JSDoc to every function — only where the name isn't enough.
 
 ### 4d. Feature doc check
-- For every user-facing change in this branch, is there a corresponding `docs/features/<name>.md`?
-- Read the existing feature doc (if any) — update any section that is now stale:
-  - Prerequisites, test steps, keyboard shortcuts, tips
-  - Flag behaviors that have changed (e.g. "shared tags required" → "no longer required")
-- If no feature doc exists and the change is user-visible, create one now.
-- Feature docs are written for users, not engineers — no internal names, no code references.
+- For every user-facing change in this branch, is there a corresponding `docs/design/product/<name>.md`?
+- Use `docs/design/product/TEMPLATE.md` for new ones.
+- Read the existing doc (if any) — update any section that is now stale:
+  - Test steps, known limits, tips, UX flow
+  - Flag behaviors that changed (e.g. "shared tags required" → "no longer required")
+- If no product doc exists and the change is user-visible, create one now.
+- Product docs: user perspective only — no internal names, no code references, no class/method names.
 
 ### 4e. Impact report
 - Does `docs/changelog/` have an entry for the work done in this branch?
