@@ -46,6 +46,35 @@ finalization.
 
 ---
 
+## Phase 1b · PoC detection (before writing tests)
+
+Before writing any tests, verify the implementation is real — not mocked, hardcoded,
+or unimplemented. Tests written for fake code give false confidence.
+
+**Step 1** — grep changed files for PoC markers:
+```bash
+grep -rn "TODO\|FIXME\|hardcoded\|NotImplementedError\|return \[\]$\|return {}$" <changed files>
+```
+Any match requires explanation or removal before proceeding.
+
+**Step 2** — if >1 file changed OR any new public function/endpoint/service was added,
+spawn a `code-reviewer` subagent with this prompt:
+
+```
+Review [list changed files]. Find only:
+(a) Data returned that is hardcoded, mocked, or from a stub
+(b) Unimplemented code paths (pass, ..., NotImplementedError, return [], return {})
+(c) Endpoints or functions that don't do what their name says
+(d) Calls to services/APIs not actually wired up yet
+Report issues only. Skip style. Cite file:line for each issue.
+```
+
+**Skip when**: pure refactor with no behavior change; docs-only; test-only commit.
+
+If the code-reviewer finds real issues, fix them before proceeding to Phase 2.
+
+---
+
 ## Phase 2 · Write tests
 
 ### Test file structure

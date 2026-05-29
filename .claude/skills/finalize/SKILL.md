@@ -200,6 +200,25 @@ the actual code and evaluate it against these criteria.
 - No large inline objects/arrays that would break memoization.
 - Images use Next.js `<Image>` or have explicit width/height.
 
+### 3f. PoC detection (fresh-agent review)
+
+Spawn a fresh `code-reviewer` subagent on the complete PR diff. A fresh agent has no
+implementation bias — it sees the code without knowing the intent behind each choice.
+
+Prompt:
+```
+Review all files changed in this branch vs. main. Check the entire change set for:
+(a) Any feature that looks implemented but relies on mocked, stubbed, or hardcoded data
+(b) Any integration point (API call, DB query, external service) not actually wired up
+(c) Any code path added in one file that requires a matching change in another that's missing
+(d) Any endpoint or function returning static/empty data instead of real results
+Report only genuine functional gaps. Skip style comments.
+```
+
+**Skip when**: the branch is docs/config/test-only with no new behavior.
+
+---
+
 ### 3e. Accessibility
 - Interactive elements have accessible names (aria-label, button text, link text).
 - Color is not the only indicator of state (icons, text, or borders accompany it).
