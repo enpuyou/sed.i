@@ -1,9 +1,9 @@
 """
-ContentItem CRUD endpoints.
+Content item CRUD and ingestion endpoints.
 
-POST /content delegates ingestion logic (normalize, dedup, create, dispatch)
-to app/services/content.py. This layer owns HTTP concerns only: request
-parsing, list membership, extension HTML pre-processing, and error mapping.
+Owns the URL-to-library seam: normalization, duplicate detection, item creation,
+list attachment, and Celery task dispatch. Does NOT do extraction or embedding —
+those are Celery tasks.
 """
 
 import re

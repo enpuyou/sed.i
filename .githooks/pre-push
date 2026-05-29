@@ -1,0 +1,29 @@
+#!/bin/bash
+# Pre-push hook: runs lint + type check before any push.
+# Install with: make install-hooks
+
+set -e
+
+echo "→ pre-push: checking lint and types..."
+
+# Backend lint
+if [ -d "content-queue-backend" ]; then
+  cd content-queue-backend
+  PYENV_VERSION=3.11.12 /Users/enpuyou/.pyenv/bin/pyenv exec poetry run ruff check app/ --quiet
+  cd ..
+  echo "  ✓ ruff"
+fi
+
+# Frontend types
+if [ -d "frontend" ]; then
+  cd frontend
+  npx tsc --noEmit --pretty false 2>&1 | grep "error TS" | head -10
+  if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo "  ✗ tsc — fix type errors before pushing"
+    exit 1
+  fi
+  cd ..
+  echo "  ✓ tsc"
+fi
+
+echo "✓ pre-push passed"

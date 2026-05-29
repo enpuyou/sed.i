@@ -1,0 +1,6 @@
+{
+  "_comment": "Eval regression baselines. CI fails if any metric drops below these values. Update manually with explicit justification when a genuine improvement is verified.",
+  "classification_accuracy": 1.0,
+  "search_hit_rate_at_10": 0.75,
+  "search_mrr": 0.65
+}

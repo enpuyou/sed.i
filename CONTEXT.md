@@ -175,3 +175,69 @@ Checked via helpers in `frontend/lib/flags.ts`.
 A Python function run asynchronously by a Celery worker. Broker: Redis. Key tasks:
 `extract_metadata`, `generate_embedding`, `generate_summary`, `generate_auto_tags`,
 `fetch_discogs_data`. All retry on failure with backoff. Task files: `app/tasks/`.
+Production worker runs with `--pool=solo` — use `worker_ready` signal (not
+`worker_process_init`) for setup hooks.
+
+---
+
+## Chunk
+
+A sub-document fragment of a ContentItem, created by splitting `full_text` into overlapping
+windows. Each Chunk gets its own embedding for more precise semantic search over long articles.
+Created by the `chunk_and_embed` Celery task. Model: `app/models/chunk.py`. Table:
+`content_chunks`. NOT the same as a sentence or paragraph — window size is configurable.
+
+---
+
+## tsvector (Full-text Search)
+
+PostgreSQL's built-in full-text index on ContentItems. The `search_vector` column
+(type `TSVECTOR`) is populated by a DB trigger on INSERT/UPDATE. Indexes title and author
+at weight A, description and tags at weight B, in both `english` (stemmed) and `simple`
+(exact) dictionaries. Because tags are indexed in the tsvector, a keyword search for
+"stoicism" finds articles tagged stoicism — no separate tag filter is needed.
+
+---
+
+## URL Normalization
+
+Before storing or comparing URLs, the system strips tracking params (UTM, fbclid, etc.),
+lowercases scheme and host, removes trailing slash, and drops fragments. Implemented in
+`normalize_url()` in `app/api/content.py`. Normalized URLs power duplicate detection
+via a partial unique index on `original_url WHERE deleted_at IS NULL`.
+
+---
+
+## RRF (Reciprocal Rank Fusion)
+
+The algorithm that merges keyword and semantic search result lists in hybrid mode. Each
+result gets a score of `1 / (rank + k)` from each list; scores are summed. Avoids the
+need to normalize raw BM25 and cosine scores onto the same scale. Implemented in
+`app/core/hybrid_search.py`.
+
+---
+
+## InlineError
+
+The shared React component for all user-facing error messages. Import from
+`@/components/InlineError`. Props: `message` (required), `onDismiss`, `onRetry`.
+Message tone: "Couldn't [action]. Try again." — no jargon, no "Failed to". Never use
+toast notifications — always InlineError placed near the action that failed.
+
+---
+
+## fetchWithAuth
+
+The single HTTP client function for all frontend API calls (`frontend/lib/api.ts`).
+Handles JWT token injection, 401 redirect, and error normalization into `APIError`.
+Never call `fetch()` directly — always use `fetchWithAuth` or the typed API helpers
+(`contentAPI`, `highlightsAPI`, etc.) that wrap it.
+
+---
+
+## APIError
+
+Typed error class thrown by `fetchWithAuth` on non-2xx responses. Fields: `status`
+(HTTP code), `detail` (human-readable from `{ detail: string }` backend shape), `body`
+(full parsed response object for structured payloads like 409 duplicates). Catch with
+`err instanceof APIError` and display `err.detail` to users.

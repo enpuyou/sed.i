@@ -1,12 +1,9 @@
 """
-Celery task: extract_metadata.
+Celery task pipeline for URL extraction.
 
-Entry point for the normal Ingestion path. Fetches the URL, extracts title/
-author/description/full_text via trafilatura, computes word count and reading
-time, triggers embedding + tagging as follow-on tasks. Writes results back to
-the ContentItem row. Sets processing_status to 'completed' or 'failed'.
-
-Dispatch: extract_metadata.delay(item_id)
+Entry point: extract_metadata.delay(item_id). Fetches URL, extracts metadata,
+generates embeddings, auto-tags, writes back to ContentItem. Does NOT create
+ContentItems — that is app/api/content.py's job.
 """
 
 import json

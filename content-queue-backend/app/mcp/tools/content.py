@@ -1,5 +1,8 @@
 """
-MCP tools: get_content_item, search_content, find_similar.
+MCP read tools for content items: get_content_item, search_content, find_similar.
+
+All tools are read-only — they query but never mutate. Uses _format_item() for
+consistent serialization. Does NOT write to the DB.
 """
 
 from __future__ import annotations

@@ -1,19 +1,25 @@
 # sed.i — Claude Code Instructions
 
-## What this is
+## Working principles (Karpathy)
 
-A read-it-later app. Users paste URLs; the backend extracts content; the frontend provides
-a reader, highlights, search, and a writing workspace. Domain vocabulary: **CONTEXT.md**.
+1. **Think first** — state assumptions explicitly; ask rather than guess; push back when a simpler approach exists; name confusion before proceeding into it
+2. **Simplicity** — minimum code that solves the problem; no unrequested features, abstractions, error handling for impossible cases, or configurability
+3. **Surgical** — touch only what the task requires; match existing style; mention pre-existing dead code but don't delete it unless asked
+4. **Verify** — define "done" as a testable, observable outcome before writing any code; loop until it passes
 
 ---
 
+## What this is
+
+A read-it-later app. Users paste URLs; backend extracts content; frontend provides
+reader, highlights, search, and writing workspace. See **CONTEXT.md** for vocabulary,
+**ARCHITECTURE.md** for system state, **docs/decisions/** before any architectural decision.
+
 ## Cold start
 
-Before doing anything else, orient without searching:
-
-1. **Check for a handoff doc** — `ls -lt docs/handoffs/ 2>/dev/null | head -3`. If one exists, read the most recent one for session continuity before touching any code.
-2. **Use the file map below** — don't grep/find to locate common files.
-3. **Git state is in your system context** — use it, don't re-fetch.
+1. `ls -lt docs/handoffs/ 2>/dev/null | head -3` — read the most recent handoff if one exists
+2. Use the key file paths table below — do not grep to orient
+3. Check `docs/decisions/` before any architectural decision
 
 ## Key file paths
 
@@ -27,182 +33,76 @@ Before doing anything else, orient without searching:
 | Connections panel | `frontend/components/ConnectionsPanel.tsx` |
 | Shared UI components | `frontend/components/InlineError.tsx`, `frontend/components/EmptyState.tsx`, `frontend/components/Navbar.tsx` |
 | Auth & current user | `content-queue-backend/app/core/deps.py`, `content-queue-backend/app/api/auth.py` |
-| API routes | `content-queue-backend/app/api/<name>.py` (public-only routes: `app/api/endpoints/public.py`) |
+| API routes | `content-queue-backend/app/api/<name>.py` |
 | DB models | `content-queue-backend/app/models/<name>.py` |
 | Celery tasks | `content-queue-backend/app/tasks/<name>.py` |
 | Search engine | `content-queue-backend/app/core/hybrid_search.py`, `content-queue-backend/app/api/search.py` |
 | DB migrations | `content-queue-backend/alembic/versions/` |
 | Feature flags | `frontend/lib/flags.ts` |
 | API client | `frontend/lib/api.ts` |
-| Reading settings | `frontend/contexts/ReadingSettingsContext.tsx` |
-
----
 
 ## Run commands
 
 ```bash
-# Start everything
-make dev
-
-# Individual services
-make backend    # FastAPI on :8000
-make worker     # Celery worker + beat
-make frontend   # Next.js on :3000
-
-# Infra (Postgres + Redis)
-docker compose up -d
-
-# Test, lint, migrate
-make test
-make lint
-make migrate
+make dev          # all services
+make backend      # FastAPI :8000
+make worker       # Celery worker + beat
+make frontend     # Next.js :3000
+make test         # full suite (backend + frontend)
+make lint         # ruff + tsc + eslint
+make install-hooks  # install pre-push git hook
 ```
-
-> Backend commands require pyenv. The Makefile handles this — always use `make` targets
-> rather than running poetry directly. See `docs/instructions/backend-patterns.md` if
-> you need to run commands manually.
 
 ---
 
-## Hard constraints
+## IMPORTANT — YOU MUST follow these every session
 
-These apply in every session, every file, no exceptions:
+These are project-specific conventions Claude cannot infer from reading the code.
 
-1. **No toasts.** All errors use `InlineError` component — inline, near the action.
-2. **`fetchWithAuth` only.** Never call `fetch()` directly in the frontend.
-3. **Backend error shape: `{ detail: string }`.** Global handlers sanitize 422/500.
-4. **`ARCHITECTURE.md` updated in the same commit as any feature change.**
-11. **Feature doc written for every customer-facing change.** Create or update `docs/features/<feature-name>.md` — written as a user workflow guide, not internal notes. Covers: what it does, where to find it, how to test it. Goes in the same commit as the feature.
-5. **Loading → Error → Empty → Data.** Never render two states at once.
-6. **Optimistic updates** — update UI immediately, revert on failure, show InlineError.
-7. **EmptyState for all empty data** — sentence case, no emoji.
-8. **Error tone: "Couldn't [action]. Try again."** — no jargon, no "Failed to".
-9. **`make lint` passes before committing** — ruff + tsc + eslint all clean.
-10. **No backwards-compat shims** for removed code. Delete unused code.
+1. **ARCHITECTURE.md** updated in the same commit as any feature change — CI enforces this
+2. **Feature doc** (`docs/features/<name>.md`) for every customer-facing change, same commit
+3. **`make lint` passes** before committing — ruff + tsc + eslint — hook enforces this
+4. **`/finalize` before every PR** — no exceptions; runs full audit + doc check
+5. **One feature = one commit** — never bundle independent features; use `/pre-commit-dev` as checkpoint
+6. **Acceptance criteria first** — before any code: "done when [user action] → [observable result]"
+7. **`/pre-commit-dev` after each feature unit** — includes PoC detection + targeted tests
+8. **`InlineError` for all errors, never toasts** — `fetchWithAuth` only, never bare `fetch()`
+9. **Backend errors: `{ detail: string }`** — frontend reads `err.detail`; `err.body` for structured payloads
 
 ---
 
 ## Skill workflow
 
-Use skills in this order for significant work:
+| Phase    | Skill             | When                                                    |
+|----------|-------------------|---------------------------------------------------------|
+| Plan     | `/plan <goal>`    | Before any feature — design before touching code        |
+| Build    | `/pre-commit-dev` | After each logical unit — checkpoint before commit      |
+| Debug    | `/diagnose`       | Bug reported or test failing unexpectedly               |
+| Finalize | `/finalize`       | **Mandatory before every PR** — full audit + ship prep  |
+| Retro    | `/retro`          | After merging — extract lessons                         |
+| Improve  | `/improve`        | Between features — duplication, complexity              |
+| Perf     | `/perf-audit`     | App feels slow — bundle, rendering, queries             |
+| Handoff  | `/handoff`        | Auto-triggered when context is long or session ending   |
+| Zoom     | `/zoom-out`       | Unfamiliar area — get a module map before editing       |
 
-| Phase     | Skill                    | When                                               |
-| --------- | ------------------------ | -------------------------------------------------- |
-| Plan      | `/plan <goal>`           | Before any feature — analyze, design, phase        |
-| Build     | `/pre-commit-dev`        | After a complete logical unit of work — checkpoint |
-| Debug     | `/diagnose`              | Bug reported or test failing unexpectedly          |
-| Finalize  | `/finalize`              | **Mandatory before every PR** — full audit + ship  |
-| Retro     | `/retro`                 | After merging — extract process improvements       |
-| Improve   | `/improve`               | Between features — duplication, god components     |
-| Perf      | `/perf-audit`            | App feels slow — bundle, rendering, data fetching  |
-| Handoff   | `/handoff`               | **Auto-triggered** when context is getting long or session is ending mid-work — do not wait for user to ask |
-| Zoom      | `/zoom-out`              | Unfamiliar code — get a module map before editing  |
+Plans → `docs/plans/`. Retros → `docs/retros/`. Handoffs → `docs/handoffs/`.
 
-Plans → `docs/plans/`. Retros → `docs/retros/`. **Handoffs → `docs/handoffs/`** (read these at cold start for session continuity).
+## Trigger-based actions — do these without being asked
 
-### Automatic handoff rule
-
-If a session has completed significant work and either:
-- the context is getting long (many tool calls, large diffs read, multiple files edited), **or**
-- the user signals they are done or stepping away
-
-…invoke `/handoff` proactively without waiting to be asked. The goal is to pack context before the window exhausts so the next session resumes cleanly rather than cold-starting from a summarized snapshot.
-
-## Commit discipline
-
-- **One feature = one commit.** Each commit is a single working unit: one feature, one bug fix, one refactor. Never bundle multiple independent features into one commit.
-- **`/pre-commit-dev` after each feature unit.** Do not accumulate uncommitted work across features.
-- **`/finalize` before every PR — no exceptions.** It checks ARCHITECTURE.md, runs lint/types/tests, and does a self-review. Review comments that appear after a PR was opened are a sign `/finalize` was skipped.
-- **Only the user creates PRs.** Never run `gh pr create` or push to a PR-ready branch without explicit user request.
-- **Impact reports** go in `docs/changelog/` as `YYYY-MM-DD-<topic>.md`. Write one only when the user asks, or when prompted after all planned work for a session is done. Never write mid-session.
-
-## Test discipline
-
-- **Run tests when**: fixing a bug (confirm it's fixed), before `/finalize`, when a PR is being prepared.
-- **Skip full test suite during**: regular feature development unless a test broke. Use targeted file-level runs (`pytest tests/test_foo.py`) to check only what changed.
-- **Full suite always runs in `/finalize`** — no exceptions.
-
----
-
-## AI-assisted development practices
-
-These apply to all feature work, not just any one feature.
-
-### TDD — vertical slices only
-
-One test → one implementation → repeat. Never write all tests first then all code (horizontal slicing produces tests that describe imagined behavior and break on refactors). Tests verify observable behavior through public interfaces only. See `docs/instructions/testing-standards.md` for test conventions.
-
-### Subagents — when to spawn vs. work inline
-
-Spawn a subagent when:
-- Codebase exploration spans > 5 files (use `subagent_type: Explore`)
-- Writing + running a test suite (`unit-test-runner` agent)
-- Running a code review (`code-reviewer` agent)
-- Frontend design decisions (`taste-skill` or `redesign-skill`)
-- Two independent workstreams can run in parallel (e.g. backend schema + frontend component)
-
-Work inline for: reading 1-2 known files, single-file edits, targeted grep, writing a known function.
-
-**Cost rule**: subagents start cold — they pay a full context-load cost every spawn. Only spawn when the scoped work justifies it.
-
-### Parallel agents
-
-When a phase has independent backend and frontend work, launch both agents in the same message. Each agent's prompt must be fully self-contained — it has no access to the other agent's context. Include the API response schema explicitly in any agent whose work depends on another agent's output.
-
-### Feature flags
-
-All new user-facing features ship behind an env flag (`NEXT_PUBLIC_SHOW_X=false`). Enable manually to test; disable instantly to roll back. No code change required.
-
-### Build sequence per phase
-
-For every non-trivial feature unit, follow this loop in order:
-
-```
-1. TaskCreate for the phase / feature
-2. /plan <goal>            → blueprint before touching any code
-3. TDD loop (inline):
-   a. RED:   write one failing test for one behavior
-   b. GREEN: write minimal code to pass it
-   c. Repeat for each prioritized behavior
-   d. Refactor after all green — never while RED
-4. /pre-commit-dev         → lint + types + tests + ARCHITECTURE.md
-5. Single commit           → one feature = one commit
-6. TaskUpdate → completed
-7. If context is long (> 3 features committed or > 5 files edited) → /handoff
-```
-
-### Parallel agent execution gate
-
-When parallel agents produce work where B depends on A's API contract:
-- Launch A and B simultaneously only if B's prompt includes A's full output schema explicitly
-- Otherwise, run A first, extract the schema, then launch B with it embedded in the prompt
-- Never assume Agent B can infer Agent A's output — they share no context
-
-### Context management
-
-- **Task tracking**: `TaskCreate` at the start of each phase; `TaskUpdate` as each behavior completes. The next session resumes from task state.
-- **Handoff trigger**: after > 3 features committed in one session, or after editing > 5 files — invoke `/handoff` proactively. The next session reads the handoff and `ARCHITECTURE.md`; it does not read conversation history.
-- **ARCHITECTURE.md**: must reflect the system after every commit. It is the canonical state document for cold-start sessions.
-
----
+- **Context long** (>3 features committed or >5 files edited) → invoke `/handoff` proactively
+- **User asks to open a PR** → run `/finalize` first, then let user create the PR
+- **Non-trivial feature starts** → state acceptance criteria before writing code
+- **`/pre-commit-dev` invoked** → runs PoC grep + code-reviewer subagent if >1 file changed
 
 ## When to read more
 
-| Working on                          | Read                                       |
-| ----------------------------------- | ------------------------------------------ |
-| Any frontend UI / component work    | `docs/instructions/frontend-patterns.md`   |
-| Any frontend page or component      | `docs/instructions/design-language.md`     |
-| Any backend API / DB / Celery work  | `docs/instructions/backend-patterns.md`    |
-| Writing or running tests            | `docs/instructions/testing-standards.md`   |
-| MCP tools or OAuth                  | `docs/mcp-wiki.md` and `docs/mcp-server.md`|
-| Architecture decisions              | `ARCHITECTURE.md`                          |
-| Domain vocabulary                   | `CONTEXT.md`                               |
-| Skill usage details                 | `docs/skills-workflow-guide.md`            |
-
----
-
-## Communication style
-
-- Tutorial approach — explain what each step does, not just the code.
-- Don't paste entire file contents in chat. Show snippets, outlines, key changes.
-- Use `file_path:line_number` links when referencing specific code locations.
+| Working on | Read |
+|------------|------|
+| Frontend UI / components | `docs/instructions/frontend-patterns.md` |
+| Frontend page or design | `docs/instructions/design-language.md` |
+| Backend API / DB / Celery | `docs/instructions/backend-patterns.md` |
+| Testing conventions | `docs/instructions/testing-standards.md` |
+| Workflow, TDD, subagents | `docs/instructions/workflow.md` |
+| MCP tools or OAuth | `docs/mcp-wiki.md` and `docs/mcp-server.md` |
+| Domain vocabulary | `CONTEXT.md` |
+| Architecture decisions | `ARCHITECTURE.md` + `docs/decisions/` |

@@ -1,11 +1,9 @@
 """
-Hybrid search engine: keyword (tsvector), semantic (pgvector), and RRF fusion.
+Unified search entry point.
 
-Public API:
-    keyword_search()         — full-text tsvector search, no OpenAI
-    rrf_fuse()               — pure Reciprocal Rank Fusion merge
-    hybrid_search()          — unified entry point that classifies and dispatches
-    get_user_search_context()— load user's known authors/tags for the classifier
+Classifies a query via search_router and routes to keyword (tsvector), filter
+(SQL WHERE), semantic (pgvector), or RRF-fused hybrid. Returns [] on any failure
+— never raises. Does NOT embed queries itself; delegates to OpenAI/Bedrock.
 """
 
 from __future__ import annotations

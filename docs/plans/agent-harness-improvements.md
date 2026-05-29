@@ -1,6 +1,14 @@
+---
+type: plan
+status: archived
+last_updated: 2026-05-28
+consumer: agent
+superseded_by: docs/plans/coding-agent-flywheel.md
+---
+
 # Plan: Agent Harness & Architecture Improvements
 Date: 2026-05-07
-Status: Draft
+Status: Archived — superseded by docs/plans/coding-agent-flywheel.md (2026-05-28)
 
 ## Goal
 

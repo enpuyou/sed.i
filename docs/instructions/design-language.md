@@ -1,3 +1,10 @@
+---
+type: instruction
+status: active
+last_updated: 2026-05-28
+consumer: agent
+---
+
 # Design Language
 
 Load this when building any new page, component, or UI section. The goal is
