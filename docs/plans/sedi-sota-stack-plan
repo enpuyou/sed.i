@@ -1,3 +1,10 @@
+---
+type: plan
+status: active
+last_updated: 2026-05-28
+consumer: agent
+---
+
 # sed.i SOTA Stack & Build Plan
 
 A reference document for extending sed.i toward the "Applied AI Engineer" senior bar (modeled on the Apple iCloud Data JD). Designed for: **infra that could support 1000 users, real cost at handful-of-users (mostly self), tools that real senior AI engineers use today.**

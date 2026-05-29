@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-05-07
+consumer: agent
+---
+
 # Plan: Duplicate URL Prevention on Ingest
 Date: 2026-05-07
 Status: Draft

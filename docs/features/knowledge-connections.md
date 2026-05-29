@@ -1,3 +1,10 @@
+---
+type: feature
+status: active
+last_updated: 2026-05-28
+consumer: human
+---
+
 # Knowledge Connections
 
 **Status:** Live

@@ -1,3 +1,10 @@
+---
+type: plan
+status: active
+last_updated: 2026-04-02
+consumer: agent
+---
+
 # sed.i Knowledge System Roadmap
 
 Status: Draft v1 (2026-04-02)

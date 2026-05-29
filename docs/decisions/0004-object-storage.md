@@ -1,3 +1,10 @@
+---
+type: decision
+status: active
+last_updated: 2026-05-22
+consumer: both
+---
+
 # ADR-0004: Object Storage Strategy
 
 **Status:** Accepted

@@ -1,3 +1,10 @@
+---
+type: plan
+status: active
+last_updated: 2026-05-13
+consumer: agent
+---
+
 # Concept Emergence: Evolving Connections into a Knowledge Topology
 
 Status: Draft v2 (revised — concepts merged into tags)

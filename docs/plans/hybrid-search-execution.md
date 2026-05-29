@@ -1,3 +1,10 @@
+---
+type: plan
+status: active
+last_updated: 2026-05-28
+consumer: agent
+---
+
 # Hybrid Search: Execution Plan
 
 > Step-by-step implementation guide with TDD. Each step produces a working, tested increment.

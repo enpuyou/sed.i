@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-05-13
+consumer: agent
+---
+
 # Plan: Codebase Cleanup — Improvement Plan Items
 Date: 2026-05-13
 Status: In Progress

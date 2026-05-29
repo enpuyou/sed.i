@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-05-08
+consumer: agent
+---
+
 # Plan: Strip full_text from List Response
 Date: 2026-05-08
 Status: Draft

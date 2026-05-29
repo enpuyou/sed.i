@@ -1,3 +1,10 @@
+---
+type: plan
+status: active
+last_updated: 2026-05-28
+consumer: agent
+---
+
 # sed.i SOTA Upgrade — Layer-by-Layer Build Plan
 
 Each layer is a self-contained PR or pair of PRs. Complete one layer before starting the next.

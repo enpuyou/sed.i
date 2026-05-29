@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-05-08
+consumer: agent
+---
+
 # Plan: Extension Ephemeral Reader
 Date: 2026-05-08
 Status: Draft
