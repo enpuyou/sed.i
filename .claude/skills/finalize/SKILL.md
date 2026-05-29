@@ -260,7 +260,49 @@ Report only genuine functional gaps. Skip style comments.
 - If no product doc exists and the change is user-visible, create one now.
 - Product docs: user perspective only — no internal names, no code references, no class/method names.
 
-### 4e. Impact report
+### 4e. Public-safety scan
+
+Scan every file changed in this branch for content that must not appear in a public repo.
+Catch it before it ships, not after.
+
+**Step 1** — grep changed files for private patterns:
+```bash
+git diff main...HEAD --name-only | xargs grep -rn \
+  "\.up\.railway\.app\|railway\.internal\|prj_[a-zA-Z0-9]\{10,\}\|srv_[a-zA-Z0-9]\{10,\}\|evn_[a-zA-Z0-9]\{10,\}\|/Users/[a-z]\|AKIA[A-Z0-9]\{16\}\|sk-[a-zA-Z0-9]\{20,\}" \
+  2>/dev/null
+```
+
+**Step 2** — check for accidentally tracked artifacts that should be gitignored:
+```bash
+git diff main...HEAD --name-only | grep -E "lint-results|\.log$|\.cache$|\.DS_Store"
+```
+
+**For each finding:**
+1. Is it a real secret or identifier (not a placeholder like `<your-xxx>`)? If yes:
+   - Add the real value to `docs/PRIVATE.md` (gitignored local reference)
+   - Replace it in the tracked file with a `<your-descriptive-name>` placeholder
+2. Is it an artifact file that shouldn't be tracked?
+   - `git rm --cached <file>`
+   - Add to `.gitignore`
+
+**`docs/PRIVATE.md` format:**
+```markdown
+| What | Placeholder | Your actual value |
+|------|-------------|-------------------|
+| Railway service URL | `<your-railway-service>.up.railway.app` | actual-name.up.railway.app |
+```
+
+**Common things to catch:**
+- Internal Railway hostnames (`*.railway.internal`, `*.up.railway.app`)
+- Vercel/Railway project IDs (`prj_...`, `srv_...`, `evn_...`)
+- Absolute local paths (`/Users/<name>/...`)
+- Personal email addresses in docs or config files
+- AWS access key IDs (`AKIA...`), API keys (`sk-...`)
+- Build artifacts committed by accident (lint-results.json, *.log)
+
+**Skip when**: the value is already a placeholder, a public domain (api.read-sedi.com), or explicitly intended to be public.
+
+### 4f. Impact report
 - Does `docs/changelog/` have an entry for the work done in this branch?
 - If not, create `docs/changelog/YYYY-MM-DD-<topic>.md` with:
   - What shipped (user-visible behavior, in plain language)
