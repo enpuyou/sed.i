@@ -67,6 +67,14 @@ tsc:
 generate-types:
 	cd frontend && pnpm generate-types 2>/dev/null || echo "Note: run 'make backend' first, then retry"
 
+# ── Dev setup ──────────────────────────────────────────────────────────────────
+
+## Install git hooks (pre-push lint + type check)
+install-hooks:
+	cp .githooks/pre-push .git/hooks/pre-push
+	chmod +x .git/hooks/pre-push
+	@echo "✓ pre-push hook installed"
+
 # ── Safari extension ───────────────────────────────────────────────────────────
 
 SAFARI_RESOURCES     = safari-extension/sed.i/sed.i Extension/Resources

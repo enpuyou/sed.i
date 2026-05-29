@@ -1,3 +1,10 @@
+---
+type: instruction
+status: active
+last_updated: 2026-05-28
+consumer: agent
+---
+
 # Backend Patterns
 
 Load this when doing any backend (FastAPI / SQLAlchemy / Celery) work.

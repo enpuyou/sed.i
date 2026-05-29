@@ -1,3 +1,10 @@
+---
+type: instruction
+status: active
+last_updated: 2026-05-28
+consumer: agent
+---
+
 # Testing Standards
 
 Load this when writing or running tests.

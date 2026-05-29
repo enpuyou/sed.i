@@ -1,4 +1,12 @@
 # ruff: noqa: E402,F401
+"""
+Celery application configuration and worker lifecycle hooks.
+
+Configures task serialization, routing, rate limits, and observability
+(OpenTelemetry + Braintrust). Uses worker_ready signal (not worker_process_init)
+so hooks fire with --pool=solo in production.
+"""
+
 from celery import Celery
 from app.core.config import settings
 

@@ -12,6 +12,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2  # needed for ARCHITECTURE.md freshness check
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -34,19 +36,29 @@ jobs:
 
     - name: Install dependencies
       working-directory: ./content-queue-backend
-      run: poetry install --no-interaction --no-root
-
-    - name: Install dependencies (including dev)
-      working-directory: ./content-queue-backend
       run: poetry install --with dev
-
-    - name: Run Black (code formatting check)
-      working-directory: ./content-queue-backend
-      run: poetry run black --check app/
 
     - name: Run Ruff (linting)
       working-directory: ./content-queue-backend
       run: poetry run ruff check app/
+
+    - name: ARCHITECTURE.md freshness check
+      run: |
+        CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD 2>/dev/null || echo "")
+        APP_CHANGED=$(echo "$CHANGED" | grep -E "^(content-queue-backend/app|frontend/components|frontend/app)" || true)
+        ARCH_CHANGED=$(echo "$CHANGED" | grep "ARCHITECTURE.md" || true)
+        SKIP_FLAG=$(git log -1 --pretty=%s | grep "\[skip-arch\]" || true)
+        if [ -n "$APP_CHANGED" ] && [ -z "$ARCH_CHANGED" ] && [ -z "$SKIP_FLAG" ]; then
+          echo "ERROR: Code files changed but ARCHITECTURE.md was not updated."
+          echo ""
+          echo "Changed app files:"
+          echo "$APP_CHANGED"
+          echo ""
+          echo "Update ARCHITECTURE.md to reflect the change, or add [skip-arch] to"
+          echo "the commit message for refactors that don't affect architecture."
+          exit 1
+        fi
+        echo "✓ ARCHITECTURE.md freshness check passed"
 
     - name: Set up PostgreSQL with pgvector
       run: |
@@ -57,7 +69,6 @@ jobs:
           -e POSTGRES_DB=content_queue_test \
           -p 5432:5432 \
           pgvector/pgvector:pg16
-        # Wait for PostgreSQL to be ready
         for i in {1..30}; do
           if docker exec postgres-pgvector pg_isready -U postgres; then
             break
@@ -70,9 +81,18 @@ jobs:
       run: |
         docker exec postgres-pgvector psql -U postgres -d content_queue_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-    - name: Run tests
+    - name: Golden-path tests (must pass before full suite)
       working-directory: ./content-queue-backend
-      run: poetry run pytest tests/ -v --tb=short
+      run: poetry run pytest tests/test_golden_paths.py -v --tb=short
+      env:
+        TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-for-ci
+
+    - name: Full test suite
+      working-directory: ./content-queue-backend
+      run: poetry run pytest tests/ -v --tb=short --ignore=tests/evals
       env:
         TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test

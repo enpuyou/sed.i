@@ -1,21 +1,9 @@
 """
-Query intent classifier for hybrid search.
+Query intent classifier and filter executor.
 
-Routes search queries to the most efficient search path using
-regex heuristics and user data matching. No LLM call — under 1ms.
-
-Returns:
-    tuple[str, dict]: (search_type, metadata)
-    search_type: "filter" | "keyword" | "semantic" | "hybrid"
-    metadata: dict with inferred filter values (e.g. {"author": "Paul Graham"})
-
-Priority order:
-    operators > exact phrase > domain > known author > question > short keyword > hybrid
-
-Tag filtering is only available via the explicit tag: operator. Implicit tag
-detection was removed: tags are already indexed in the tsvector (weight B), so
-keyword search finds tag-matched articles with better recall (stemming, full-text
-matches) and no extra round-trip.
+classify_query() routes queries to filter/keyword/semantic/hybrid using regex
+heuristics — no LLM, under 1ms. parse_filter_query() executes filter-type
+queries via SQLAlchemy. Does NOT run vector search.
 """
 
 from __future__ import annotations
