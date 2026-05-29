@@ -24,14 +24,19 @@ Save URLs from anywhere, read them distraction-free, highlight and connect ideas
 | Layer | Technology |
 |-------|-----------|
 | Frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS v4 |
-| Backend | FastAPI, SQLAlchemy, Alembic |
+| Backend | FastAPI, SQLAlchemy, Alembic, Python 3.11 |
 | Database | PostgreSQL 16 + pgvector |
-| Queue | Celery + Redis |
-| Search | tsvector (keyword) + pgvector (semantic) + RRF fusion |
-| AI | OpenAI `text-embedding-3-small` / AWS Bedrock Titan; GPT-4o-mini / Nova for tagging and summaries |
+| Queue | Celery + Redis; Prefect for durable pipeline orchestration (opt-in) |
+| Search | tsvector (keyword) + pgvector cosine similarity (semantic) + RRF fusion; sub-millisecond query classifier, no LLM in the hot path |
+| AI — LLM | OpenAI GPT-4o-mini / GPT-4o or AWS Bedrock Nova / Claude — switchable per task via `LLM_PROVIDER` |
+| AI — Embeddings | OpenAI `text-embedding-3-small` (1536-dim) or AWS Bedrock Titan Embed — switchable via `EMBED_PROVIDER` |
+| AI — IaC | Pulumi (AWS: IAM, S3, Bedrock access policies) |
+| Storage | S3 for PDF assets; presigned URL delivery |
+| Observability | Braintrust (LLM tracing), Sentry (errors), OpenTelemetry → Grafana Cloud (distributed traces across FastAPI + SQLAlchemy + Celery) |
+| Evals | pytest-based eval harness; classification accuracy and search quality gates run in CI |
 | Extension | Chrome Manifest V3 + Safari Web Extension |
-| MCP | FastMCP, Streamable HTTP transport, OAuth 2.1 + PKCE |
-| Infra | Railway (backend + worker), Vercel (frontend), Cloudflare Workers (CORS proxy) |
+| MCP | FastMCP, Streamable HTTP, OAuth 2.1 + PKCE; `query_library` tool runs natural language → SQL with AST-level security validation |
+| Infra | Railway (API + Celery worker), Vercel (frontend), Cloudflare Workers (CORS proxy + WAF) |
 
 ## Quick start
 
