@@ -944,9 +944,16 @@ These routes do not require authentication (`@router.get` without the `Depends(g
 
 Location: `content-queue-backend/tests/`
 
+**Run order**: golden-path tests first, then full suite.
+```bash
+pytest tests/test_golden_paths.py -v   # critical flows — must pass before anything else
+pytest tests/ -x -q --ignore=tests/evals
+```
+
 | File | Coverage |
 |------|----------|
-| `conftest.py` | Postgres test DB fixtures, test client, user + auth header fixtures. Uses `NullPool`, `TRUNCATE TABLE` for isolation. |
+| `test_golden_paths.py` | **Golden-path tests** — 18 tests across 5 critical user flows: submit+retrieve, search (keyword+user-scoped), highlights, lists, auth gates. Real DB, real HTTP, no mocks (except Celery dispatch). Run these first. |
+| `conftest.py` | Postgres test DB fixtures, test client, user + auth header fixtures. QueuePool; DELETE cleanup between tests. |
 | `test_auth_api.py` | Register, login, `/me`, duplicate email, wrong password, JWT tampering. |
 | `test_analytics_api.py` | Stats counts; regression for `not ContentItem.is_read` bug. |
 | `test_content_api.py` | Core content CRUD. |
@@ -954,10 +961,8 @@ Location: `content-queue-backend/tests/`
 | `test_vinyl_api.py` | Full vinyl CRUD; soft delete; cross-user 404; Celery mocked. |
 | `test_rate_limiter.py` | Sliding window unit tests (no DB). |
 | `test_lists_api.py` | List CRUD; membership management; cross-user isolation. |
-| `test_highlight_connections.py` | Per-highlight connections endpoint shape, shared-tag filtering, cross-user isolation, grouped-highlights view (8 tests). |
-| `test_insight_endpoint.py` | Insight generation: cache miss, cache hit (no OpenAI call), generation failure → null, unauthenticated 401 (4 tests). |
-
-Run: `cd content-queue-backend && poetry run pytest tests/`
+| `test_highlight_connections.py` | Per-highlight connections endpoint shape, shared-tag filtering, cross-user isolation, grouped-highlights view. |
+| `test_insight_endpoint.py` | Insight generation: cache miss, cache hit, failure → null, unauthenticated 401. |
 
 **Important patterns:**
 - All Celery tasks are mocked with `patch(...)` — no broker needed.
@@ -1101,15 +1106,30 @@ Opt-in (`PREFECT_ENABLED=false` default). When enabled, ingestion phases 2–5 r
 
 ## 22. Engineering workflow standard
 
-The operational standard for this repository (local dev, CI, Railway deploy,
-and coding-agent behavior) is documented in:
+The operational standard for this repository is documented in:
 
-- `docs/engineering-workflow.md`
-- `docs/product-quality-execution-plan.md` (phased UX/state/error consistency rollout plan)
+- `docs/engineering-workflow.md` — local dev, Railway deploy, release flow
+- `docs/instructions/workflow.md` — TDD loop, subagent rules, PoC detection, commit discipline
+- `CLAUDE.md` — coding agent constraints (Karpathy principles, hard rules, trigger-based actions)
+- `docs/plans/coding-agent-flywheel.md` — the comprehensive agent workflow improvement plan
 
-Use that document as the source of truth for:
+### CI gates (`.github/workflows/backend-ci.yml`)
 
-- Local startup commands and quality gates
-- GitHub Actions expectations and branch protection checks
-- Railway process model (web + worker) and release flow
-- Coding-agent change, validation, and documentation requirements
+| Gate | When it runs | Fails if |
+|------|-------------|---------|
+| Ruff lint | Every push/PR | Any linting error in `app/` |
+| ARCHITECTURE.md freshness | Every push/PR | `app/` or `frontend/` changed but ARCHITECTURE.md was not updated. Add `[skip-arch]` to commit message for refactors that don't affect architecture. |
+| Golden-path tests | Every push/PR | Any of the 18 critical-flow tests fail |
+| Full test suite | After golden paths | Any test fails (evals excluded — require credentials) |
+
+### Local dev gates
+
+- `make install-hooks` — installs `.githooks/pre-push` (runs ruff + tsc before every push)
+- `make lint` — ruff + tsc + eslint
+- `make test` — full backend + frontend suite
+
+### Module self-documentation
+
+Every Python module in `app/` has a 3-5 line module-level docstring describing its scope,
+primary seam, and what it explicitly does NOT do. This lets agents identify the right file
+without reading its full contents.
