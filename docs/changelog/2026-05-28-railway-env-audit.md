@@ -16,7 +16,7 @@ Railway services audited:
 - `celery` (d4c465ee)
 - `prefect` (9741c288)
 
-Vercel project: `content-queue` (prj_7yVz4PctgZbJ9lvLzqjTYWIIEMqc), domains `read-sedi.com`.
+Vercel project: `content-queue` (<your-vercel-project-id>), domains `read-sedi.com`.
 
 ## Findings
 
@@ -54,7 +54,7 @@ OpenAI implicitly rather than reading config explicitly.
 | Var | Value |
 |-----|-------|
 | `PREFECT_ENABLED` | `true` |
-| `PREFECT_API_URL` | `http://prefect.railway.internal:4200/api` |
+| `PREFECT_API_URL` | `http://<prefect-service>.railway.internal/api` |
 
 ### Celery (12 vars added)
 
@@ -71,7 +71,7 @@ OpenAI implicitly rather than reading config explicitly.
 | `OTEL_RESOURCE_ATTRIBUTES` | `${{shared.OTEL_RESOURCE_ATTRIBUTES}}` |
 | `BRAINTRUST_API_KEY` | `${{shared.BRAINTRUST_API_KEY}}` |
 | `PREFECT_ENABLED` | `true` |
-| `PREFECT_API_URL` | `http://prefect.railway.internal:4200/api` |
+| `PREFECT_API_URL` | `http://<prefect-service>.railway.internal/api` |
 
 Shared-var references (`${{shared.*}}`) mean these stay in sync automatically if the
 shared values are rotated — no need to update Celery separately.
@@ -79,7 +79,7 @@ shared values are rotated — no need to update Celery separately.
 ## Prefect internal URL
 
 Prefect's Railway private domain is `prefect.railway.internal`. We use the internal URL
-(`http://prefect.railway.internal:4200/api`) for FastAPI and Celery to keep traffic on
+(`http://<prefect-service>.railway.internal/api`) for FastAPI and Celery to keep traffic on
 Railway's private network. The public URL (`prefect-production-b0dc.up.railway.app/api`)
 is what the Prefect service itself advertises but should not be used for service-to-service
 calls.

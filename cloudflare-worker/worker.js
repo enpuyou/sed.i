@@ -8,7 +8,9 @@
  * Deploy to Cloudflare Workers and route api.read-sedi.com to it.
  */
 
-const RAILWAY_ORIGIN = "https://content-queue-fast-api-production.up.railway.app";
+// Set RAILWAY_ORIGIN as a secret in Cloudflare Workers dashboard (Settings → Variables → Secrets)
+// Value: https://<your-railway-service>.up.railway.app
+const RAILWAY_ORIGIN = RAILWAY_ORIGIN_SECRET ?? "";
 
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000",

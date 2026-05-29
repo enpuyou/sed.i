@@ -89,3 +89,4 @@ _agents/
 
 # Dev-only mockup routes
 frontend/app/mockups/
+frontend/lint-results.json
