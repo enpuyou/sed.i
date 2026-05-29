@@ -302,14 +302,54 @@ git diff main...HEAD --name-only | grep -E "lint-results|\.log$|\.cache$|\.DS_St
 
 **Skip when**: the value is already a placeholder, a public domain (api.read-sedi.com), or explicitly intended to be public.
 
-### 4f. Impact report
-- Does `docs/changelog/` have an entry for the work done in this branch?
-- If not, create `docs/changelog/YYYY-MM-DD-<topic>.md` with:
-  - What shipped (user-visible behavior, in plain language)
-  - API changes (additive, breaking, or none)
-  - Component/file change table
-  - Deploy order note (if relevant)
-- Keep it factual — this is a record, not marketing copy.
+### 4f. Changelog entry
+
+Write a changelog entry only when the branch ships **user-visible changes or API
+surface changes**. Skip for: refactors, docs-only, dependency bumps, CI changes.
+
+**File**: `docs/changelog/YYYY-MM-DD-<topic>.md`
+
+**Format — 3-5 lines, not a feature guide:**
+```markdown
+# YYYY-MM-DD — <Topic>
+
+What shipped: 1-2 sentences describing what users can now do or what changed.
+Product doc: docs/design/product/<name>.md  (link if one exists, don't repeat it)
+API changes: additive | breaking (<what changed>) | none
+Deploy order: backend first | simultaneous | n/a
+```
+
+`docs/design/product/` is where UX detail lives — the changelog is a dated index, not
+documentation. Do not duplicate content that belongs in product/ or retros/.
+
+### 4g. Version bump
+
+Determine what semver bump this PR warrants based on its commits since the last tag:
+
+```bash
+git tag | sort -V | tail -1          # last release tag
+git log <last-tag>..HEAD --oneline   # commits since then
+```
+
+**Bump rules (conventional commits):**
+| Commit type | Bump |
+|-------------|------|
+| `feat:` or `feat(scope):` | MINOR — x.**Y**.0 |
+| `fix:`, `perf:` | PATCH — x.y.**Z** |
+| `feat!:` or `BREAKING CHANGE:` footer | MAJOR — **X**.0.0 |
+| `refactor:`, `ci:`, `docs:`, `chore:`, `test:` | no bump |
+
+Take the highest applicable bump across all commits (MAJOR > MINOR > PATCH).
+
+**Update these three files to the new version:**
+- `VERSION` (repo root — single source of truth)
+- `content-queue-backend/pyproject.toml` — `version = "x.y.z"`
+- `frontend/package.json` — `"version": "x.y.z"`
+
+The version update is committed as part of this PR. After merging to main, tag it:
+```bash
+git tag v<new-version> && git push origin v<new-version>
+```
 
 **Output**: List of doc changes made or "docs are current, no changes needed."
 

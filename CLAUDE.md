@@ -63,7 +63,7 @@ These are project-specific conventions Claude cannot infer from reading the code
 2. **Feature doc** (`docs/design/product/<name>.md`) for every customer-facing change, same commit
 3. **`make lint` passes** before committing — ruff + tsc + eslint — hook enforces this
 4. **`/finalize` before every PR** — no exceptions; runs full audit + doc check
-5. **One feature = one commit** — never bundle independent features; use `/pre-commit-dev` as checkpoint
+5. **One feature = one commit** — conventional commit format required (see below); use `/pre-commit-dev` as checkpoint
 6. **Acceptance criteria first** — before any code: "done when [user action] → [observable result]"
 7. **`/pre-commit-dev` after each feature unit** — includes PoC detection + targeted tests
 8. **`InlineError` for all errors, never toasts** — `fetchWithAuth` only, never bare `fetch()`
@@ -86,6 +86,21 @@ These are project-specific conventions Claude cannot infer from reading the code
 | Zoom     | `/zoom-out`       | Unfamiliar area — get a module map before editing       |
 
 Plans → `docs/plans/`. Retros → `docs/retros/`. Handoffs → `docs/handoffs/`.
+
+## Commit format — conventional commits + semver
+
+Every commit: `<type>(<scope>): <description>`
+
+| Type | Semver | When |
+|------|--------|------|
+| `feat` | MINOR | New user-facing feature, new endpoint |
+| `fix` | PATCH | Bug fix, including `fix(security):` |
+| `perf` | PATCH | Performance improvement |
+| `feat!` or `BREAKING CHANGE:` footer | MAJOR | Removed/renamed endpoint, auth change |
+| `refactor`, `ci`, `docs`, `chore`, `test` | none | Internal only |
+
+Scope is optional but recommended: `(search)`, `(auth)`, `(mcp)`, `(worker)`, `(ext)`, `(ui)`.
+`/finalize` determines the version bump and updates `VERSION`, `pyproject.toml`, `package.json`.
 
 ## Trigger-based actions — do these without being asked
 
