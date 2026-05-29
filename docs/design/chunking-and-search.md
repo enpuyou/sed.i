@@ -1,3 +1,10 @@
+---
+type: design
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # Chunking, Embeddings, and Search
 
 How sed.i indexes articles and finds them again — from raw HTML to a search result you can click.

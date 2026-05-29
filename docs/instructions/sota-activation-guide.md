@@ -1,3 +1,10 @@
+---
+type: instruction
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # SOTA Stack Activation Guide
 
 How to go from code-exists to actually-running for each implemented layer.

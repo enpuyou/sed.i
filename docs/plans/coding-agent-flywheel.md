@@ -348,8 +348,9 @@ deleted features with no remaining value).
 
 **Handoffs**: Keep last 3, delete older.
 
-**Instructions (6 files)**: Add frontmatter. Consolidate engineering-workflow.md and
-workflow.md content into docs/instructions/workflow.md.
+**Instructions (7 files)**: Add frontmatter. ✓ Done. engineering-workflow.md and
+skills-workflow-guide.md renamed to OBSOLETE-*; content consolidated into
+docs/instructions/workflow.md and docs/instructions/deploy-to-prod.md.
 
 **Decisions (7 ADRs)**: Add frontmatter. Link from CLAUDE.md "When to read more" table.
 

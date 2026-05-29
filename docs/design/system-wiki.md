@@ -1,3 +1,10 @@
+---
+type: design
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # sed.i — System Architecture Wiki
 
 > A deep-dive into every major feature: what it does, how it's built, and why each decision was made. Written to be interview-ready — covering design trade-offs, not just descriptions.
