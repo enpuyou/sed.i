@@ -177,7 +177,7 @@ lifecycle rules. Every agent session starts with a complete, trustworthy orienta
 
 ```
 1. ARCHITECTURE.md updated in the same commit as any feature change  [CI-enforced]
-2. Feature doc in docs/features/ for every customer-facing change    [/finalize checks]
+2. Feature doc in docs/design/product/ for every customer-facing change    [/finalize checks]
 3. make lint passes before committing (ruff + tsc + eslint)          [hook-enforced]
 4. /finalize before every PR — no exceptions                         [B: trigger = PR]
 5. One feature = one commit                                          [B: trigger = commit]
@@ -226,7 +226,7 @@ make dev / make backend / make worker / make frontend / make test / make lint / 
 
 ## Hard constraints — these 7 rules apply every session, every file
 1. ARCHITECTURE.md updated in the same commit as any feature change
-2. Feature doc in docs/features/ for every customer-facing change (same commit)
+2. Feature doc in docs/design/product/ for every customer-facing change (same commit)
 3. make lint passes before committing
 4. /finalize before every PR — no exceptions
 5. One feature = one commit
@@ -245,7 +245,7 @@ when the trigger fires, without user instruction. See docs/instructions/workflow
 - Backend API / DB / Celery work → docs/instructions/backend-patterns.md
 - Testing → docs/instructions/testing-standards.md
 - Workflow, subagents, TDD → docs/instructions/workflow.md
-- MCP tools → docs/mcp-wiki.md
+- MCP tools → docs/instructions/mcp-wiki.md
 - Architecture decisions → ARCHITECTURE.md + docs/decisions/
 - Domain vocabulary → CONTEXT.md
 ```
@@ -258,7 +258,8 @@ when the trigger fires, without user instruction. See docs/instructions/workflow
 | Domain vocabulary | CONTEXT.md | Both | Term changes | Living; never archived |
 | Instructions | docs/instructions/*.md | Agent-primary | New pattern established | Updated when pattern changes |
 | Plans | docs/plans/*.md | Agent-primary | Before any feature | Draft→InProgress→Complete→Archived |
-| Design docs | docs/design/*.md | Human-primary | After any significant feature ships | Updated when design changes |
+| Design — product | docs/design/product/*.md | User-primary | After any customer-facing feature ships | Updated when UX changes |
+| Design — systems | docs/design/systems/*.md | Human + Agent | After any significant subsystem is built | Updated when architecture changes |
 | Handoffs | docs/handoffs/*.md | Agent-only | End of every session | Read at cold start; delete after 3 sessions |
 | Retros | docs/retros/*.md | Process | After every merge | Immutable after written |
 | Decisions | docs/decisions/*.md | Both | Before any architectural decision | Immutable after decided |
@@ -273,7 +274,7 @@ A good design doc lets you: (1) explain the feature confidently to anyone, (2) m
 sound architectural decisions about adjacent features, (3) identify risks and limits
 without re-reading the code.
 
-**Template** (`docs/design/TEMPLATE.md`):
+**Template** (`docs/design/product/TEMPLATE.md and docs/design/systems/TEMPLATE.md`):
 
 ```markdown
 ---
@@ -348,8 +349,9 @@ deleted features with no remaining value).
 
 **Handoffs**: Keep last 3, delete older.
 
-**Instructions (6 files)**: Add frontmatter. Consolidate engineering-workflow.md and
-workflow.md content into docs/instructions/workflow.md.
+**Instructions (7 files)**: Add frontmatter. ✓ Done. engineering-workflow.md and
+skills-workflow-guide.md renamed to OBSOLETE-*; content consolidated into
+docs/instructions/workflow.md and docs/instructions/deploy-to-prod.md.
 
 **Decisions (7 ADRs)**: Add frontmatter. Link from CLAUDE.md "When to read more" table.
 
@@ -358,7 +360,7 @@ workflow.md content into docs/instructions/workflow.md.
 - [ ] `wc -l CLAUDE.md` ≤ 60
 - [ ] All 7 hard constraints listed; 2 are CI/hook-enforced, 5 are trigger-based (B)
 - [ ] All docs in docs/ have frontmatter (type, status, last_updated, consumer)
-- [ ] `docs/design/TEMPLATE.md` and `docs/plans/TEMPLATE.md` exist
+- [ ] `docs/design/product/TEMPLATE.md and docs/design/systems/TEMPLATE.md` and `docs/plans/TEMPLATE.md` exist
 - [ ] `docs/decisions/TEMPLATE.md` exists
 - [ ] Zombie/stale plans archived or deleted
 - [ ] `docs/instructions/workflow.md` contains moved working-style content

@@ -1,3 +1,10 @@
+---
+type: design
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # sed.i MCP Server — Technical Wiki
 
 > **Audience:** Developer building or maintaining the sed.i MCP integration. Covers how MCP works conceptually, every architectural decision we made, the full OAuth 2.1 + PKCE flow, the Cloudflare/Railway production topology, all deployed tools, and practical troubleshooting. Written to be useful as interview prep as well as operational reference.
@@ -208,7 +215,7 @@ Cloudflare Worker  (cloudflare-worker/worker.js)
   - WAF rule skips bot protection for Claude-User UA
         │
         ▼
-content-queue-fast-api-production.up.railway.app  (Railway)
+<your-railway-service>.up.railway.app  (Railway)
   - FastAPI app
   - FastMCP mounted at /mcp-transport via _MCPProxy
   - Auth endpoints at /mcp-transport/authorize, /mcp-transport/token
@@ -253,7 +260,7 @@ The lesson: when a CDN/edge layer returns 421, suspect header-based routing rule
 FastMCP validates the `Host` header on incoming requests by default, to prevent DNS rebinding attacks (where an attacker tricks a browser into sending requests to `localhost:PORT` via a malicious DNS record). The validation fails in production because:
 
 - Cloudflare strips the original `Host` header
-- Railway's internal hostname (`content-queue-fast-api-production.up.railway.app`) doesn't match `api.read-sedi.com`
+- Railway's internal hostname (`<your-railway-service>.up.railway.app`) doesn't match `api.read-sedi.com`
 - FastMCP rejects the request
 
 We set `enable_dns_rebinding_protection=False` in FastMCP's config. The security tradeoff is acceptable because:
@@ -562,7 +569,7 @@ Redeploy after any change to `worker.js`. The Worker is stateless, so deploys ar
 If Railway ever changes the deployment URL, update the target in `worker.js` and redeploy. The Railway URL is currently:
 
 ```text
-https://content-queue-fast-api-production.up.railway.app
+https://<your-railway-service>.up.railway.app
 ```
 
 ---

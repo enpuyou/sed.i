@@ -1,3 +1,10 @@
+---
+type: decision
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # 0007 — Celery Worker Memory: ML Tasks and Pool Strategy
 
 ## Why this doc exists

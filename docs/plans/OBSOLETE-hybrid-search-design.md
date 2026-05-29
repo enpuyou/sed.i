@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-04-02
+consumer: agent
+---
+
 # Hybrid Search Design: sed.i
 
 > Generated 2026-04-02 from SOTA research across Notion, Obsidian, Supabase, ParadeDB, Qdrant, Pinecone, and Chroma.

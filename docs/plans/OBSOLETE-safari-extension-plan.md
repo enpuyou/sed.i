@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-05-12
+consumer: agent
+---
+
 # sed.i Safari Extension — Local Build Plan
 Status: Ready to execute
 Date: 2026-05-12

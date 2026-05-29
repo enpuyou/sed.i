@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-04-04
+consumer: agent
+---
+
 # sed.i Ingestion + Rendering Excellence Plan
 
 Status: Draft v1 (2026-04-04)

@@ -1,3 +1,10 @@
+---
+type: decision
+status: active
+last_updated: 2026-05-22
+consumer: both
+---
+
 # ADR-0001: Vector Storage — pgvector vs. Managed Vector DB
 
 **Status:** Accepted

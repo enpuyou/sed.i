@@ -1,3 +1,10 @@
+---
+type: design
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # sed.i MCP Server — Technical Design
 
 ## What is MCP?

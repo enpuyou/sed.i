@@ -1,392 +1,102 @@
-# Content Queue
+# sed.i
 
-A full-stack reading queue application with AI-powered semantic search. Save articles, organize them into lists, and discover related content using OpenAI embeddings.
+**A personal reading and writing workspace with hybrid search and an AI interface to your library.**
 
-![Tech Stack](https://img.shields.io/badge/Next.js-15-black)
-![Tech Stack](https://img.shields.io/badge/FastAPI-0.110-009688)
-![Tech Stack](https://img.shields.io/badge/PostgreSQL-16-4169E1)
-![Tech Stack](https://img.shields.io/badge/Python-3.11+-3776AB)
+[read-sedi.com](https://read-sedi.com) · [Changelog](docs/changelog/) · v0.4.0
+
+---
+
+Save URLs from anywhere, read them distraction-free, highlight and connect ideas across articles, and search your library with a query classifier that routes to keyword, semantic, or filtered search — all in under a millisecond, no LLM call. Claude can query your library directly via an MCP server with full OAuth 2.1.
 
 ## Features
 
-- **Smart Content Saving**: Automatically extract metadata, thumbnails, and full text from URLs
-- **Reading Queue Management**: Mark articles as read, archive, and track reading progress
-- **Custom Lists**: Organize content into custom collections
-- **Responsive Views**: Seamlessly toggle between comprehensive card views and ultra-dense index grid views based on device or preference
-- **Semantic Search**: Find similar articles using AI-powered embeddings (OpenAI)
-- **Rich Metadata**: Automatic extraction of title, description, reading time, word count
-- **Responsive Design**: Works on desktop, tablet, and mobile
-- **Background Processing**: Celery workers handle content extraction asynchronously
+- **Ingestion** — paste a URL or send it from the browser extension; metadata, full text, and embeddings are extracted in the background
+- **Reader** — clean article view with scroll progress, table of contents, and reading time tracking
+- **Hybrid search** — query classifier routes to tsvector keyword search, pgvector semantic search, SQL filter, or RRF-fused hybrid based on query shape; no LLM in the hot path
+- **Highlights** — select text to highlight with color and notes; cross-article connections discovered via embedding similarity
+- **Lists and writing workspace** — group articles into named lists, draft notes alongside them in a split-pane writing environment
+- **Browser extension** — save and read articles from Chrome and Safari; includes an ephemeral reader overlay before saving
+- **MCP server** — connect Claude Desktop or claude.ai to your library via OAuth 2.1 + PKCE; search, summarize, and query content without leaving your AI assistant
+- **Multi-provider AI** — OpenAI or AWS Bedrock, switchable via environment variable with no code change
 
-## Tech Stack
+## Stack
 
-### Frontend
-- **Framework**: Next.js 15 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS v4
-- **State Management**: React Context API
-- **Authentication**: JWT tokens stored in localStorage
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS v4 |
+| Backend | FastAPI, SQLAlchemy, Alembic, Python 3.11 |
+| Database | PostgreSQL 16 + pgvector |
+| Queue | Celery + Redis; Prefect for durable pipeline orchestration (opt-in) |
+| Search | tsvector (keyword) + pgvector cosine similarity (semantic) + RRF fusion; sub-millisecond query classifier, no LLM in the hot path |
+| AI — LLM | OpenAI GPT-4o-mini / GPT-4o or AWS Bedrock Nova / Claude — switchable per task via `LLM_PROVIDER` |
+| AI — Embeddings | OpenAI `text-embedding-3-small` (1536-dim) or AWS Bedrock Titan Embed — switchable via `EMBED_PROVIDER` |
+| AI — IaC | Pulumi (AWS: IAM, S3, Bedrock access policies) |
+| Storage | S3 for PDF assets; presigned URL delivery |
+| Observability | Braintrust (LLM tracing), Sentry (errors), OpenTelemetry → Grafana Cloud (distributed traces across FastAPI + SQLAlchemy + Celery) |
+| Evals | pytest-based eval harness; classification accuracy and search quality gates run in CI |
+| Extension | Chrome Manifest V3 + Safari Web Extension |
+| MCP | FastMCP, Streamable HTTP, OAuth 2.1 + PKCE; `query_library` tool runs natural language → SQL with AST-level security validation |
+| Infra | Railway (API + Celery worker), Vercel (frontend), Cloudflare Workers (CORS proxy + WAF) |
 
-### Backend
-- **Framework**: FastAPI (Python)
-- **Database**: PostgreSQL with pgvector extension
-- **Cache**: Redis
-- **Task Queue**: Celery
-- **AI/ML**: OpenAI API (text-embedding-3-small model)
-- **Authentication**: JWT tokens with OAuth2
+## Quick start
 
-### Infrastructure
-- **Web Scraping**: Trafilatura for content extraction
-- **Vector Search**: pgvector for similarity queries
-- **Rate Limiting**: Custom middleware with Redis backend
+**Prerequisites:** Docker, Python 3.11, pyenv, Node.js 20+, pnpm
 
-## Project Structure
+```bash
+# 1. Start Postgres + Redis
+docker compose up -d
 
-content-queue/
-├── frontend/                 # Next.js application
-│   ├── app/                 # App router pages
-│   │   ├── dashboard/       # Main dashboard
-│   │   ├── lists/          # Lists management
-│   │   ├── content/[id]/   # Article reader
-│   │   ├── login/          # Authentication
-│   │   └── register/
-│   ├── components/          # Reusable React components
-│   ├── contexts/            # React Context providers
-│   ├── lib/                # API client and utilities
-│   └── types/              # TypeScript type definitions
-│
-└── content-queue-backend/   # FastAPI application
-├── app/
-│   ├── api/            # API route handlers
-│   ├── models/         # SQLAlchemy models
-│   ├── schemas/        # Pydantic schemas
-│   ├── core/           # Config, auth, database
-│   ├── services/       # Business logic
-│   ├── tasks/          # Celery background tasks
-│   └── middleware/     # Rate limiting, CORS
-└── alembic/            # Database migrations
+# 2. Configure environment
+cp content-queue-backend/.env.example content-queue-backend/.env
+# Fill in SECRET_KEY and OPENAI_API_KEY at minimum
 
+# 3. Install git hooks
+make install-hooks
 
-## Getting Started
+# 4. Start everything
+make dev
+```
 
-### Prerequisites
+Open [http://localhost:3000](http://localhost:3000), register an account, and paste a URL to get started.
 
-- **Node.js**: 18+ and npm
-- **Python**: 3.11+
-- **Poetry**: For Python dependency management ([Install Poetry](https://python-poetry.org/docs/#installation))
-- **Docker & Docker Compose**: For running PostgreSQL and Redis
-- **OpenAI API Key**: For semantic search features
+All environment variables are documented in `content-queue-backend/.env.example`.
 
-### Quick Start with Docker Compose
+## MCP integration
 
-The easiest way to get started is using Docker Compose to run PostgreSQL and Redis:
+Connect Claude Desktop or claude.ai to your sed.i library:
 
-1. **Start infrastructure services:**
-   ```bash
-   # From project root directory
-   docker-compose up -d
-   ```
+```json
+{
+  "mcpServers": {
+    "sedi": {
+      "url": "https://api.read-sedi.com/mcp-transport/mcp"
+    }
+  }
+}
+```
 
-   This starts:
-   - PostgreSQL 16 with pgvector extension on port **5433**
-   - Redis 7 on port **6379**
+Claude will prompt for authentication on first connection. Once authorized, it can search your library, summarize lists, retrieve highlights, and find similar content.
 
-2. **Verify services are running:**
-   ```bash
-   docker-compose ps
-   ```
-
-### Backend Setup
-
-1. **Navigate to backend directory:**
-   ```bash
-   cd content-queue-backend
-   ```
-
-2. **Install Poetry** (if not already installed):
-   ```bash
-   curl -sSL https://install.python-poetry.org | python3 -
-   ```
-
-3. **Install dependencies using Poetry:**
-   ```bash
-   poetry install
-   ```
-
-   This creates a virtual environment and installs all dependencies from `pyproject.toml`.
-
-4. **Activate the Poetry shell:**
-   ```bash
-   poetry shell
-   ```
-
-5. **Create `.env` file in the backend directory:**
-   ```bash
-   # Create .env file with these contents
-   DATABASE_URL=postgresql://postgres:postgres@localhost:5433/content_queue
-   REDIS_URL=redis://localhost:6379/0
-   SECRET_KEY=your-secret-key-here  # Generate with: openssl rand -hex 32
-   ALGORITHM=HS256
-   ACCESS_TOKEN_EXPIRE_MINUTES=10080
-   OPENAI_API_KEY=your-openai-api-key
-   DEBUG=True
-   ```
-
-   **Note**: The database runs on port **5433** (not 5432) to avoid conflicts with existing PostgreSQL installations.
-
-6. **Run database migrations:**
-   ```bash
-   alembic upgrade head
-   ```
-
-   This creates all necessary tables in the PostgreSQL database.
-
-7. **Start the FastAPI server:**
-   ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-8. **Start Celery worker** (in a new terminal):
-   ```bash
-   cd content-queue-backend
-   poetry shell
-   celery -A app.core.celery_app worker --loglevel=info
-   ```
-
-### Frontend Setup
-
-1. **Navigate to frontend directory:**
-
-   ```bash
-   cd frontend
-   ```
-
-2. **Install dependencies:**
-
-   ```bash
-   npm install
-   ```
-
-3. **Create .env.local file (if needed):**
-
-   ```bash
-   NEXT_PUBLIC_API_URL=http://localhost:8000
-   ````
-
-4. **Start development server:**
-
-   ```bash
-   npm run dev
-   ````
-
-5. **Open your browser:**
-
-Navigate to http://localhost:3000
-
-
-First-Time Setup
-Register a new account at /register
-Login at /login
-Start adding content by pasting URLs on the dashboard
-
-## API Documentation
-
-Once the backend is running, visit:
-
-Swagger UI: http://localhost:8000/docs
-ReDoc: http://localhost:8000/redoc
-
-## Key Features Explained
-
-### Content Extraction
-When you save a URL, the backend:
-
-1. Validates the URL
-2. Queues a Celery task for background processing
-3. Extracts metadata (title, description, thumbnail)
-4. Downloads and parses full article text using Trafilatura
-5. Calculates word count and estimated reading time
-6. Generates OpenAI embeddings for semantic search
-
-### Semantic Search
-Uses OpenAI's text-embedding-3-small model to:
-
-- Generate 1536-dimensional vectors for each article
-- Store vectors in PostgreSQL using pgvector
-- Perform similarity searches with cosine distance
-- Find related articles based on content similarity
-
-### Lists & Organization
-
-- Create unlimited custom lists
-- Add multiple articles to lists
-- Track content count per list
-- Filter articles by read/unread/archived status
+Self-hosting the MCP server: see [`docs/design/systems/mcp-wiki.md`](docs/design/systems/mcp-wiki.md) for the full OAuth flow, transport architecture, and Cloudflare Worker setup.
 
 ## Development
 
-### Running Tests
-
 ```bash
-# Backend tests (using Poetry)
-cd content-queue-backend
-poetry shell
-pytest
-
-# Frontend tests
-cd frontend
-npm test
+make test          # backend (pytest) + frontend (jest)
+make lint          # ruff + tsc + eslint
+make migrate       # apply pending Alembic migrations
+make test-backend  # backend only
 ```
 
-### Database Migrations
-
-```bash
-# Make sure you're in the backend directory with Poetry shell active
-cd content-queue-backend
-poetry shell
-
-# Create a new migration
-alembic revision --autogenerate -m "Description of changes"
-
-# Apply migrations
-alembic upgrade head
-
-# Rollback one migration
-alembic downgrade -1
-
-# View migration history
-alembic history
-```
-
-### Code Formatting
-
-```bash
-# Backend (Python) - using Poetry
-cd content-queue-backend
-poetry shell
-
-# Format with Black
-poetry run black app/
-
-# Lint with Ruff
-poetry run ruff check app/
-
-# Frontend (TypeScript)
-cd frontend
-npm run lint
-```
-
-### Adding Dependencies
-
-```bash
-# Backend - Add a new Python package
-cd content-queue-backend
-poetry add package-name
-
-# Backend - Add a dev dependency
-poetry add --group dev package-name
-
-# Frontend - Add a new npm package
-cd frontend
-npm install package-name
-```
-
-### Docker Compose Commands
-
-```bash
-# Start all services in background
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop all services
-docker-compose down
-
-# Stop and remove volumes (deletes data!)
-docker-compose down -v
-
-# Restart a specific service
-docker-compose restart postgres
-docker-compose restart redis
-```
+Pattern and convention references:
+- Backend — [`docs/instructions/backend-patterns.md`](docs/instructions/backend-patterns.md)
+- Frontend — [`docs/instructions/frontend-patterns.md`](docs/instructions/frontend-patterns.md)
+- Testing — [`docs/instructions/testing-standards.md`](docs/instructions/testing-standards.md)
 
 ## Deployment
 
-Canonical deployment and operations workflow:
-
-- `docs/engineering-workflow.md`
-
-### Backend (Railway)
-
-1. Connect your GitHub repository
-2. Add PostgreSQL and Redis services
-3. Set environment variables in Railway dashboard
-4. Deploy main service and Celery worker as separate services
-
-### Frontend (Vercel)
-
-1. Connect your GitHub repository
-2. Set NEXT_PUBLIC_API_URL to your Railway backend URL
-3. Deploy automatically on push to main
-
-See `docs/engineering-workflow.md` for the full development → CI → deploy workflow.
-
-## Environment Variables
-
-### Backend (.env)
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| DATABASE_URL | PostgreSQL connection string | `postgresql://user:pass@localhost/db` |
-| REDIS_URL | Redis connection string | `redis://localhost:6379/0` |
-| SECRET_KEY | JWT signing key | Generate with `openssl rand -hex 32` |
-| ALGORITHM | JWT algorithm | `HS256` |
-| ACCESS_TOKEN_EXPIRE_MINUTES | Token expiration | `10080` (7 days) |
-| OPENAI_API_KEY | OpenAI API key | `sk-...` |
-| DEBUG | Debug mode | `True` or `False` |
-
-### Frontend (.env.local)
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| NEXT_PUBLIC_API_URL | Backend API URL | `http://localhost:8000` |
-
-## Troubleshooting
-
-### Backend Issues
-
-Problem: ModuleNotFoundError: No module named 'app'
-
-Solution: Make sure you're in the content-queue-backend directory and virtual environment is activated
-Problem: Celery worker not processing tasks
-
-Solution: Ensure Redis is running and REDIS_URL is correct in .env
-
-### Frontend Issues
-Problem: API error: 401 on all requests
-
-Solution: Token expired. Clear localStorage and log in again
-Problem: CORS error when calling API
-
-Solution: Check that allow_origins in backend/app/main.py includes your frontend URL
-Problem: Hydration errors in Next.js
-
-Solution: Ensure client-side only data (like dates) are handled with useEffect hooks
-
-## Contributing
-Fork the repository
-Create a feature branch (git checkout -b feature/amazing-feature)
-Commit your changes (git commit -m 'Add amazing feature')
-Push to the branch (git push origin feature/amazing-feature)
-Open a Pull Request
+Backend and Celery worker on Railway, frontend on Vercel. See [`docs/instructions/deploy-to-prod.md`](docs/instructions/deploy-to-prod.md) for the full procedure including environment variable setup, migration strategy, and Railway service configuration.
 
 ## License
-This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Acknowledgments
-Built with Next.js
-Backend powered by FastAPI
-Content extraction using Trafilatura
-AI embeddings by OpenAI
-Vector search with pgvector
+MIT

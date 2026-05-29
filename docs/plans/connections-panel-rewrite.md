@@ -1,3 +1,10 @@
+---
+type: plan
+status: active
+last_updated: 2026-05-14
+consumer: agent
+---
+
 # Plan: Connections Panel — Two-Mode Rewrite
 Date: 2026-05-14
 Status: Approved

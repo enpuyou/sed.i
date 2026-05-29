@@ -1,3 +1,10 @@
+---
+type: design
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # Browser Extension Architecture
 
 Everything the sed.i extension does — from clicking the icon to reading an article before saving.

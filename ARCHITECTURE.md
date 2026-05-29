@@ -1108,7 +1108,7 @@ Opt-in (`PREFECT_ENABLED=false` default). When enabled, ingestion phases 2–5 r
 
 The operational standard for this repository is documented in:
 
-- `docs/engineering-workflow.md` — local dev, Railway deploy, release flow
+- `docs/OBSOLETE-engineering-workflow.md` — superseded; see `docs/instructions/workflow.md` and `docs/instructions/deploy-to-prod.md`
 - `docs/instructions/workflow.md` — TDD loop, subagent rules, PoC detection, commit discipline
 - `CLAUDE.md` — coding agent constraints (Karpathy principles, hard rules, trigger-based actions)
 - `docs/plans/coding-agent-flywheel.md` — the comprehensive agent workflow improvement plan

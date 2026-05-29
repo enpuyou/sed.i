@@ -1,3 +1,10 @@
+---
+type: instruction
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # SOTA Stack Activation Guide
 
 How to go from code-exists to actually-running for each implemented layer.
@@ -241,7 +248,7 @@ Pulumi will show a preview of what it's about to create and ask for confirmation
 | S3 Bucket | `sedi-assets-dev` | Private bucket for PDFs — all public access blocked |
 | Bucket encryption | SSE-S3 | AES256 encryption at rest — no extra cost (vs KMS which charges per request) |
 | Bucket lifecycle | tiered-storage | Standard → Infrequent Access after 90 days → Glacier after 365 days (cost reduction) |
-| AWS Budget | `sedi-bedrock-monthly-dev` | Alerts at 80% of $20/month actual spend and 100% forecasted — email to youenpu@gmail.com |
+| AWS Budget | `sedi-bedrock-monthly-dev` | Alerts at 80% of $20/month actual spend and 100% forecasted — email to <your-email> |
 
 The IAM policies are **least-privilege** — the credentials Pulumi creates can only invoke the specific 3 models and access the specific 1 bucket. They can't create EC2 instances, read other S3 buckets, or do anything else in your account.
 

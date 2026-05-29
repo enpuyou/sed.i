@@ -1,3 +1,10 @@
+---
+type: plan
+status: archived
+last_updated: 2026-05-08
+consumer: agent
+---
+
 # Plan: Extension Extraction Quality (Superseded)
 Date: 2026-05-08
 Status: Superseded

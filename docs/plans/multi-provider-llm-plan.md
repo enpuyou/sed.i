@@ -1,3 +1,10 @@
+---
+type: plan
+status: active
+last_updated: 2026-05-28
+consumer: agent
+---
+
 # Multi-Provider LLM Plan: sed.i
 
 **Goal:** Make sed.i compatible with OpenAI and AWS Bedrock (Nova, Claude) with per-task model routing and a single env-var toggle. Embeddings are pinned to OpenAI permanently to eliminate vector space risk.

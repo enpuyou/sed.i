@@ -200,6 +200,25 @@ the actual code and evaluate it against these criteria.
 - No large inline objects/arrays that would break memoization.
 - Images use Next.js `<Image>` or have explicit width/height.
 
+### 3f. PoC detection (fresh-agent review)
+
+Spawn a fresh `code-reviewer` subagent on the complete PR diff. A fresh agent has no
+implementation bias — it sees the code without knowing the intent behind each choice.
+
+Prompt:
+```
+Review all files changed in this branch vs. main. Check the entire change set for:
+(a) Any feature that looks implemented but relies on mocked, stubbed, or hardcoded data
+(b) Any integration point (API call, DB query, external service) not actually wired up
+(c) Any code path added in one file that requires a matching change in another that's missing
+(d) Any endpoint or function returning static/empty data instead of real results
+Report only genuine functional gaps. Skip style comments.
+```
+
+**Skip when**: the branch is docs/config/test-only with no new behavior.
+
+---
+
 ### 3e. Accessibility
 - Interactive elements have accessible names (aria-label, button text, link text).
 - Color is not the only indicator of state (icons, text, or borders accompany it).
@@ -233,21 +252,104 @@ the actual code and evaluate it against these criteria.
 - Do NOT add JSDoc to every function — only where the name isn't enough.
 
 ### 4d. Feature doc check
-- For every user-facing change in this branch, is there a corresponding `docs/features/<name>.md`?
-- Read the existing feature doc (if any) — update any section that is now stale:
-  - Prerequisites, test steps, keyboard shortcuts, tips
-  - Flag behaviors that have changed (e.g. "shared tags required" → "no longer required")
-- If no feature doc exists and the change is user-visible, create one now.
-- Feature docs are written for users, not engineers — no internal names, no code references.
+- For every user-facing change in this branch, is there a corresponding `docs/design/product/<name>.md`?
+- Use `docs/design/product/TEMPLATE.md` for new ones.
+- Read the existing doc (if any) — update any section that is now stale:
+  - Test steps, known limits, tips, UX flow
+  - Flag behaviors that changed (e.g. "shared tags required" → "no longer required")
+- If no product doc exists and the change is user-visible, create one now.
+- Product docs: user perspective only — no internal names, no code references, no class/method names.
 
-### 4e. Impact report
-- Does `docs/changelog/` have an entry for the work done in this branch?
-- If not, create `docs/changelog/YYYY-MM-DD-<topic>.md` with:
-  - What shipped (user-visible behavior, in plain language)
-  - API changes (additive, breaking, or none)
-  - Component/file change table
-  - Deploy order note (if relevant)
-- Keep it factual — this is a record, not marketing copy.
+### 4e. Public-safety scan
+
+Scan every file changed in this branch for content that must not appear in a public repo.
+Catch it before it ships, not after.
+
+**Step 1** — grep changed files for private patterns:
+```bash
+git diff main...HEAD --name-only | xargs grep -rn \
+  "\.up\.railway\.app\|railway\.internal\|prj_[a-zA-Z0-9]\{10,\}\|srv_[a-zA-Z0-9]\{10,\}\|evn_[a-zA-Z0-9]\{10,\}\|/Users/[a-z]\|AKIA[A-Z0-9]\{16\}\|sk-[a-zA-Z0-9]\{20,\}" \
+  2>/dev/null
+```
+
+**Step 2** — check for accidentally tracked artifacts that should be gitignored:
+```bash
+git diff main...HEAD --name-only | grep -E "lint-results|\.log$|\.cache$|\.DS_Store"
+```
+
+**For each finding:**
+1. Is it a real secret or identifier (not a placeholder like `<your-xxx>`)? If yes:
+   - Add the real value to `docs/PRIVATE.md` (gitignored local reference)
+   - Replace it in the tracked file with a `<your-descriptive-name>` placeholder
+2. Is it an artifact file that shouldn't be tracked?
+   - `git rm --cached <file>`
+   - Add to `.gitignore`
+
+**`docs/PRIVATE.md` format:**
+```markdown
+| What | Placeholder | Your actual value |
+|------|-------------|-------------------|
+| Railway service URL | `<your-railway-service>.up.railway.app` | actual-name.up.railway.app |
+```
+
+**Common things to catch:**
+- Internal Railway hostnames (`*.railway.internal`, `*.up.railway.app`)
+- Vercel/Railway project IDs (`prj_...`, `srv_...`, `evn_...`)
+- Absolute local paths (`/Users/<name>/...`)
+- Personal email addresses in docs or config files
+- AWS access key IDs (`AKIA...`), API keys (`sk-...`)
+- Build artifacts committed by accident (lint-results.json, *.log)
+
+**Skip when**: the value is already a placeholder, a public domain (api.read-sedi.com), or explicitly intended to be public.
+
+### 4f. Changelog entry
+
+Write a changelog entry only when the branch ships **user-visible changes or API
+surface changes**. Skip for: refactors, docs-only, dependency bumps, CI changes.
+
+**File**: `docs/changelog/YYYY-MM-DD-<topic>.md`
+
+**Format — 3-5 lines, not a feature guide:**
+```markdown
+# YYYY-MM-DD — <Topic>
+
+What shipped: 1-2 sentences describing what users can now do or what changed.
+Product doc: docs/design/product/<name>.md  (link if one exists, don't repeat it)
+API changes: additive | breaking (<what changed>) | none
+Deploy order: backend first | simultaneous | n/a
+```
+
+`docs/design/product/` is where UX detail lives — the changelog is a dated index, not
+documentation. Do not duplicate content that belongs in product/ or retros/.
+
+### 4g. Version bump
+
+Determine what semver bump this PR warrants based on its commits since the last tag:
+
+```bash
+git tag | sort -V | tail -1          # last release tag
+git log <last-tag>..HEAD --oneline   # commits since then
+```
+
+**Bump rules (conventional commits):**
+| Commit type | Bump |
+|-------------|------|
+| `feat:` or `feat(scope):` | MINOR — x.**Y**.0 |
+| `fix:`, `perf:` | PATCH — x.y.**Z** |
+| `feat!:` or `BREAKING CHANGE:` footer | MAJOR — **X**.0.0 |
+| `refactor:`, `ci:`, `docs:`, `chore:`, `test:` | no bump |
+
+Take the highest applicable bump across all commits (MAJOR > MINOR > PATCH).
+
+**Update these three files to the new version:**
+- `VERSION` (repo root — single source of truth)
+- `content-queue-backend/pyproject.toml` — `version = "x.y.z"`
+- `frontend/package.json` — `"version": "x.y.z"`
+
+The version update is committed as part of this PR. After merging to main, tag it:
+```bash
+git tag v<new-version> && git push origin v<new-version>
+```
 
 **Output**: List of doc changes made or "docs are current, no changes needed."
 

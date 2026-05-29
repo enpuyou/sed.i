@@ -1,3 +1,10 @@
+---
+type: design
+status: active
+last_updated: 2026-05-28
+consumer: both
+---
+
 # sed.i — RAG System Design
 
 How content goes from a URL paste to a searchable, queryable knowledge base. This is a technical system design overview, not an API reference.

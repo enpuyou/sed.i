@@ -42,7 +42,7 @@ claude mcp add vercel  -s user -e VERCEL_TOKEN=<token>       -- npx -y vercel-pl
 
 | Resource | Name | ID |
 |----------|------|----|
-| Project | content-queue | `prj_7yVz4PctgZbJ9lvLzqjTYWIIEMqc` |
+| Project | content-queue | `<your-vercel-project-id>` |
 | Production domain | read-sedi.com | — |
 | Preview branch | enhancement/sota-stack | `content-queue-git-enhancement-sota-stack-enpu-yous-projects.vercel.app` |
 
@@ -180,7 +180,7 @@ retry — it's idempotent.
 values, not plaintext. You can see the key names but not the values. To read a value,
 check it on Railway (where it's set) or look in the codebase.
 
-**Prefect internal URL**: Use `http://prefect.railway.internal:4200/api` for
+**Prefect internal URL**: Use `http://<prefect-service>.railway.internal/api` for
 service-to-service calls within Railway. The public URL
 (`prefect-production-b0dc.up.railway.app/api`) works but routes through the public
 internet unnecessarily.

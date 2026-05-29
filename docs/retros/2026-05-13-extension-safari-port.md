@@ -1,3 +1,10 @@
+---
+type: retro
+status: active
+last_updated: 2026-05-13
+consumer: both
+---
+
 # Retro: Extension Polish + Safari Port
 Date: 2026-05-13
 Branch: enhancement/extension-reader-polish
