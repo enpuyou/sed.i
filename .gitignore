@@ -73,6 +73,9 @@ docker-compose.override.yml
 # Local test PDFs (too large for git)
 pdf/*.pdf
 
+# PDF extraction backend experiments + eval harness (dev-only, never pushed)
+content-queue-backend/experiments/
+
 # Node (from frontend)
 node_modules/
 

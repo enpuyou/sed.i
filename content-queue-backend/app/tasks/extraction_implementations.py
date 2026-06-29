@@ -74,12 +74,18 @@ class DocumentScanResult:
     abstract: str = ""  # New: detected abstract text
     doc_num_columns: int = 1  # document-level fallback if per-page is ambiguous
 
-    # Confidence sub-scores (filled in by _compute_confidence_score)
-    pages_with_layout: int = 0  # pages where column layout was unambiguous
+    # Confidence inputs — populated during extraction, consumed by _compute_confidence_score
     total_pages: int = 0
+    pages_with_content: int = 0  # pages that produced at least one text word
+    total_words_extracted: int = 0
     images_extracted: int = 0
     images_attempted: int = 0
-    column_ambiguity: float = 0.0  # 0 = clear, 1 = very ambiguous
+    yolo_conf_sum: float = 0.0  # sum of per-detection YOLO confidence scores
+    yolo_conf_count: int = 0  # number of detections contributing to the sum
+
+    # Kept for logging only — no longer used in confidence scoring
+    pages_with_layout: int = 0
+    column_ambiguity: float = 0.0
 
 
 def _prescan_document(doc: fitz.Document) -> DocumentScanResult:
@@ -433,12 +439,24 @@ def _extract_yolo_sync(pdf_bytes: bytes, url: str = "") -> str:
             regions, caption_rects = _detect_layout_yolo(page, model)
             scan.images_attempted += len(regions)
 
+            # Accumulate YOLO detection confidence across all visual regions
+            for r in regions:
+                scan.yolo_conf_sum += r.get("conf", 0.0)
+                scan.yolo_conf_count += 1
+
             page_html, num_images = _extract_page_content(
                 page, regions, caption_rects, scan, page_num
             )
             scan.images_extracted += num_images
             html_pages.append(f"<div class='page'>{page_html}</div>")
-            logger.info(f"  ✓ Extracted {num_images} images")
+
+            # Count words extracted from this page to track content density
+            page_words = len(page_html.split())
+            scan.total_words_extracted += page_words
+            if page_words > 0:
+                scan.pages_with_content += 1
+
+            logger.info(f"  ✓ Extracted {num_images} images, {page_words} words")
 
         confidence = _compute_confidence_score(scan)
         return _wrap_html("\n".join(html_pages), confidence, scan.title, scan.abstract)
@@ -479,7 +497,11 @@ def extract_with_yolo(pdf_bytes: bytes, url: str = "") -> str:
             "PYTHONPATH": _project_root,
         }
         result = subprocess.run(
-            [sys.executable, _worker],
+            # -P: don't prepend the script's own directory (app/tasks/) to
+            # sys.path. Without this, app/tasks/email.py shadows the stdlib
+            # `email` module, which torch's import chain needs internally —
+            # causing a circular-import crash before YOLO ever runs.
+            [sys.executable, "-P", _worker],
             input=payload,
             stdout=subprocess.PIPE,
             env=env,
@@ -544,7 +566,7 @@ def _detect_layout_yolo(page: fitz.Page, model) -> Tuple[List[Dict], List[fitz.R
         caption_rects = []
 
         for detection in results[0].boxes.data:
-            px1, py1, px2, py2, _, class_id = detection.tolist()
+            px1, py1, px2, py2, conf, class_id = detection.tolist()
             label = results[0].names[int(class_id)].lower()
 
             x0 = px1 * scale_x
@@ -572,6 +594,7 @@ def _detect_layout_yolo(page: fitz.Page, model) -> Tuple[List[Dict], List[fitz.R
                     "label": our_label,
                     "box_2d": [x0, y0, x1, y1],
                     "area": area,
+                    "conf": conf,
                     "y_center": (y0 + y1) / 2,
                     "x_center": (x0 + x1) / 2,
                 }
@@ -1266,12 +1289,19 @@ def _compute_confidence_score(scan: DocumentScanResult) -> int:
     """
     Compute a 0-100 confidence score for the extraction quality.
 
+    All signals derived from what was actually extracted, not from pre-scan heuristics.
+
     Sub-scores:
-      - Layout detection rate: what fraction of pages had unambiguous column layout
-      - Column clarity: how balanced (low ambiguity = high confidence)
-      - Title detected: +10 points
-      - Header/footer patterns found: +10 points
-      - Image extraction rate (if any were attempted)
+      - Words per page (0-35 pts): median words/page vs. expected range for academic text.
+        Directly measures whether text extraction succeeded or produced nearly empty output.
+      - YOLO mean detection confidence (0-30 pts): average model confidence across all
+        detected visual regions. Low confidence = YOLO was uncertain about the layout.
+        Skipped (gives 15 neutral pts) when no visual regions were detected — text-only
+        papers are valid and shouldn't be penalised for having no figures.
+      - Pages with content (0-25 pts): fraction of pages that produced any extracted words.
+        Catches total per-page failures (scanned image pages, rendering errors).
+      - Image extraction success rate (0-10 pts): of attempted image crops, how many
+        produced non-blank output. Only scored when images were attempted.
 
     Thresholds for user-facing warning:
       < 60: Low confidence — warn user, results may be poorly structured
@@ -1280,31 +1310,35 @@ def _compute_confidence_score(scan: DocumentScanResult) -> int:
     """
     score = 0
 
-    # Layout detection rate (0-40 points)
+    # ── Words per page (0-35 pts) ──────────────────────────────────────────────
+    # Academic body text typically runs 250-500 words/page.
+    # <20 words/page almost certainly means extraction failed (scanned image, etc.)
+    # Scale linearly from 0 at 0 words/page to full credit at 200+ words/page.
     if scan.total_pages > 0:
-        layout_rate = scan.pages_with_layout / scan.total_pages
-        score += int(layout_rate * 40)
+        words_per_page = scan.total_words_extracted / scan.total_pages
+        wpp_score = min(1.0, words_per_page / 200.0)
+        score += int(wpp_score * 35)
 
-    # Column clarity (0-20 points): low ambiguity = high clarity
-    clarity = max(0.0, 1.0 - scan.column_ambiguity * 3)
-    score += int(clarity * 20)
+    # ── YOLO mean detection confidence (0-30 pts) ─────────────────────────────
+    if scan.yolo_conf_count > 0:
+        mean_conf = scan.yolo_conf_sum / scan.yolo_conf_count  # 0.0–1.0
+        score += int(mean_conf * 30)
+    else:
+        # No visual regions detected — text-only paper or YOLO found nothing.
+        # Give neutral credit rather than penalising a valid text-only document.
+        score += 15
 
-    # Title detected (0-10 points)
-    if scan.title:
-        score += 10
+    # ── Pages with content (0-25 pts) ─────────────────────────────────────────
+    if scan.total_pages > 0:
+        content_rate = scan.pages_with_content / scan.total_pages
+        score += int(content_rate * 25)
 
-    # Header/footer filter quality (0-10 points)
-    if len(scan.repeating_texts) > 0:
-        score += 10
-
-    # Image extraction rate (0-20 points)
+    # ── Image extraction success rate (0-10 pts) ──────────────────────────────
     if scan.images_attempted > 0:
         img_rate = min(1.0, scan.images_extracted / scan.images_attempted)
-        score += int(img_rate * 20)
+        score += int(img_rate * 10)
     else:
-        # No images attempted — either text-only paper or detection missed everything.
-        # Give partial credit (10) since text-only papers are valid.
-        score += 10
+        score += 5  # neutral: no images attempted
 
     return min(100, score)
 
