@@ -488,22 +488,28 @@ POST /content (201, processing_status='completed' immediately)
 
 ## 10. PDF extraction
 
-If a saved URL returns `Content-Type: application/pdf`:
+If a saved URL returns `Content-Type: application/pdf`, it is routed to `_process_pdf()` in `tasks/extraction.py`, which calls `extract_with_yolo()`. Full pipeline detail: `docs/design/systems/pdf-extraction.md`.
 
-1. Backend downloads the file.
-2. `_process_pdf()` in `tasks/extraction.py` runs YOLO-based layout analysis.
-3. Output converted to structured HTML.
+**Architecture**: hybrid pipeline — PyMuPDF (`fitz`) handles all text extraction and image cropping; YOLOv8n-doclaynet handles visual region detection only. The two are not alternatives: YOLO finds where figures/tables/formulas are; fitz extracts the text and crops the image out of the PDF.
+
+**Subprocess isolation (ADR-0007)**: `extract_with_yolo()` always runs in an isolated subprocess. `torch` + `ultralytics` (~1–1.5 GB RSS) load inside the subprocess and are freed by the OS on exit — they never enter the Celery worker's address space. The subprocess is invoked with `sys.executable -P` to prevent `app/tasks/email.py` from shadowing the stdlib `email` module (which `torch` needs internally). Timeout: 300s.
+
+**Pipeline stages:**
+
+1. **Pre-scan** — text-metadata-only analysis (no pixel rendering): detects column layout (1/2-column), header/footer band boundaries from horizontal rules or repeating text, page-number locations, title, and abstract.
+2. **YOLO detection** — renders each page to PNG at 150 DPI, runs YOLOv8n-doclaynet (`conf=0.35`), maps pixel detections back to PDF point coordinates. Keeps `picture`/`table`/`formula` as visual regions; tracks `caption` for anchoring. Caption-gap inference recovers figures YOLO missed.
+3. **Content extraction** — per page: crops visual regions as base64 PNG, extracts text blocks (skipping header/footer bands, blocks overlapping visual regions), detects headings (font-size, section-number prefix, spaced-small-caps paths), merges split paragraphs, sorts by column-aware order.
+4. **Confidence scoring** — 0–100 score from: words/page (0–35 pts), YOLO mean detection confidence (0–30 pts, 15 neutral if no visuals), pages with content (0–25 pts), image crop success rate (0–10 pts). Embedded as `<meta name="extraction-confidence">` in the HTML output.
 
 **Post-processing in `_process_pdf`:**
 
 | Step | Action |
-|------|--------|
-| Title | First `<h1>` or `<h2>` in body → stored as `item.title`. |
-| Author removal | Short `<p>` blocks (< 300 chars) between title and abstract heading removed (author/affiliation lines in arXiv papers). |
-| Abstract (arXiv style) | Standalone `<h1>ABSTRACT</h1>` + following `<p>` → stored as `item.description`. |
-| Abstract (journal/ACS style) | Inline `<p>ABSTRACT: text...</p>` → stored as `item.description`. |
+| --- | --- |
+| Title | First `<h1>` or `<h2>` in body → stored as `item.title`; heading removed from body to avoid duplication in Reader. |
+| Author removal | Short `<p>` blocks (< 300 chars) between title and abstract heading removed (author/affiliation lines). |
+| Abstract | `extraction-description` meta tag from pipeline HTML → stored as `item.description`. |
 | Thumbnail | First `<div class="figure-block"><img src="data:..."/>` → stored as `item.thumbnail_url`, removed from body. |
-| Confidence badge | Injected as `<meta>` tag; parsed by the Reader with a regex that handles both BS4 attribute orderings. |
+| Confidence badge | `extraction-confidence` meta tag parsed by the Reader (regex handles both BS4 attribute orderings). |
 
 ---
 
