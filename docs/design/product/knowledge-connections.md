@@ -235,7 +235,65 @@ process_all_missing_embeddings.delay()
 
 ---
 
-## 5. Relevant Reading in Drafts
+## 5. Entity Graph Search
+
+### What it does
+
+When you search your library, sed.i matches not just document text but **named concepts** extracted from each article. Entity graph search runs a separate retrieval lane that:
+
+1. Embeds your search query
+2. Finds entity nodes in your library whose embeddings are closest to your query
+3. Returns the articles that mention those entities
+
+This means a search for "attention mechanism" will surface articles about transformers even if the exact phrase doesn't appear in the article text — as long as the article mentions an entity called "attention mechanism" or one semantically close to it.
+
+### How entities are built
+
+When an article finishes processing, `analyze_article_task` runs a single LLM call that extracts:
+
+- Domain and concept tags (same as §1 Semantic Tags)
+- Named entities (3–8 per article): people, organizations, tools, concepts, papers
+- Relations between entities (0–4 per article): free-text predicates with strength scores
+
+Entities are deduplicated case-insensitively per user — "Backpropagation" and "backpropagation" are the same node. Embeddings for new entities are written by a background task (`embed_new_entities_task`) dispatched after extraction completes.
+
+### What the entity graph adds to search
+
+Entity search augments the existing text + semantic dual-lane search. It activates when the search mode is `full` (the default for the main search bar). Results from the entity lane are merged with text and semantic results using Reciprocal Rank Fusion.
+
+In practice, entity search is most useful for:
+
+- Concept queries: "self-attention", "mesa-optimization", "compound interest"
+- Named entities: specific people, tools, or papers you read about
+
+For broad natural-language queries, the text and semantic lanes still dominate.
+
+### How to test it
+
+1. Save at least 2 articles on overlapping topics (e.g., both mention "transformer architecture")
+2. Wait ~60 seconds for processing and entity embedding to complete
+3. Search for a concept from those articles (e.g., "transformer architecture")
+4. Results should include articles that mention the entity node — even if those words don't appear verbatim
+
+### Manual trigger (dev)
+
+If you have articles but entity embeddings aren't generating:
+
+```python
+from app.tasks.entity_embedding import embed_new_entities
+result = embed_new_entities.delay("<your-user-id>")
+print(result.get())
+```
+
+### Implementation notes
+
+- Entity deduplication runs weekly (`deduplicate_entities_task`) — near-identical entity nodes (e.g., "GPT-4" vs "GPT4") are merged
+- The `entities.article_count` column is not used; the system computes live article counts from `entity_mentions` joins
+- `entity_extraction.py` is dead code (superseded by `article_analysis.py`); do not dispatch `extract_entities_task`
+
+---
+
+## 6. Relevant Reading in Drafts
 
 ### What it does
 
@@ -302,6 +360,12 @@ Use this to verify all five surfaces are working end-to-end:
 - [ ] Click `← all highlights` → returns to Mode 2
 - [ ] Press `c` in Mode 2 → panel closes
 
+**Entity Graph Search:**
+
+- [ ] Save 2+ articles on overlapping topics (e.g., both mention "transformer architecture")
+- [ ] Wait ~60 seconds for entity extraction and embedding to run
+- [ ] Search for a concept name from those articles — results should include the relevant articles
+
 **Relevant Reading:**
 - [ ] Open a List, click "Write", type 50+ words on a topic you have articles about, pause → "Relevant reading" appears after autosave
 
@@ -314,4 +378,4 @@ Use this to verify all five surfaces are working end-to-end:
 | Reading Themes link in dashboard | `NEXT_PUBLIC_SHOW_READING_THEMES` | `false` |
 | Relevant Reading in drafts | `NEXT_PUBLIC_SHOW_DRAFT_READS` | `false` |
 
-Semantic tags, Find Related shared tags, and Highlight Connections are always on — no flag required.
+Semantic tags, Find Related shared tags, Highlight Connections, and Entity Graph Search are always on — no flag required.
