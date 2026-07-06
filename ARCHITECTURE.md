@@ -558,7 +558,23 @@ The old free-pass (pgvector similarity to already-tagged articles) was removed. 
 
 ---
 
-## 11b. Highlight Connections — two-mode panel
+## 11b. Entity graph
+
+**Goal:** Extract named entities and relations from articles, embed them, and use them as a third retrieval lane in hybrid search to bridge vocabulary gaps between queries and articles.
+
+**Tables:** `entities` (id, user_id, name, entity_type, description, embedding), `entity_mentions` (entity_id → content_item_id), `entity_relations` (source_entity_id, target_entity_id, relation_type, strength, description).
+
+**Extraction (`tasks/article_analysis.py`, `analyze_article_task`):** Single LLM call (gpt-4o-mini) producing domain tags, concept tags, named entities (PERSON|CONCEPT|ORGANIZATION|PAPER|TOOL), and relations in one round-trip. Replaces the old separate `generate_tags_task` + `extract_entities_task`. Entities are upserted via `app/core/entity_graph.py:upsert_entity` (case-insensitive name deduplication per user). Concept tags not matched by an extracted entity are promoted to CONCEPT stubs so every article has searchable concept nodes.
+
+**Embedding (`tasks/entity_embedding.py`, `embed_new_entities_task`):** Embeds any unembedded entity nodes as `"{type}: {name} — {description}"`. Called after every `analyze_article_task` run and available as a standalone backfill task.
+
+**Deduplication (`tasks/entity_dedup.py`):** `merge_entities` merges a loser entity into a winner — redirecting all mentions and relations via `entity_graph.py:merge_entity_nodes`. `run_entity_dedup` runs cosine similarity across all embedded entities for a user and merges pairs above a threshold. Known limitation: no cross-name deduplication; "Claude" and "Claude Code" are distinct entities.
+
+**Eval results:** See `evals/retrieval/results/report.md`. Entity lane adds net value on 45-query dataset (A→D: +1.4pp R@10 on full set). Regressions on 5 queries traced to vocabulary mismatch and Claude-family name fragmentation. See `docs/design/systems/hub-cap-investigation.md`.
+
+---
+
+## 11c. Highlight Connections — two-mode panel
 
 The connections system surfaces how ideas in one article link to ideas captured elsewhere in a user's library, using a combination of embedding similarity and shared semantic tags.
 
@@ -599,7 +615,7 @@ Quality filters applied at query time:
 
 **Clicking a highlight** in ReaderArticle calls `onShowConnections(highlightId)` → Reader sets `activeHighlightId` and opens the panel in Mode 1. The `onShowConnections` prop type changed from `() => void` to `(highlightId: string) => void`.
 
-## 11c. Draft relevant reads (Phase 4)
+## 11d. Draft relevant reads (Phase 4)
 
 `GET /lists/{list_id}/draft/relevant-reads` returns up to 5 library articles relevant to the current draft.
 
@@ -651,6 +667,16 @@ Redis (`qemb:{sha256[:16]}`, 1hr TTL) to avoid redundant OpenAI calls.
 
 **Untitled items excluded** — content with no title (failed extraction) is
 excluded from all search paths.
+
+**Entity lane** — `hybrid_search(mode="full")` adds a third retrieval path via
+`_entity_search`. Query embedding is compared against `entities.embedding` vectors
+(type+name+description format). Entities above a sim threshold (0.40) are used to
+look up which articles mention them (`entity_mentions`). Entity-sourced article
+scores are blended into the RRF sum using IDF-dampened score passthrough
+(`entity_score × 0.025`). Hub entities (>4 articles) are capped at 4 randomly
+sampled to prevent fan-out. The entity lane adds net retrieval value for
+vocabulary-distant queries; known regressions are documented in
+`docs/design/systems/hub-cap-investigation.md`.
 
 `GET /search/{item_id}/similar` — uses an existing item's embedding as the query
 vector for cosine similarity search.
@@ -974,6 +1000,19 @@ pytest tests/ -x -q --ignore=tests/evals
 - All Celery tasks are mocked with `patch(...)` — no broker needed.
 - Cross-user isolation: always test that user A cannot act on user B's data.
 - Rate limiter tests call `rate_limiter.requests.clear()` before any POST /content test to avoid 429 from test ordering.
+
+### Eval harness
+
+Location: `evals/` (project root) + `content-queue-backend/tests/evals/`
+
+| Eval | Runner | What it measures |
+|------|--------|------------------|
+| Retrieval quality | `evals/retrieval/runner.py` | R@10, MRR, NDCG — 4 variants (A–D), 45 real queries vs production library |
+| Search routing | `tests/evals/test_search_evals.py` | Classifier accuracy across 17 queries |
+| Tagging quality | `tests/evals/test_tagging_evals.py` | Specificity, coverage, forbidden-tag rate |
+| MCP contracts | `tests/evals/test_mcp_evals.py` | Response shape contracts |
+
+Evals requiring a live DB (`tests/evals/`) are excluded from `make test` (CI uses the test DB seeded with synthetic articles for the harness). `evals/retrieval/` requires the production library and runs manually. Baselines stored in `evals/retrieval/baselines.json`; run artifacts in `evals/*/results/` (gitignored). CI regression gate: `evals/check_regressions.py` (not yet implemented).
 
 ### Frontend — Jest
 

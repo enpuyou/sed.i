@@ -97,3 +97,7 @@ _agents/
 frontend/app/mockups/
 frontend/lint-results.json
 docs/PRIVATE.md
+
+# Eval run results (baselines.json is committed; run artifacts are not)
+evals/*/results/
+content-queue-backend/tests/evals/results/

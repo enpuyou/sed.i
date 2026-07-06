@@ -43,6 +43,12 @@ celery_app.conf.update(
             "task": "app.tasks.clustering.cluster_all_users_task",
             "schedule": 60 * 60 * 24 * 7,  # Every 7 days
         },
+        # Deduplicate near-identical entity nodes weekly (cheap: ~$0.001 per run)
+        "deduplicate-entities": {
+            "task": "app.tasks.entity_dedup.deduplicate_entities_task",
+            "schedule": 60 * 60 * 24 * 7,  # Every 7 days
+            "kwargs": {"user_id": None},  # None = all users (handled in task)
+        },
     },
 )
 
@@ -50,6 +56,9 @@ celery_app.conf.update(
 # celery_app.autodiscover_tasks(['app.tasks'])
 
 # Import tasks here (explicit import)
+# Note: entity_extraction is intentionally excluded — it is superseded by
+# article_analysis (combined tags+entities in one LLM call). extract_entities_task
+# is dead code; analyze_article_task is the live dispatch path.
 from app.tasks import (
     extraction,
     summarization,
@@ -60,6 +69,9 @@ from app.tasks import (
     clustering,
     email,
     chunk_embeddings,
+    article_analysis,
+    entity_embedding,
+    entity_dedup,
 )
 
 

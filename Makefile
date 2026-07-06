@@ -1,10 +1,10 @@
 # sed.i — Dev Makefile
 # Encodes the pyenv shim workaround so agents and humans don't need to rediscover it.
-# Requires: pyenv at /usr/local/opt/pyenv, Python 3.11.12, Poetry 2.x, pnpm, docker
+# Requires: pyenv at ~/.pyenv, Python 3.11.12, Poetry 2.x, pnpm, docker
 
-.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend lint ruff tsc generate-types safari-sync safari-open help
+.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend eval eval-bt lint ruff tsc generate-types safari-sync safari-open help
 
-PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run
+PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.12 $(HOME)/.pyenv/bin/pyenv exec poetry run
 
 # ── Dev stack ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +42,14 @@ test: test-backend test-frontend
 ## Run backend pytest suite
 test-backend:
 	$(PYENV_RUN) pytest tests/ -x -q
+
+## Run retrieval evals against production DB (requires local server running)
+eval:
+	$(PYENV_RUN) pytest tests/evals/test_retrieval_evals.py -v
+
+## Log eval run to Braintrust (usage: make eval-bt EVAL=retrieval)
+eval-bt:
+	$(PYENV_RUN) python scripts/run_evals.py
 
 ## Run frontend Jest suite
 test-frontend:
