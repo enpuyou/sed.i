@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Text,
     UniqueConstraint,
@@ -38,9 +39,17 @@ class Entity(Base):
     embedding = Column(Vector(1536), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Case-insensitive dedup per user: (user_id, lower(name))
-    # Enforced in application via upsert_entity(); DB constraint guards concurrent writes.
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_entity_user_name"),)
+    # Functional unique index on (user_id, lower(name)) — enforces case-insensitive
+    # dedup at the DB layer. upsert_entity() queries by lower(name) and uses a
+    # SAVEPOINT to handle the rare concurrent-insert race without wiping the outer tx.
+    __table_args__ = (
+        Index(
+            "uq_entity_user_lower_name",
+            "user_id",
+            func.lower(name),
+            unique=True,
+        ),
+    )
 
     mentions = relationship(
         "EntityMention", back_populates="entity", cascade="all, delete-orphan"

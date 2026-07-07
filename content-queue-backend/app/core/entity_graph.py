@@ -60,10 +60,12 @@ def upsert_entity(
     )
     db.add(entity)
     try:
-        db.flush()  # populate entity.id without committing
+        with (
+            db.begin_nested()
+        ):  # SAVEPOINT — only rolls back this insert, not the outer tx
+            db.flush()
     except IntegrityError:
         # Concurrent worker inserted the same entity between our SELECT and INSERT.
-        db.rollback()
         existing = _query_existing()
         if existing:
             return existing

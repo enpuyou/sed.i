@@ -477,7 +477,6 @@ def _entity_search(
 
         # Split into expand-eligible vs direct-only
         expand_ids = []
-        direct_ids = []
         sim_map: dict[str, float] = {}
         article_count_map: dict[str, int] = {}
 
@@ -492,8 +491,6 @@ def _entity_search(
                 and row.article_count <= _ENTITY_HUB_ARTICLE_CAP
             ):
                 expand_ids.append(row.id)
-            else:
-                direct_ids.append(row.id)
 
         # 1-hop expansion only from non-hub, high-confidence anchors
         neighbor_ids: list = []

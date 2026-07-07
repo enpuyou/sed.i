@@ -43,11 +43,11 @@ test: test-backend test-frontend
 test-backend:
 	$(PYENV_RUN) pytest tests/ -x -q
 
-## Run retrieval evals against production DB (requires local server running)
+## Run retrieval evals against a live DB (DATABASE_URL must point at a populated DB)
 eval:
-	$(PYENV_RUN) pytest tests/evals/test_retrieval_evals.py -v
+	$(PYENV_RUN) pytest tests/evals/test_retrieval_evals.py tests/evals/test_search_evals.py -v
 
-## Log eval run to Braintrust (usage: make eval-bt EVAL=retrieval)
+## Log retrieval eval to Braintrust (BRAINTRUST_API_KEY + DATABASE_URL required)
 eval-bt:
 	$(PYENV_RUN) python scripts/run_evals.py
 

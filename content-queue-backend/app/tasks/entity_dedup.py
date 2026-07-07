@@ -145,7 +145,7 @@ def deduplicate_entities(
             continue
 
         try:
-            # Winner = id_a (lower UUID string = older entity, first seen)
+            # Winner = id_a (lower UUID string — deterministic tie-breaker, not creation order)
             merge_entity(uuid.UUID(id_a), uuid.UUID(id_b), db)
             db.commit()
             logger.info(f"Merged {row.name_b!r} → {row.name_a!r} (sim={row.sim:.3f})")

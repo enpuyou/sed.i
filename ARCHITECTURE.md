@@ -568,7 +568,7 @@ The old free-pass (pgvector similarity to already-tagged articles) was removed. 
 
 **Embedding (`tasks/entity_embedding.py`, `embed_new_entities_task`):** Embeds any unembedded entity nodes as `"{type}: {name} — {description}"`. Called after every `analyze_article_task` run and available as a standalone backfill task.
 
-**Deduplication (`tasks/entity_dedup.py`):** `merge_entities` merges a loser entity into a winner — redirecting all mentions and relations via `entity_graph.py:merge_entity_nodes`. `run_entity_dedup` runs cosine similarity across all embedded entities for a user and merges pairs above a threshold. Known limitation: no cross-name deduplication; "Claude" and "Claude Code" are distinct entities.
+**Deduplication (`tasks/entity_dedup.py`):** `entity_graph.merge_entity()` merges a loser entity into a winner — redirecting all mentions and relations atomically. `deduplicate_entities_task` runs cosine similarity across all embedded entities for a user, verifies candidates with an LLM call, then merges confirmed pairs. Winner is chosen by lower UUID string (deterministic tie-breaker). Known limitation: no cross-name deduplication; "Claude" and "Claude Code" are distinct entities.
 
 **Eval results:** See `evals/retrieval/results/report.md`. Entity lane adds net value on 45-query dataset (A→D: +1.4pp R@10 on full set). Regressions on 5 queries traced to vocabulary mismatch and Claude-family name fragmentation. See `docs/design/systems/hub-cap-investigation.md`.
 
@@ -673,8 +673,9 @@ excluded from all search paths.
 (type+name+description format). Entities above a sim threshold (0.40) are used to
 look up which articles mention them (`entity_mentions`). Entity-sourced article
 scores are blended into the RRF sum using IDF-dampened score passthrough
-(`entity_score × 0.025`). Hub entities (>4 articles) are capped at 4 randomly
-sampled to prevent fan-out. The entity lane adds net retrieval value for
+(`entity_score × 0.025`). Hub entities (article_count > 4) are excluded from
+1-hop neighbor expansion to prevent fan-out; their direct article mentions still
+score normally. The entity lane adds net retrieval value for
 vocabulary-distant queries; known regressions are documented in
 `docs/design/systems/hub-cap-investigation.md`.
 
