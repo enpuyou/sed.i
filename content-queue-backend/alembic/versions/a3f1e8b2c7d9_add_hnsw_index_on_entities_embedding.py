@@ -32,17 +32,21 @@ transaction, so this migration uses op.execute() directly with CONCURRENTLY.
 
 from alembic import op
 
-# HNSW CONCURRENTLY cannot run inside a transaction block.
-transaction_per_migration = False
+# Alembic metadata
+revision = "a3f1e8b2c7d9"
+down_revision = "014958e5"
+branch_labels = None
+depends_on = None
 
 
 def upgrade() -> None:
-    # CONCURRENTLY requires running outside a transaction block.
-    # Alembic wraps migrations in a transaction by default; execute raw SQL
-    # to bypass that for this index only.
+    # Production note: run this migration outside a transaction to use
+    # CREATE INDEX CONCURRENTLY (avoids table lock). On Railway/Render, apply
+    # the index manually with CONCURRENTLY after deploying. In dev/CI the
+    # non-concurrent form is fine.
     op.execute(
         """
-        CREATE INDEX CONCURRENTLY IF NOT EXISTS entities_embedding_hnsw
+        CREATE INDEX IF NOT EXISTS entities_embedding_hnsw
         ON entities
         USING hnsw (embedding vector_cosine_ops)
         WITH (m = 16, ef_construction = 64)
@@ -51,4 +55,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS entities_embedding_hnsw")
+    op.execute("DROP INDEX IF EXISTS entities_embedding_hnsw")
