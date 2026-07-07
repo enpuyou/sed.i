@@ -1,23 +1,21 @@
 """
-TDD tests for Feature A: Knowledge Graph Entity Index.
+Tests for the entity model layer and entity_graph access layer.
 
 Behaviors tested:
 - Entity model: upsert deduplicates by (user_id, lower(name))
 - EntityMention: links entity to article, stores context sentence
 - EntityRelation: links two entities with a typed relation
-- extract_entities(): writes entities + mentions + relations to DB from article text
-- extract_entities(): is idempotent (re-running does not duplicate rows)
-- extract_entities(): LLM failure leaves DB unchanged
-- extract_entities(): skips articles with no full_text gracefully
 - entity_graph.get_article_entities(): returns entity ids for an article
-- entity_graph.get_entity_neighbors(): returns 1-hop entity ids from seeds
+- entity_graph.get_entity_neighbors(): returns 1-hop and 2-hop entity ids
 - entity_graph.articles_for_entities(): returns article ids mentioning given entities
+- upsert_entity: idempotent, case-insensitive, handles concurrent insert via SAVEPOINT
+
+Note: extract_entities_task was removed — superseded by analyze_article_task
+(combined tags + entity extraction in one LLM call). See test_article_analysis.py
+for task-level tests.
 """
 
-from types import SimpleNamespace
-from unittest.mock import patch
 import uuid
-
 
 from app.models.content import ContentItem
 from app.models.entity import Entity, EntityMention, EntityRelation
@@ -39,29 +37,6 @@ def _make_article(db, user, title, text="Some article text about interesting top
     db.commit()
     db.refresh(item)
     return item
-
-
-def _fake_extraction_result(entities, relations):
-    """Build the structured result that extract_entities_with_llm returns."""
-    return SimpleNamespace(
-        entities=[
-            SimpleNamespace(
-                name=e["name"],
-                type=e["type"],
-                description=e.get("description", ""),
-            )
-            for e in entities
-        ],
-        relations=[
-            SimpleNamespace(
-                source=r["source"],
-                target=r["target"],
-                predicate=r.get("predicate", r.get("relation_type", "")),
-                description=r.get("description", ""),
-            )
-            for r in relations
-        ],
-    )
 
 
 # ── Model layer tests ─────────────────────────────────────────────────────────
@@ -105,7 +80,6 @@ class TestEntityModels:
         )
         db_session.commit()
 
-        # Same entity, case-insensitive
         assert e1.id == e2.id
         count = (
             db_session.query(Entity)
@@ -189,212 +163,6 @@ class TestEntityModels:
             db_session.query(EntityMention).filter_by(entity_id=entity.id).count()
         )
         assert remaining == 0
-
-
-# ── extract_entities() task tests ────────────────────────────────────────────
-
-
-class TestExtractEntities:
-    """extract_entities() — Celery-callable function that populates entity tables."""
-
-    def test_writes_entities_and_mentions(self, db_session, test_user):
-        """Core behavior: LLM output → Entity + EntityMention rows in DB."""
-        from app.tasks.entity_extraction import extract_entities
-
-        article = _make_article(
-            db_session,
-            test_user,
-            "Attention Is All You Need",
-            "The transformer architecture was introduced by Vaswani et al. "
-            "It uses self-attention mechanisms instead of recurrence.",
-        )
-
-        fake_result = _fake_extraction_result(
-            entities=[
-                {
-                    "name": "transformer architecture",
-                    "type": "CONCEPT",
-                    "description": "Seq2seq model using attention",
-                },
-                {"name": "Vaswani", "type": "PERSON", "description": "Lead author"},
-                {
-                    "name": "self-attention",
-                    "type": "CONCEPT",
-                    "description": "Attention over own sequence",
-                },
-            ],
-            relations=[
-                {
-                    "source": "Vaswani",
-                    "target": "transformer architecture",
-                    "relation_type": "INTRODUCED",
-                },
-                {
-                    "source": "transformer architecture",
-                    "target": "self-attention",
-                    "relation_type": "USES",
-                },
-            ],
-        )
-
-        with patch(
-            "app.tasks.entity_extraction.extract_entities_with_llm",
-            return_value=fake_result,
-        ):
-            result = extract_entities(str(article.id), db=db_session)
-
-        assert result["status"] == "completed"
-        assert result["entities_written"] == 3
-        assert result["relations_written"] == 2
-
-        entities = db_session.query(Entity).filter_by(user_id=test_user.id).all()
-        names = {e.name for e in entities}
-        assert "transformer architecture" in names
-        assert "Vaswani" in names
-
-        mentions = (
-            db_session.query(EntityMention).filter_by(content_item_id=article.id).all()
-        )
-        assert len(mentions) == 3
-
-    def test_writes_entity_relations(self, db_session, test_user):
-        """Relations between entities are persisted."""
-        from app.tasks.entity_extraction import extract_entities
-
-        article = _make_article(db_session, test_user, "Hinton and Backprop")
-
-        fake_result = _fake_extraction_result(
-            entities=[
-                {"name": "Hinton", "type": "PERSON"},
-                {"name": "backpropagation", "type": "CONCEPT"},
-            ],
-            relations=[
-                {
-                    "source": "Hinton",
-                    "target": "backpropagation",
-                    "relation_type": "DEVELOPED",
-                },
-            ],
-        )
-
-        with patch(
-            "app.tasks.entity_extraction.extract_entities_with_llm",
-            return_value=fake_result,
-        ):
-            extract_entities(str(article.id), db=db_session)
-
-        hinton = (
-            db_session.query(Entity)
-            .filter_by(user_id=test_user.id, name="Hinton")
-            .first()
-        )
-        backprop = (
-            db_session.query(Entity)
-            .filter_by(user_id=test_user.id, name="backpropagation")
-            .first()
-        )
-        assert hinton and backprop
-
-        rel = (
-            db_session.query(EntityRelation)
-            .filter_by(
-                source_entity_id=hinton.id,
-                target_entity_id=backprop.id,
-            )
-            .first()
-        )
-        assert rel is not None
-        assert rel.relation_type == "DEVELOPED"
-
-    def test_idempotent_does_not_duplicate_entities(self, db_session, test_user):
-        """Running extract_entities twice on the same article → no duplicate entities."""
-        from app.tasks.entity_extraction import extract_entities
-
-        article = _make_article(db_session, test_user, "Idempotency Test")
-
-        fake_result = _fake_extraction_result(
-            entities=[{"name": "attention mechanism", "type": "CONCEPT"}],
-            relations=[],
-        )
-
-        with patch(
-            "app.tasks.entity_extraction.extract_entities_with_llm",
-            return_value=fake_result,
-        ):
-            extract_entities(str(article.id), db=db_session)
-            extract_entities(str(article.id), db=db_session)
-
-        count = (
-            db_session.query(Entity)
-            .filter_by(user_id=test_user.id, name="attention mechanism")
-            .count()
-        )
-        assert count == 1
-
-        # Mentions also should not double-up for the same article
-        mention_count = (
-            db_session.query(EntityMention)
-            .filter_by(content_item_id=article.id)
-            .count()
-        )
-        assert mention_count == 1
-
-    def test_llm_failure_leaves_db_unchanged(self, db_session, test_user):
-        """When LLM raises, no partial entity rows are written."""
-        from app.tasks.entity_extraction import extract_entities
-
-        article = _make_article(db_session, test_user, "LLM Failure Test")
-
-        with patch(
-            "app.tasks.entity_extraction.extract_entities_with_llm",
-            side_effect=Exception("OpenAI timeout"),
-        ):
-            result = extract_entities(str(article.id), db=db_session)
-
-        assert result["status"] == "failed"
-        assert db_session.query(Entity).filter_by(user_id=test_user.id).count() == 0
-
-    def test_skips_article_not_found(self, db_session, test_user):
-        from app.tasks.entity_extraction import extract_entities
-
-        result = extract_entities(str(uuid.uuid4()), db=db_session)
-        assert result["status"] == "not_found"
-
-    def test_entity_names_deduplicated_across_articles(self, db_session, test_user):
-        """Same entity name appearing in two articles → one Entity, two EntityMentions."""
-        from app.tasks.entity_extraction import extract_entities
-
-        article1 = _make_article(db_session, test_user, "Article One")
-        article2 = _make_article(db_session, test_user, "Article Two")
-
-        fake = _fake_extraction_result(
-            entities=[{"name": "reinforcement learning", "type": "CONCEPT"}],
-            relations=[],
-        )
-
-        with patch(
-            "app.tasks.entity_extraction.extract_entities_with_llm", return_value=fake
-        ):
-            extract_entities(str(article1.id), db=db_session)
-            extract_entities(str(article2.id), db=db_session)
-
-        entity_count = (
-            db_session.query(Entity)
-            .filter_by(user_id=test_user.id, name="reinforcement learning")
-            .count()
-        )
-        assert entity_count == 1
-
-        mention_count = (
-            db_session.query(EntityMention)
-            .join(Entity)
-            .filter(
-                Entity.name == "reinforcement learning",
-                Entity.user_id == test_user.id,
-            )
-            .count()
-        )
-        assert mention_count == 2
 
 
 # ── entity_graph access layer tests ──────────────────────────────────────────
@@ -483,7 +251,6 @@ class TestEntityGraph:
             db_session, test_user
         )
 
-        # Vaswani → transformer (INTRODUCED)
         neighbors = get_entity_neighbors([e_vaswani.id], db_session)
         assert e_transformer.id in neighbors
         assert e_bert.id not in neighbors  # 2 hops away
@@ -508,7 +275,6 @@ class TestEntityGraph:
             db_session, test_user
         )
 
-        # transformer appears in both articles
         article_ids = articles_for_entities([e_transformer.id], db_session)
         assert a1.id in article_ids
         assert a2.id in article_ids

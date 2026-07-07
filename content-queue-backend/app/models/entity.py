@@ -92,7 +92,7 @@ class EntityMention(Base):
     weight = Column(Float, default=1.0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # One mention per entity per article (re-running extract_entities is idempotent)
+    # One mention per entity per article (re-running analyze_article is idempotent)
     __table_args__ = (
         UniqueConstraint(
             "entity_id", "content_item_id", name="uq_mention_entity_article"

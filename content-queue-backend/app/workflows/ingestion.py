@@ -12,7 +12,7 @@ Design: each Prefect task delegates to the same underlying plain function used
 by the Celery task — no logic duplication. The plain functions are:
   - app.tasks.extraction.extract_full_content_for_item
   - app.tasks.embedding.generate_embedding_for_item
-  - app.tasks.tagging.generate_tags
+  - app.tasks.article_analysis.analyze_article
   - app.tasks.chunk_embeddings.generate_chunk_embeddings
 
 Phase 1 (fetch-metadata) is still done by the Celery task's inner logic because

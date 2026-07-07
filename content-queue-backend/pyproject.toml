@@ -1,6 +1,6 @@
 [project]
 name = "content-queue-backend"
-version = "0.4.0"
+version = "0.4.1"
 description = "Content Queue API"
 authors = [
     {name = "enpuyou",email = "enpuyou@gmail.com"}

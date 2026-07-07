@@ -82,7 +82,7 @@ def upsert_mention(
 ) -> EntityMention:
     """
     Return existing mention for (entity_id, content_item_id) or create one.
-    Idempotent: re-running extract_entities on the same article is safe.
+    Idempotent: re-running analyze_article on the same article is safe.
     """
     existing = (
         db.query(EntityMention)

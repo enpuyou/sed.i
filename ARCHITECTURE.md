@@ -568,7 +568,7 @@ The old free-pass (pgvector similarity to already-tagged articles) was removed. 
 
 **Embedding (`tasks/entity_embedding.py`, `embed_new_entities_task`):** Embeds any unembedded entity nodes as `"{type}: {name} — {description}"`. Called after every `analyze_article_task` run and available as a standalone backfill task.
 
-**Deduplication (`tasks/entity_dedup.py`):** `entity_graph.merge_entity()` merges a loser entity into a winner — redirecting all mentions and relations atomically. `deduplicate_entities_task` runs cosine similarity across all embedded entities for a user, verifies candidates with an LLM call, then merges confirmed pairs. Winner is chosen by lower UUID string (deterministic tie-breaker). Known limitation: no cross-name deduplication; "Claude" and "Claude Code" are distinct entities.
+**Deduplication (`tasks/entity_dedup.py`):** `entity_graph.merge_entity()` merges a loser entity into a winner — redirecting all mentions and relations atomically. `deduplicate_entities_task` uses HNSW ANN (O(N × K × log N)) to find candidate pairs above a similarity threshold (0.82), verifies each with an LLM call, then merges confirmed pairs. Winner is the lower UUID string (deterministic tie-breaker). The old O(N²) self-join has been removed. Known limitation: no cross-name deduplication; "Claude" and "Claude Code" are distinct entities.
 
 **Eval results:** See `evals/retrieval/results/report.md`. Entity lane adds net value on 45-query dataset (A→D: +1.4pp R@10 on full set). Regressions on 5 queries traced to vocabulary mismatch and Claude-family name fragmentation. See `docs/design/systems/hub-cap-investigation.md`.
 
@@ -669,15 +669,28 @@ Redis (`qemb:{sha256[:16]}`, 1hr TTL) to avoid redundant OpenAI calls.
 excluded from all search paths.
 
 **Entity lane** — `hybrid_search(mode="full")` adds a third retrieval path via
-`_entity_search`. Query embedding is compared against `entities.embedding` vectors
-(type+name+description format). Entities above a sim threshold (0.40) are used to
-look up which articles mention them (`entity_mentions`). Entity-sourced article
-scores are blended into the RRF sum using IDF-dampened score passthrough
-(`entity_score × 0.025`). Hub entities (article_count > 4) are excluded from
-1-hop neighbor expansion to prevent fan-out; their direct article mentions still
-score normally. The entity lane adds net retrieval value for
-vocabulary-distant queries; known regressions are documented in
-`docs/design/systems/hub-cap-investigation.md`.
+`_entity_search`. Query embedding is pre-computed once (shared with the semantic
+lane to avoid double embedding) and compared against `entities.embedding` vectors
+(type+name+description format) via an HNSW index on `entities.embedding`. All
+entities above a sim threshold (0.40) are returned (no hardcoded `LIMIT`). Each
+matching entity contributes `sim / log2(2 + article_count)` (IDF dampening) to
+each article it mentions; per-article score is `best_contribution + 0.3 × sum(rest)`.
+1-hop neighbor entity sims are computed via direct SQL cosine query against stored
+embeddings rather than a fixed proxy value. Entity-sourced article scores are
+blended into the RRF sum (`entity_score × 0.025`). The `_ENTITY_HUB_ARTICLE_CAP`
+binary gate has been removed — hub entities are penalized proportionally by IDF
+rather than excluded. The scoring logic is isolated in the pure function
+`_score_entity_articles()` (unit-testable without DB). Entity lane adds net
+retrieval value for vocabulary-distant queries; known regressions are documented
+in `docs/design/systems/hub-cap-investigation.md`.
+
+**Entity deduplication** (`tasks/entity_dedup.py`) — replaced the O(N²) self-join
+with a per-entity HNSW ANN query (`_ANN_K = 20` neighbors). Candidate pairs are
+normalised to `(min_uuid, max_uuid)` to collapse symmetric duplicates. Scales as
+O(N × K × log N); at 2K entities/user the old O(N²) approach cost ~15s; the ANN
+approach costs ~2s. The HNSW index (`entities_embedding_hnsw`, migration
+`a3f1e8b2c7d9`) must be in place for full speedup; both dedup and entity search
+fall back to sequential scan if the index is absent.
 
 `GET /search/{item_id}/similar` — uses an existing item's embedding as the query
 vector for cosine similarity search.

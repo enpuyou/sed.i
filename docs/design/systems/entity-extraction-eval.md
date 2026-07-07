@@ -277,4 +277,44 @@ the shared graph would bridge these articles):
    `enshittification` but "Pluralistic: LLMs slot machines" (which cites Doctorow and
    uses the term) doesn't. Both would merge at the entity level via `upsert_entity()`
    if extracted by the same name — the upsert is case-insensitive exact match.
+
+---
+
+## Prompt reference — v1 (dead) vs v2 (live)
+
+Updated 2026-07-06.
+
+**v1 — dead** (`app/tasks/entity_extraction.py`, `_EXTRACTION_PROMPT`):
+
+```text
+Extract the key named entities and relationships from this article for a
+personal knowledge graph. Focus on entities that would be useful for
+connecting this article to related reading.
+
+Entity types: PERSON | CONCEPT | ORGANIZATION | PAPER | TOOL
+Rules: Extract 3-8 entities. Prefer named, specific entities over generic ones.
+```
+
+This task (`extract_entities_task`) was superseded by `analyze_article_task` and
+excluded from Celery's task registry. The file has been deleted.
+
+**v2 — live** (`app/tasks/article_analysis.py`, `_ANALYSIS_PROMPT`):
+
+```text
+Priority order for entity extraction:
+  1. CONCEPT entities: named ideas, frameworks, phenomena, cognitive patterns
+     that the article analyzes or builds an argument around.
+     Good: "availability heuristic", "context anxiety", "reverse centaur"
+     Bad: generic labels like "AI", "technology", "efficiency"
+  2. TOOL entities: specific software products actively discussed
+  3. PAPER/ORGANIZATION/PERSON: only when they originate a key idea
+```
+
+Concept tags are also promoted to CONCEPT entity nodes as a fallback
+(`article_analysis.py` lines 274–293), so every article gets conceptual entity
+coverage even when the LLM extraction misses them.
+
+This eval was run against v2. The "Before" prompt in this doc corresponds to an
+early version of v2 (concept-first, but without the explicit good/bad examples);
+the "After" prompt is the current v2 with noise-exclusion rules added.
    The slot-machines article needs re-extraction to surface this concept.

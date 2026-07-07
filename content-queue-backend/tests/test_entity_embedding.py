@@ -312,3 +312,119 @@ class TestEntityPipelineE2E:
             r["id"] == str(article.id) for r in results
         ), f"Article not found in entity search results. Got: {[r['id'] for r in results]}"
         assert all(r["match_type"] == "entity" for r in results)
+
+
+# ── _score_entity_articles unit tests ────────────────────────────────────────
+
+
+class TestScoreEntityArticles:
+    """
+    Pure-function tests for _score_entity_articles. No DB required.
+
+    Covers the IDF dampening formula and capped-sum scoring:
+      contribution = sim / log2(2 + article_count)
+      score        = best + 0.3 * sum(rest)
+    """
+
+    def _row(self, article_id, entity_id, entity_article_count):
+        return SimpleNamespace(
+            article_id=article_id,
+            entity_id=entity_id,
+            entity_article_count=entity_article_count,
+        )
+
+    def test_single_entity_single_article(self):
+        import math
+        from app.core.hybrid_search import _score_entity_articles
+
+        scores = _score_entity_articles(
+            mention_rows=[self._row("art1", "ent1", 3)],
+            sim_map={"ent1": 0.9},
+        )
+        expected = 0.9 / math.log2(2 + 3)
+        assert abs(scores["art1"] - expected) < 1e-9
+
+    def test_hub_entity_scores_lower_than_precise_entity(self):
+        """Entity in 50 articles scores lower than entity in 1 article at same sim."""
+        from app.core.hybrid_search import _score_entity_articles
+
+        scores = _score_entity_articles(
+            mention_rows=[
+                self._row("art_hub", "ent_hub", 50),
+                self._row("art_precise", "ent_precise", 1),
+            ],
+            sim_map={"ent_hub": 0.9, "ent_precise": 0.9},
+        )
+        assert scores["art_precise"] > scores["art_hub"]
+
+    def test_multiple_entities_same_article_capped_sum(self):
+        """best + 0.3 * sum(rest) — not raw sum."""
+        import math
+        from app.core.hybrid_search import _score_entity_articles
+
+        # Two entities, same article, same count
+        c1 = 0.8 / math.log2(2 + 1)
+        c2 = 0.5 / math.log2(2 + 1)
+        best, rest = max(c1, c2), min(c1, c2)
+        expected = best + 0.3 * rest
+
+        scores = _score_entity_articles(
+            mention_rows=[
+                self._row("art1", "ent1", 1),
+                self._row("art1", "ent2", 1),
+            ],
+            sim_map={"ent1": 0.8, "ent2": 0.5},
+        )
+        assert abs(scores["art1"] - expected) < 1e-9
+
+    def test_neighbor_with_lower_sim_scores_below_anchor(self):
+        """Neighbor entity (real low sim) ranks below anchor (high sim) on same article."""
+        from app.core.hybrid_search import _score_entity_articles
+
+        # Anchor and neighbor both mention the same article
+        scores_anchor = _score_entity_articles(
+            mention_rows=[self._row("art1", "anchor", 2)],
+            sim_map={"anchor": 0.85},
+        )
+        scores_neighbor = _score_entity_articles(
+            mention_rows=[self._row("art1", "neighbor", 2)],
+            sim_map={"neighbor": 0.20},
+        )
+        assert scores_anchor["art1"] > scores_neighbor["art1"]
+
+    def test_entity_not_in_sim_map_is_excluded(self):
+        """Mention rows for entities absent from sim_map produce no contribution."""
+        from app.core.hybrid_search import _score_entity_articles
+
+        scores = _score_entity_articles(
+            mention_rows=[self._row("art1", "unknown_ent", 1)],
+            sim_map={},
+        )
+        assert "art1" not in scores
+
+    def test_empty_mention_rows_returns_empty(self):
+        from app.core.hybrid_search import _score_entity_articles
+
+        scores = _score_entity_articles(mention_rows=[], sim_map={"ent1": 0.9})
+        assert scores == {}
+
+    def test_custom_secondary_weight(self):
+        """secondary_weight parameter is respected."""
+        import math
+        from app.core.hybrid_search import _score_entity_articles
+
+        c1 = 0.9 / math.log2(3)
+        c2 = 0.6 / math.log2(3)
+        best, rest = max(c1, c2), min(c1, c2)
+
+        scores_default = _score_entity_articles(
+            mention_rows=[self._row("art1", "e1", 1), self._row("art1", "e2", 1)],
+            sim_map={"e1": 0.9, "e2": 0.6},
+        )
+        scores_zero = _score_entity_articles(
+            mention_rows=[self._row("art1", "e1", 1), self._row("art1", "e2", 1)],
+            sim_map={"e1": 0.9, "e2": 0.6},
+            secondary_weight=0.0,
+        )
+        assert abs(scores_default["art1"] - (best + 0.3 * rest)) < 1e-9
+        assert abs(scores_zero["art1"] - best) < 1e-9

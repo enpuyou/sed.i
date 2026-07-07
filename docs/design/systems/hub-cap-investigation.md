@@ -192,3 +192,27 @@ Tested empirically: lowering `_ENTITY_HUB_ARTICLE_CAP` from 4→3 produces zero 
 2. **M2 second**: Claude-family dedup pass, rerun `anthropic_products_direct` and `anthropic_claude_products`
 3. After both: full 45-query eval to confirm no regressions in tier 1–3 and tier-4 wins hold
 4. **Do not touch hub cap** — it is inert for this problem
+
+---
+
+## Corrections and updates (2026-07-06)
+
+### Extraction prompt
+
+Prompt v1 (dead) and v2 (live) are documented verbatim in
+`docs/design/systems/entity-extraction-eval.md` — "Prompt reference" section at the end.
+
+**Implication for M1**: the vocabulary-mismatch failure (`ai_agent_autonomy`,
+`ai_tools_creative_workers`) is NOT a prompt quality problem. The live prompt
+already prioritizes conceptual entities. The gap is a coverage problem — if the
+article doesn't use autonomy/oversight vocabulary, no prompt will extract it.
+Re-extracting those 7 articles is still worth trying, but expectations should be
+calibrated accordingly.
+
+### Dead code removed
+
+- `app/tasks/entity_extraction.py` — deleted. Live path is `analyze_article_task`.
+- `tests/test_entity_extraction.py` — `TestExtractEntities` class removed (tested
+  the dead task). `TestEntityModels` and `TestEntityGraph` retained (model/graph layer).
+- Stale references to `generate_tags` in `ingestion.py` docstring updated to
+  `analyze_article`.
