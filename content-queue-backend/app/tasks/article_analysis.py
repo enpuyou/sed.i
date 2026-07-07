@@ -333,9 +333,15 @@ def analyze_article(
 
         # Embed any new entity nodes asynchronously (no-op if already embedded)
         if entities_written > 0:
-            from app.tasks.entity_embedding import embed_new_entities_task
+            try:
+                from app.tasks.entity_embedding import embed_new_entities_task
 
-            embed_new_entities_task.delay(str(item.user_id))
+                embed_new_entities_task.delay(str(item.user_id))
+            except Exception as broker_err:
+                # Broker unavailable (e.g. no Redis in test env) — not fatal.
+                logger.warning(
+                    f"Could not enqueue embed_new_entities_task: {broker_err}"
+                )
 
         return {
             "content_item_id": content_item_id,
