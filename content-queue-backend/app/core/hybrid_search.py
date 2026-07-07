@@ -384,9 +384,10 @@ def _score_entity_articles(
     mention_rows: list,
     sim_map: dict[str, float],
     secondary_weight: float = _ENTITY_SECONDARY_WEIGHT,
-) -> dict[str, float]:
+    name_map: dict[str, str] | None = None,
+) -> tuple[dict[str, float], dict[str, list[dict]]]:
     """
-    Pure function: article_id → entity-lane score.
+    Pure function: article_id → entity-lane score + matched_via breakdown.
 
     contribution = sim / log2(2 + entity_article_count)  — IDF dampening.
     final_score  = best_contribution + secondary_weight * sum(rest).
@@ -398,12 +399,15 @@ def _score_entity_articles(
         mention_rows: rows with .article_id, .entity_id, .entity_article_count.
         sim_map: entity_id (str) → cosine similarity to query.
         secondary_weight: weight for contributions beyond the best one.
+        name_map: entity_id (str) → entity name (for matched_via payload).
 
     Returns:
-        dict mapping str(article_id) → score, omitting articles with no
-        qualifying entity contributions.
+        (scores, matched_via) where:
+          scores     — str(article_id) → float score
+          matched_via — str(article_id) → [{name, sim}] sorted by sim desc
     """
     article_contributions: dict[str, list[float]] = {}
+    article_entity_sims: dict[str, dict[str, float]] = {}  # aid → {eid: sim}
     for mr in mention_rows:
         aid = str(mr.article_id)
         eid = str(mr.entity_id)
@@ -412,12 +416,23 @@ def _score_entity_articles(
             continue
         count = int(mr.entity_article_count)
         article_contributions.setdefault(aid, []).append(sim / _math.log2(2 + count))
+        article_entity_sims.setdefault(aid, {})[eid] = sim
 
     scores: dict[str, float] = {}
+    matched_via: dict[str, list[dict]] = {}
     for aid, contribs in article_contributions.items():
         contribs.sort(reverse=True)
         scores[aid] = contribs[0] + secondary_weight * sum(contribs[1:])
-    return scores
+        eid_sim = article_entity_sims[aid]
+        matched_via[aid] = sorted(
+            [
+                {"name": (name_map or {}).get(eid, eid), "sim": round(sim, 4)}
+                for eid, sim in eid_sim.items()
+            ],
+            key=lambda x: x["sim"],
+            reverse=True,
+        )
+    return scores, matched_via
 
 
 def _entity_search(
@@ -522,11 +537,21 @@ def _entity_search(
         if top_sim < _ENTITY_SIM_THRESHOLD and not exact_rows:
             return []
 
-        # Build sim_map and collect expand-eligible anchors.
+        # Build sim_map, name_map, and collect expand-eligible anchors.
         # No hub cap — IDF dampening in _score_entity_articles handles high-frequency
         # entities proportionally. Only the sim threshold gates expansion.
         expand_ids = []
         sim_map: dict[str, float] = {}
+        name_map: dict[str, str] = {}
+
+        # Fetch entity names for matched_via payload
+        all_entity_ids_for_names = [str(r.id) for r in rows]
+        name_rows = db.execute(
+            text("SELECT id, name FROM entities WHERE id = ANY(CAST(:ids AS uuid[]))"),
+            {"ids": all_entity_ids_for_names},
+        ).fetchall()
+        for nr in name_rows:
+            name_map[str(nr.id)] = nr.name
 
         for row in rows:
             eid = str(row.id)
@@ -559,7 +584,20 @@ def _entity_search(
                     {"q": embedding_str, "nb_ids": new_neighbors},
                 ).fetchall()
                 for nb in nb_sim_rows:
-                    sim_map[str(nb.id)] = float(nb.sim)
+                    nb_eid = str(nb.id)
+                    sim_map[nb_eid] = float(nb.sim)
+
+                # Fetch names for neighbor entities not already in name_map
+                new_nb_ids = [n for n in new_neighbors if n not in name_map]
+                if new_nb_ids:
+                    nb_name_rows = db.execute(
+                        text(
+                            "SELECT id, name FROM entities WHERE id = ANY(CAST(:ids AS uuid[]))"
+                        ),
+                        {"ids": new_nb_ids},
+                    ).fetchall()
+                    for nnr in nb_name_rows:
+                        name_map[str(nnr.id)] = nnr.name
 
         all_entity_ids = list(sim_map.keys())
 
@@ -581,7 +619,9 @@ def _entity_search(
         if not mention_rows:
             return []
 
-        article_scores = _score_entity_articles(mention_rows, sim_map)
+        article_scores, matched_via = _score_entity_articles(
+            mention_rows, sim_map, name_map=name_map
+        )
 
         if not article_scores:
             return []
@@ -598,6 +638,7 @@ def _entity_search(
         results = hydrate_items(article_id_rows, db, scores=article_scores)
         for r in results:
             r["match_type"] = "entity"
+            r["matched_via"] = matched_via.get(r["id"], [])
         return results
 
     except Exception:

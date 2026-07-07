@@ -197,17 +197,49 @@ Tested empirically: lowering `_ENTITY_HUB_ARTICLE_CAP` from 4→3 produces zero 
 
 ## Corrections and updates (2026-07-06)
 
-### Extraction prompt
+### Extraction prompt — live pipeline vs. old prompt
 
-Prompt v1 (dead) and v2 (live) are documented verbatim in
-`docs/design/systems/entity-extraction-eval.md` — "Prompt reference" section at the end.
+There are two entity extraction prompts in the codebase. Only one is live:
+
+**Dead** — `app/tasks/entity_extraction.py` (`_EXTRACTION_PROMPT`):
+
+```text
+Extract the key named entities and relationships from this article for a
+personal knowledge graph. Focus on entities that would be useful for
+connecting this article to related reading.
+
+Entity types: PERSON | CONCEPT | ORGANIZATION | PAPER | TOOL
+Rules: Extract 3-8 entities. Prefer named, specific entities over generic ones.
+```
+
+This task (`extract_entities_task`) is superseded by `analyze_article_task` and
+is excluded from Celery's task registry (`celery_app.py` line 59–61). The file
+has been deleted.
+
+**Live** — `app/tasks/article_analysis.py` (`_ANALYSIS_PROMPT`):
+
+```text
+Priority order for entity extraction:
+  1. CONCEPT entities: named ideas, frameworks, phenomena, cognitive patterns
+     that the article analyzes or builds an argument around.
+     Good: "availability heuristic", "context anxiety", "reverse centaur"
+     Bad: generic labels like "AI", "technology", "efficiency"
+  2. TOOL entities: specific software products actively discussed
+  3. PAPER/ORGANIZATION/PERSON: only when they originate a key idea
+```
+
+Additionally, concept tags are promoted to CONCEPT entity nodes as a fallback
+(article_analysis.py lines 274–293), so every article gets conceptual entity
+coverage even when the LLM extraction misses them.
 
 **Implication for M1**: the vocabulary-mismatch failure (`ai_agent_autonomy`,
 `ai_tools_creative_workers`) is NOT a prompt quality problem. The live prompt
-already prioritizes conceptual entities. The gap is a coverage problem — if the
-article doesn't use autonomy/oversight vocabulary, no prompt will extract it.
-Re-extracting those 7 articles is still worth trying, but expectations should be
-calibrated accordingly.
+already prioritizes conceptual entities. The gap is a coverage problem for
+specific articles where the implementation-focused content genuinely lacks
+autonomy/oversight vocabulary. Re-extracting those 7 articles with the live
+prompt is still worth trying (the prompt is better than the old one), but
+expectations should be calibrated — if the article doesn't use those terms,
+no prompt will extract them.
 
 ### Dead code removed
 

@@ -49,6 +49,16 @@ celery_app.conf.update(
             "schedule": 60 * 60 * 24 * 7,  # Every 7 days
             "kwargs": {"user_id": None},  # None = all users (handled in task)
         },
+        # Embed any entity nodes missing vectors (hourly safety net)
+        "embed-new-entities-sweep": {
+            "task": "app.tasks.entity_backfill.embed_new_entities_beat_task",
+            "schedule": 60 * 60,  # Every hour
+        },
+        # Queue entity analysis for articles that pre-date the entity system
+        "backfill-missing-entity-analysis": {
+            "task": "app.tasks.entity_backfill.backfill_missing_entities_task",
+            "schedule": 60 * 60 * 24,  # Every 24 hours
+        },
     },
 )
 
@@ -72,6 +82,7 @@ from app.tasks import (
     article_analysis,
     entity_embedding,
     entity_dedup,
+    entity_backfill,
 )
 
 

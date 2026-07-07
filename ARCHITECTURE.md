@@ -568,7 +568,16 @@ The old free-pass (pgvector similarity to already-tagged articles) was removed. 
 
 **Embedding (`tasks/entity_embedding.py`, `embed_new_entities_task`):** Embeds any unembedded entity nodes as `"{type}: {name} — {description}"`. Called after every `analyze_article_task` run and available as a standalone backfill task.
 
+**Beat schedule (`tasks/entity_backfill.py`):**
+
+- `embed_new_entities_beat_task` — runs hourly; catches entity nodes that missed their embedding window (e.g. broker was down when `.delay()` fired). Calls `embed_new_entities()` directly per user. Idempotent.
+- `backfill_missing_entities_task` — runs daily; queues `analyze_article_task` for articles where `entities_analyzed_at IS NULL`. Throttled to 50 articles/run. Uses `entities_analyzed_at` (not `entity_mentions`) so articles that were analyzed but produced zero entities are not re-queued.
+
+**`entities_analyzed_at` column (`models/content.py`):** Nullable `DateTime` on `content_items`. Set to `NOW()` at the end of every `analyze_article` call regardless of how many entities were extracted. Migration: `b5c2f1d8e4a6`. Articles that pre-date the entity system have `NULL` — the daily backfill targets them.
+
 **Deduplication (`tasks/entity_dedup.py`):** `entity_graph.merge_entity()` merges a loser entity into a winner — redirecting all mentions and relations atomically. `deduplicate_entities_task` uses HNSW ANN (O(N × K × log N)) to find candidate pairs above a similarity threshold (0.82), verifies each with an LLM call, then merges confirmed pairs. Winner is the lower UUID string (deterministic tie-breaker). The old O(N²) self-join has been removed. Known limitation: no cross-name deduplication; "Claude" and "Claude Code" are distinct entities.
+
+**`matched_via` field:** `_entity_search` now returns `matched_via: [{name, sim}]` on each result — the entity names and cosine similarities that caused the article to be scored. Sorted by sim descending. Backend only; not surfaced in the frontend API response yet.
 
 **Eval results:** See `evals/retrieval/results/report.md`. Entity lane adds net value on 45-query dataset (A→D: +1.4pp R@10 on full set). Regressions on 5 queries traced to vocabulary mismatch and Claude-family name fragmentation. See `docs/design/systems/hub-cap-investigation.md`.
 

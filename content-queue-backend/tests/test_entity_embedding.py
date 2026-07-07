@@ -337,7 +337,7 @@ class TestScoreEntityArticles:
         import math
         from app.core.hybrid_search import _score_entity_articles
 
-        scores = _score_entity_articles(
+        scores, _ = _score_entity_articles(
             mention_rows=[self._row("art1", "ent1", 3)],
             sim_map={"ent1": 0.9},
         )
@@ -348,7 +348,7 @@ class TestScoreEntityArticles:
         """Entity in 50 articles scores lower than entity in 1 article at same sim."""
         from app.core.hybrid_search import _score_entity_articles
 
-        scores = _score_entity_articles(
+        scores, _ = _score_entity_articles(
             mention_rows=[
                 self._row("art_hub", "ent_hub", 50),
                 self._row("art_precise", "ent_precise", 1),
@@ -368,7 +368,7 @@ class TestScoreEntityArticles:
         best, rest = max(c1, c2), min(c1, c2)
         expected = best + 0.3 * rest
 
-        scores = _score_entity_articles(
+        scores, _ = _score_entity_articles(
             mention_rows=[
                 self._row("art1", "ent1", 1),
                 self._row("art1", "ent2", 1),
@@ -382,11 +382,11 @@ class TestScoreEntityArticles:
         from app.core.hybrid_search import _score_entity_articles
 
         # Anchor and neighbor both mention the same article
-        scores_anchor = _score_entity_articles(
+        scores_anchor, _ = _score_entity_articles(
             mention_rows=[self._row("art1", "anchor", 2)],
             sim_map={"anchor": 0.85},
         )
-        scores_neighbor = _score_entity_articles(
+        scores_neighbor, _ = _score_entity_articles(
             mention_rows=[self._row("art1", "neighbor", 2)],
             sim_map={"neighbor": 0.20},
         )
@@ -396,7 +396,7 @@ class TestScoreEntityArticles:
         """Mention rows for entities absent from sim_map produce no contribution."""
         from app.core.hybrid_search import _score_entity_articles
 
-        scores = _score_entity_articles(
+        scores, _ = _score_entity_articles(
             mention_rows=[self._row("art1", "unknown_ent", 1)],
             sim_map={},
         )
@@ -405,7 +405,7 @@ class TestScoreEntityArticles:
     def test_empty_mention_rows_returns_empty(self):
         from app.core.hybrid_search import _score_entity_articles
 
-        scores = _score_entity_articles(mention_rows=[], sim_map={"ent1": 0.9})
+        scores, _ = _score_entity_articles(mention_rows=[], sim_map={"ent1": 0.9})
         assert scores == {}
 
     def test_custom_secondary_weight(self):
@@ -417,11 +417,11 @@ class TestScoreEntityArticles:
         c2 = 0.6 / math.log2(3)
         best, rest = max(c1, c2), min(c1, c2)
 
-        scores_default = _score_entity_articles(
+        scores_default, _ = _score_entity_articles(
             mention_rows=[self._row("art1", "e1", 1), self._row("art1", "e2", 1)],
             sim_map={"e1": 0.9, "e2": 0.6},
         )
-        scores_zero = _score_entity_articles(
+        scores_zero, _ = _score_entity_articles(
             mention_rows=[self._row("art1", "e1", 1), self._row("art1", "e2", 1)],
             sim_map={"e1": 0.9, "e2": 0.6},
             secondary_weight=0.0,

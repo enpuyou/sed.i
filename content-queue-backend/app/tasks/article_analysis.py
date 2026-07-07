@@ -19,6 +19,7 @@ Direct call (tests): analyze_article(content_item_id, db=session)
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -325,6 +326,7 @@ def analyze_article(
             db.execute(stmt)
             relations_written += 1
 
+        item.entities_analyzed_at = datetime.now(timezone.utc)
         db.commit()
         logger.info(
             f"Analyzed {item.original_url}: {len(all_tags)} tags, "
