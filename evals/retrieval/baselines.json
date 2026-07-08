@@ -1,0 +1,27 @@
+{
+  "_measured": "2026-07-06",
+  "_source": "tests/evals/results/retrieval_full_20260706_215231.json",
+  "_runner": "evals/retrieval/runner.py",
+  "_queries": 45,
+  "_note": "S3 is current production (hybrid_search mode=full). S1 has best aggregate R@10. Hub-entity regressions in S2/S3 offset entity-bridge wins.",
+  "variant_A_item_only": {
+    "recall_at_10": 0.7459,
+    "mrr": 0.8276,
+    "ndcg_at_10": 0.6922
+  },
+  "variant_B_chunks": {
+    "recall_at_10": 0.7652,
+    "mrr": 0.8310,
+    "ndcg_at_10": 0.7038
+  },
+  "variant_C_entity_rank_rrf": {
+    "recall_at_10": 0.7470,
+    "mrr": 0.8206,
+    "ndcg_at_10": 0.6886
+  },
+  "variant_D_entity_passthrough": {
+    "recall_at_10": 0.7581,
+    "mrr": 0.7934,
+    "ndcg_at_10": 0.6796
+  }
+}

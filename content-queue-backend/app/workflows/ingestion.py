@@ -6,13 +6,13 @@ The flow wraps the existing ingestion pipeline as Prefect tasks so that:
   - Retries happen per-step, not per whole chain
   - Failures identify exactly which step failed and why
 
-Pipeline: fetch-metadata → extract-full-content → embed → tag → chunk-embed
+Pipeline: fetch-metadata → extract-full-content → embed → analyze-article → chunk-embed
 
 Design: each Prefect task delegates to the same underlying plain function used
 by the Celery task — no logic duplication. The plain functions are:
   - app.tasks.extraction.extract_full_content_for_item
   - app.tasks.embedding.generate_embedding_for_item
-  - app.tasks.tagging.generate_tags
+  - app.tasks.article_analysis.analyze_article
   - app.tasks.chunk_embeddings.generate_chunk_embeddings
 
 Phase 1 (fetch-metadata) is still done by the Celery task's inner logic because
@@ -77,20 +77,20 @@ def generate_embedding(item_id: str) -> None:
         db.close()
 
 
-@task(name="generate-tags", retries=2, retry_delay_seconds=10)
-def generate_tags(item_id: str) -> None:
-    """Generate semantic tags."""
-    from app.tasks.tagging import generate_tags as _generate_tags
+@task(name="analyze-article", retries=2, retry_delay_seconds=10)
+def analyze_article(item_id: str) -> None:
+    """Generate tags + extract entities in a single LLM call."""
+    from app.tasks.article_analysis import analyze_article as _analyze_article
     from app.core.database import SessionLocal
 
     run_logger = get_run_logger()
-    run_logger.info(f"Generating tags for {item_id}")
+    run_logger.info(f"Analyzing article {item_id}")
 
     db = SessionLocal()
     try:
-        _generate_tags(item_id, db=db)
+        _analyze_article(item_id, db=db)
     except Exception as e:
-        run_logger.error(f"generate-tags failed for {item_id}: {e}")
+        run_logger.error(f"analyze-article failed for {item_id}: {e}")
         raise
     finally:
         db.close()
@@ -117,7 +117,7 @@ def generate_chunk_embeddings(item_id: str) -> None:
 
 @flow(
     name="ingest-content",
-    description="Full ingestion pipeline: extract → embed → tag → chunk-embed",
+    description="Full ingestion pipeline: extract → embed → analyze-article → chunk-embed",
 )
 def ingest_content(item_id: str) -> dict:
     """
@@ -136,7 +136,7 @@ def ingest_content(item_id: str) -> dict:
     try:
         extract_full_content(item_id)
         generate_embedding(item_id)
-        generate_tags(item_id)
+        analyze_article(item_id)
         generate_chunk_embeddings(item_id)
     except Exception as exc:
         # Mark the item as failed in the DB — without this, the item stays

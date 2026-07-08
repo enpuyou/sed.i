@@ -9,6 +9,7 @@ from app.models.draft import Draft
 from app.models.tag_embedding import TagEmbedding
 from app.models.reading_cluster import ReadingCluster
 from app.models.refresh_token import RefreshToken
+from app.models.entity import Entity, EntityMention, EntityRelation
 
 __all__ = [
     "User",
@@ -23,4 +24,7 @@ __all__ = [
     "TagEmbedding",
     "ReadingCluster",
     "RefreshToken",
+    "Entity",
+    "EntityMention",
+    "EntityRelation",
 ]

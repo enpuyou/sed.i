@@ -558,7 +558,32 @@ The old free-pass (pgvector similarity to already-tagged articles) was removed. 
 
 ---
 
-## 11b. Highlight Connections — two-mode panel
+## 11b. Entity graph
+
+**Goal:** Extract named entities and relations from articles, embed them, and use them as a third retrieval lane in hybrid search to bridge vocabulary gaps between queries and articles.
+
+**Tables:** `entities` (id, user_id, name, entity_type, description, embedding), `entity_mentions` (entity_id → content_item_id), `entity_relations` (source_entity_id, target_entity_id, relation_type, strength, description).
+
+**Extraction (`tasks/article_analysis.py`, `analyze_article_task`):** Single LLM call (gpt-4o-mini) producing domain tags, concept tags, named entities (PERSON|CONCEPT|ORGANIZATION|PAPER|TOOL), and relations in one round-trip. Replaces the old separate `generate_tags_task` + `extract_entities_task`. Entities are upserted via `app/core/entity_graph.py:upsert_entity` (case-insensitive name deduplication per user). Concept tags not matched by an extracted entity are promoted to CONCEPT stubs so every article has searchable concept nodes.
+
+**Embedding (`tasks/entity_embedding.py`, `embed_new_entities_task`):** Embeds any unembedded entity nodes as `"{type}: {name} — {description}"`. Called after every `analyze_article_task` run and available as a standalone backfill task.
+
+**Beat schedule (`tasks/entity_backfill.py`):**
+
+- `embed_new_entities_beat_task` — runs hourly; catches entity nodes that missed their embedding window (e.g. broker was down when `.delay()` fired). Calls `embed_new_entities()` directly per user. Idempotent.
+- `backfill_missing_entities_task` — runs daily; queues `analyze_article_task` for articles where `entities_analyzed_at IS NULL`. Throttled to 50 articles/run. Uses `entities_analyzed_at` (not `entity_mentions`) so articles that were analyzed but produced zero entities are not re-queued.
+
+**`entities_analyzed_at` column (`models/content.py`):** Nullable `DateTime` on `content_items`. Set to `NOW()` at the end of every `analyze_article` call regardless of how many entities were extracted. Migration: `b5c2f1d8e4a6`. Articles that pre-date the entity system have `NULL` — the daily backfill targets them.
+
+**Deduplication (`tasks/entity_dedup.py`):** `entity_graph.merge_entity()` merges a loser entity into a winner — redirecting all mentions and relations atomically. `deduplicate_entities_task` uses HNSW ANN (O(N × K × log N)) to find candidate pairs above a similarity threshold (0.82), verifies each with an LLM call, then merges confirmed pairs. Winner is the lower UUID string (deterministic tie-breaker). The old O(N²) self-join has been removed. Known limitation: no cross-name deduplication; "Claude" and "Claude Code" are distinct entities.
+
+**`matched_via` field:** `_entity_search` now returns `matched_via: [{name, sim}]` on each result — the entity names and cosine similarities that caused the article to be scored. Sorted by sim descending. Backend only; not surfaced in the frontend API response yet.
+
+**Eval results:** See `evals/retrieval/results/report.md`. Entity lane adds net value on 45-query dataset (A→D: +1.4pp R@10 on full set). Regressions on 5 queries traced to vocabulary mismatch and Claude-family name fragmentation. See `docs/design/systems/hub-cap-investigation.md`.
+
+---
+
+## 11c. Highlight Connections — two-mode panel
 
 The connections system surfaces how ideas in one article link to ideas captured elsewhere in a user's library, using a combination of embedding similarity and shared semantic tags.
 
@@ -599,7 +624,7 @@ Quality filters applied at query time:
 
 **Clicking a highlight** in ReaderArticle calls `onShowConnections(highlightId)` → Reader sets `activeHighlightId` and opens the panel in Mode 1. The `onShowConnections` prop type changed from `() => void` to `(highlightId: string) => void`.
 
-## 11c. Draft relevant reads (Phase 4)
+## 11d. Draft relevant reads (Phase 4)
 
 `GET /lists/{list_id}/draft/relevant-reads` returns up to 5 library articles relevant to the current draft.
 
@@ -651,6 +676,30 @@ Redis (`qemb:{sha256[:16]}`, 1hr TTL) to avoid redundant OpenAI calls.
 
 **Untitled items excluded** — content with no title (failed extraction) is
 excluded from all search paths.
+
+**Entity lane** — `hybrid_search(mode="full")` adds a third retrieval path via
+`_entity_search`. Query embedding is pre-computed once (shared with the semantic
+lane to avoid double embedding) and compared against `entities.embedding` vectors
+(type+name+description format) via an HNSW index on `entities.embedding`. All
+entities above a sim threshold (0.40) are returned (no hardcoded `LIMIT`). Each
+matching entity contributes `sim / log2(2 + article_count)` (IDF dampening) to
+each article it mentions; per-article score is `best_contribution + 0.3 × sum(rest)`.
+1-hop neighbor entity sims are computed via direct SQL cosine query against stored
+embeddings rather than a fixed proxy value. Entity-sourced article scores are
+blended into the RRF sum (`entity_score × 0.025`). The `_ENTITY_HUB_ARTICLE_CAP`
+binary gate has been removed — hub entities are penalized proportionally by IDF
+rather than excluded. The scoring logic is isolated in the pure function
+`_score_entity_articles()` (unit-testable without DB). Entity lane adds net
+retrieval value for vocabulary-distant queries; known regressions are documented
+in `docs/design/systems/hub-cap-investigation.md`.
+
+**Entity deduplication** (`tasks/entity_dedup.py`) — replaced the O(N²) self-join
+with a per-entity HNSW ANN query (`_ANN_K = 20` neighbors). Candidate pairs are
+normalised to `(min_uuid, max_uuid)` to collapse symmetric duplicates. Scales as
+O(N × K × log N); at 2K entities/user the old O(N²) approach cost ~15s; the ANN
+approach costs ~2s. The HNSW index (`entities_embedding_hnsw`, migration
+`a3f1e8b2c7d9`) must be in place for full speedup; both dedup and entity search
+fall back to sequential scan if the index is absent.
 
 `GET /search/{item_id}/similar` — uses an existing item's embedding as the query
 vector for cosine similarity search.
@@ -974,6 +1023,19 @@ pytest tests/ -x -q --ignore=tests/evals
 - All Celery tasks are mocked with `patch(...)` — no broker needed.
 - Cross-user isolation: always test that user A cannot act on user B's data.
 - Rate limiter tests call `rate_limiter.requests.clear()` before any POST /content test to avoid 429 from test ordering.
+
+### Eval harness
+
+Location: `evals/` (project root) + `content-queue-backend/tests/evals/`
+
+| Eval | Runner | What it measures |
+|------|--------|------------------|
+| Retrieval quality | `evals/retrieval/runner.py` | R@10, MRR, NDCG — 4 variants (A–D), 45 real queries vs production library |
+| Search routing | `tests/evals/test_search_evals.py` | Classifier accuracy across 17 queries |
+| Tagging quality | `tests/evals/test_tagging_evals.py` | Specificity, coverage, forbidden-tag rate |
+| MCP contracts | `tests/evals/test_mcp_evals.py` | Response shape contracts |
+
+Evals requiring a live DB (`tests/evals/`) are excluded from `make test` (CI uses the test DB seeded with synthetic articles for the harness). `evals/retrieval/` requires the production library and runs manually. Baselines stored in `evals/retrieval/baselines.json`; run artifacts in `evals/*/results/` (gitignored). CI regression gate: `evals/check_regressions.py` (not yet implemented).
 
 ### Frontend — Jest
 

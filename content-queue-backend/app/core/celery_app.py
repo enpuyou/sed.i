@@ -43,6 +43,22 @@ celery_app.conf.update(
             "task": "app.tasks.clustering.cluster_all_users_task",
             "schedule": 60 * 60 * 24 * 7,  # Every 7 days
         },
+        # Deduplicate near-identical entity nodes weekly (cheap: ~$0.001 per run)
+        "deduplicate-entities": {
+            "task": "app.tasks.entity_dedup.deduplicate_entities_task",
+            "schedule": 60 * 60 * 24 * 7,  # Every 7 days
+            "kwargs": {"user_id": None},  # None = all users (handled in task)
+        },
+        # Embed any entity nodes missing vectors (hourly safety net)
+        "embed-new-entities-sweep": {
+            "task": "app.tasks.entity_backfill.embed_new_entities_beat_task",
+            "schedule": 60 * 60,  # Every hour
+        },
+        # Queue entity analysis for articles that pre-date the entity system
+        "backfill-missing-entity-analysis": {
+            "task": "app.tasks.entity_backfill.backfill_missing_entities_task",
+            "schedule": 60 * 60 * 24,  # Every 24 hours
+        },
     },
 )
 
@@ -50,6 +66,9 @@ celery_app.conf.update(
 # celery_app.autodiscover_tasks(['app.tasks'])
 
 # Import tasks here (explicit import)
+# Note: entity_extraction is intentionally excluded — it is superseded by
+# article_analysis (combined tags+entities in one LLM call). extract_entities_task
+# is dead code; analyze_article_task is the live dispatch path.
 from app.tasks import (
     extraction,
     summarization,
@@ -60,6 +79,10 @@ from app.tasks import (
     clustering,
     email,
     chunk_embeddings,
+    article_analysis,
+    entity_embedding,
+    entity_dedup,
+    entity_backfill,
 )
 
 

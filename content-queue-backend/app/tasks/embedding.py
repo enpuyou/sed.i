@@ -159,11 +159,11 @@ def generate_embedding(self, content_item_id: str):
             f"Successfully generated embedding for {item.original_url} (dimension: {len(embedding)})"
         )
 
-        # Trigger tagging and chunk embeddings after embedding is generated
-        from app.tasks.tagging import generate_tags_task
+        # Trigger combined analysis (tags + entities) and chunk embeddings
+        from app.tasks.article_analysis import analyze_article_task
         from app.tasks.chunk_embeddings import generate_chunk_embeddings_task
 
-        generate_tags_task.delay(content_item_id)
+        analyze_article_task.delay(content_item_id)
         generate_chunk_embeddings_task.delay(content_item_id)
 
         return {

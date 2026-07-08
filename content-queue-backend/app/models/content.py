@@ -83,6 +83,7 @@ class ContentItem(Base):
     # Processing status
     processing_status = Column(String(50), default="pending", index=True)
     processing_error = Column(Text)
+    entities_analyzed_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(

@@ -8,6 +8,7 @@ Classifies a query via search_router and routes to keyword (tsvector), filter
 
 from __future__ import annotations
 
+import math as _math
 import re
 from datetime import datetime, timezone
 
@@ -193,20 +194,18 @@ def keyword_search(
 
 
 def rrf_fuse(
-    list_a: list[str],
-    list_b: list[str],
+    *lists: list[str],
     k: int = 60,
     limit: int | None = None,
 ) -> list[str]:
     """
-    Merge two ranked ID lists using Reciprocal Rank Fusion (RRF).
+    Merge N ranked ID lists using Reciprocal Rank Fusion (RRF).
 
-    RRF score for each ID = sum(1 / (k + rank)) across all lists.
+    RRF score for each ID = sum(1 / (k + rank)) across all lists simultaneously.
     Rank is 1-indexed. IDs not present in a list contribute 0 from that list.
 
     Args:
-        list_a: Ordered list of IDs from search engine A (rank 1 = index 0).
-        list_b: Ordered list of IDs from search engine B.
+        *lists: Any number of ordered ID lists (rank 1 = index 0).
         k: Smoothing constant (default 60, from the original RRF paper).
         limit: If provided, truncate output to this length.
 
@@ -214,17 +213,12 @@ def rrf_fuse(
         IDs sorted by descending RRF score.
     """
     scores: dict[str, float] = {}
-
-    for rank, id_ in enumerate(list_a, start=1):
-        scores[id_] = scores.get(id_, 0.0) + 1.0 / (k + rank)
-
-    for rank, id_ in enumerate(list_b, start=1):
-        scores[id_] = scores.get(id_, 0.0) + 1.0 / (k + rank)
+    for ranked_list in lists:
+        for rank, id_ in enumerate(ranked_list, start=1):
+            scores[id_] = scores.get(id_, 0.0) + 1.0 / (k + rank)
 
     fused = sorted(scores, key=lambda x: scores[x], reverse=True)
-    if limit is not None:
-        fused = fused[:limit]
-    return fused
+    return fused[:limit] if limit is not None else fused
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +367,284 @@ def _semantic_search(
         return []
 
 
+# Gate: minimum cosine similarity for an entity to contribute to results.
+# Entities below this threshold are ignored even if they match the query.
+_ENTITY_SIM_THRESHOLD = 0.40
+
+# Gate: minimum cosine similarity for an anchor entity to trigger 1-hop expansion.
+# Higher than _ENTITY_SIM_THRESHOLD — only high-confidence anchors expand.
+_ENTITY_EXPAND_THRESHOLD = 0.45
+
+# Weight for secondary entity contributions on the same article.
+# Score = best_contribution + _SECONDARY_WEIGHT * sum(rest).
+_ENTITY_SECONDARY_WEIGHT = 0.3
+
+
+def _score_entity_articles(
+    mention_rows: list,
+    sim_map: dict[str, float],
+    secondary_weight: float = _ENTITY_SECONDARY_WEIGHT,
+    name_map: dict[str, str] | None = None,
+) -> tuple[dict[str, float], dict[str, list[dict]]]:
+    """
+    Pure function: article_id → entity-lane score + matched_via breakdown.
+
+    contribution = sim / log2(2 + entity_article_count)  — IDF dampening.
+    final_score  = best_contribution + secondary_weight * sum(rest).
+
+    Hub entities (high article_count) contribute less due to IDF, not via
+    a binary exclusion gate. No DB access, no side effects.
+
+    Args:
+        mention_rows: rows with .article_id, .entity_id, .entity_article_count.
+        sim_map: entity_id (str) → cosine similarity to query.
+        secondary_weight: weight for contributions beyond the best one.
+        name_map: entity_id (str) → entity name (for matched_via payload).
+
+    Returns:
+        (scores, matched_via) where:
+          scores     — str(article_id) → float score
+          matched_via — str(article_id) → [{name, sim}] sorted by sim desc
+    """
+    article_contributions: dict[str, list[float]] = {}
+    article_entity_sims: dict[str, dict[str, float]] = {}  # aid → {eid: sim}
+    for mr in mention_rows:
+        aid = str(mr.article_id)
+        eid = str(mr.entity_id)
+        sim = sim_map.get(eid)
+        if sim is None:
+            continue
+        count = int(mr.entity_article_count)
+        article_contributions.setdefault(aid, []).append(sim / _math.log2(2 + count))
+        article_entity_sims.setdefault(aid, {})[eid] = sim
+
+    scores: dict[str, float] = {}
+    matched_via: dict[str, list[dict]] = {}
+    for aid, contribs in article_contributions.items():
+        contribs.sort(reverse=True)
+        scores[aid] = contribs[0] + secondary_weight * sum(contribs[1:])
+        eid_sim = article_entity_sims[aid]
+        matched_via[aid] = sorted(
+            [
+                {"name": (name_map or {}).get(eid, eid), "sim": round(sim, 4)}
+                for eid, sim in eid_sim.items()
+            ],
+            key=lambda x: x["sim"],
+            reverse=True,
+        )
+    return scores, matched_via
+
+
+def _entity_search(
+    query: str,
+    user: User,
+    db: Session,
+    limit: int,
+    query_embedding: list[float] | None = None,
+) -> list[dict]:
+    """
+    Entity-augmented search lane for mode="full".
+
+    1. Accept pre-computed query_embedding from hybrid_search (avoids re-embedding).
+    2. Exact name match path: always included regardless of sim threshold.
+    3. Threshold-based candidate selection: all entities above _ENTITY_SIM_THRESHOLD,
+       no hardcoded count limit. Scales to thousands of entities per user.
+    4. 1-hop expansion from high-confidence anchors (sim >= _ENTITY_EXPAND_THRESHOLD).
+       No binary hub cap — IDF dampening in scoring handles high-frequency entities.
+    5. Neighbor sims: fetched via direct cosine query against stored embeddings,
+       not a proxy derived from anchor sims.
+    6. Scoring via _score_entity_articles() — pure, unit-testable function.
+
+    Returns [] if entity graph is empty, embeddings not built, or gate fails.
+    Never raises.
+    """
+    from app.core.embedding_cache import get_or_create_query_embedding, call_embed
+    from app.core.entity_graph import get_entity_neighbors
+    from app.models.entity import Entity
+
+    try:
+        has_embeddings = (
+            db.query(Entity)
+            .filter(
+                Entity.user_id == user.id,
+                Entity.embedding.isnot(None),
+            )
+            .first()
+        )
+        if not has_embeddings:
+            return []
+
+        # Exact case-insensitive name match bypasses the similarity threshold.
+        exact_rows = db.execute(
+            text(
+                """
+                SELECT e.id,
+                       1.0 AS sim,
+                       COUNT(em.content_item_id) AS article_count
+                FROM entities e
+                LEFT JOIN entity_mentions em ON em.entity_id = e.id
+                WHERE e.user_id = :uid
+                  AND LOWER(e.name) = LOWER(:q)
+                GROUP BY e.id
+                """
+            ),
+            {"uid": user.id, "q": query.strip()},
+        ).fetchall()
+
+        # Use pre-computed embedding from hybrid_search if available.
+        if query_embedding is None:
+            try:
+                import redis as redis_lib
+                from app.core.config import settings as _settings
+
+                r = redis_lib.from_url(_settings.REDIS_URL, socket_connect_timeout=1)
+                r.ping()
+                query_embedding = get_or_create_query_embedding(query, redis_client=r)
+            except Exception:
+                query_embedding = call_embed(query)
+
+        embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+
+        # All entities above threshold — no LIMIT. The threshold gates quality;
+        # a fixed count would silently drop relevant entities as library grows.
+        sim_rows = db.execute(
+            text(
+                """
+                SELECT e.id,
+                       1 - (e.embedding <=> CAST(:q AS vector)) AS sim,
+                       COUNT(em.content_item_id) AS article_count
+                FROM entities e
+                LEFT JOIN entity_mentions em ON em.entity_id = e.id
+                WHERE e.user_id = :uid
+                  AND e.embedding IS NOT NULL
+                  AND 1 - (e.embedding <=> CAST(:q AS vector)) >= :thresh
+                GROUP BY e.id, e.embedding
+                ORDER BY sim DESC
+                """
+            ),
+            {"q": embedding_str, "uid": user.id, "thresh": _ENTITY_SIM_THRESHOLD},
+        ).fetchall()
+
+        # Merge exact matches with threshold results, deduplicating by id.
+        seen_ids: set[str] = {str(r.id) for r in exact_rows}
+        rows = list(exact_rows) + [r for r in sim_rows if str(r.id) not in seen_ids]
+
+        if not rows:
+            return []
+
+        # Gate: exact matches always pass; sim_rows are already threshold-filtered by SQL.
+
+        # Build sim_map, name_map, and collect expand-eligible anchors.
+        # No hub cap — IDF dampening in _score_entity_articles handles high-frequency
+        # entities proportionally. Only the sim threshold gates expansion.
+        expand_ids = []
+        sim_map: dict[str, float] = {}
+        name_map: dict[str, str] = {}
+
+        # Fetch entity names for matched_via payload
+        all_entity_ids_for_names = [str(r.id) for r in rows]
+        name_rows = db.execute(
+            text("SELECT id, name FROM entities WHERE id = ANY(CAST(:ids AS uuid[]))"),
+            {"ids": all_entity_ids_for_names},
+        ).fetchall()
+        for nr in name_rows:
+            name_map[str(nr.id)] = nr.name
+
+        for row in rows:
+            eid = str(row.id)
+            sim_map[eid] = float(row.sim)
+            if row.sim >= _ENTITY_EXPAND_THRESHOLD:
+                expand_ids.append(row.id)
+
+        # 1-hop graph expansion from high-confidence anchors.
+        neighbor_ids: list = []
+        if expand_ids:
+            neighbor_ids = get_entity_neighbors(expand_ids, db, hops=1)
+
+        # Fetch real cosine sims for neighbor entities against the query.
+        # This replaces the old proxy (0.5 × min_anchor_sim) with actual measured
+        # similarity — neighbors that are genuinely query-relevant score correctly.
+        if neighbor_ids:
+            neighbor_id_strs = [str(n) for n in neighbor_ids]
+            new_neighbors = [n for n in neighbor_id_strs if n not in sim_map]
+            if new_neighbors:
+                nb_sim_rows = db.execute(
+                    text(
+                        """
+                        SELECT e.id,
+                               1 - (e.embedding <=> CAST(:q AS vector)) AS sim
+                        FROM entities e
+                        WHERE e.id = ANY(CAST(:nb_ids AS uuid[]))
+                          AND e.embedding IS NOT NULL
+                        """
+                    ),
+                    {"q": embedding_str, "nb_ids": new_neighbors},
+                ).fetchall()
+                for nb in nb_sim_rows:
+                    nb_eid = str(nb.id)
+                    # Only include neighbors that have positive similarity to the
+                    # query — otherwise low-sim hub neighbors pollute scoring.
+                    if float(nb.sim) > 0:
+                        sim_map[nb_eid] = float(nb.sim)
+
+                # Fetch names for neighbor entities not already in name_map
+                new_nb_ids = [n for n in new_neighbors if n not in name_map]
+                if new_nb_ids:
+                    nb_name_rows = db.execute(
+                        text(
+                            "SELECT id, name FROM entities WHERE id = ANY(CAST(:ids AS uuid[]))"
+                        ),
+                        {"ids": new_nb_ids},
+                    ).fetchall()
+                    for nnr in nb_name_rows:
+                        name_map[str(nnr.id)] = nnr.name
+
+        all_entity_ids = list(sim_map.keys())
+
+        # Fetch mention rows for all contributing entities (anchors + neighbors).
+        mention_rows = db.execute(
+            text(
+                """
+                SELECT em.content_item_id AS article_id,
+                       em.entity_id,
+                       COUNT(*) OVER (PARTITION BY em.entity_id) AS entity_article_count
+                FROM entity_mentions em
+                WHERE em.entity_id = ANY(CAST(:eids AS uuid[]))
+                  AND em.user_id = :uid
+                """
+            ),
+            {"eids": all_entity_ids, "uid": user.id},
+        ).fetchall()
+
+        if not mention_rows:
+            return []
+
+        article_scores, matched_via = _score_entity_articles(
+            mention_rows, sim_map, name_map=name_map
+        )
+
+        if not article_scores:
+            return []
+
+        sorted_ids = sorted(
+            article_scores, key=lambda x: article_scores[x], reverse=True
+        )[:limit]
+
+        class _Row:
+            def __init__(self, id_):
+                self.id = id_
+
+        article_id_rows = [_Row(aid) for aid in sorted_ids]
+        results = hydrate_items(article_id_rows, db, scores=article_scores)
+        for r in results:
+            r["match_type"] = "entity"
+            r["matched_via"] = matched_via.get(r["id"], [])
+        return results
+
+    except Exception:
+        return []
+
+
 def hybrid_search(
     *,
     query: str,
@@ -419,7 +691,7 @@ def hybrid_search(
     )  # query without after:/before: for keyword/semantic
 
     if mode == "full":
-        # Run all three engines regardless of query type, fuse with RRF
+        # Run all four lanes regardless of query type, fuse with RRF
         fetch_limit = fetch * 3
         filter_meta = classify_query(query, user_authors=user_authors)[1]
         filter_results = (
@@ -435,6 +707,29 @@ def hybrid_search(
         sem_results = (
             _semantic_search(clean_query, user, db, fetch_limit) if clean_query else []
         )
+        # Compute embedding once for the entity lane. _semantic_search already
+        # cached it in Redis; retrieve from cache to avoid a second API call.
+        _entity_embedding: list[float] | None = None
+        if clean_query:
+            try:
+                from app.core.embedding_cache import get_or_create_query_embedding
+                import redis as _redis_lib
+                from app.core.config import settings as _cfg
+
+                _r = _redis_lib.from_url(_cfg.REDIS_URL, socket_connect_timeout=1)
+                _r.ping()
+                _entity_embedding = get_or_create_query_embedding(
+                    clean_query, redis_client=_r
+                )
+            except Exception:
+                pass
+        entity_results = (
+            _entity_search(
+                clean_query, user, db, fetch_limit, query_embedding=_entity_embedding
+            )
+            if clean_query
+            else []
+        )
 
         item_lookup: dict[str, dict] = {}
         for r in filter_results:
@@ -448,14 +743,38 @@ def hybrid_search(
             r["match_type"] = "semantic"
             r["semantic_score"] = r.get("score", 0.0)  # preserve before RRF overwrites
             item_lookup.setdefault(r["id"], r)
+        for r in entity_results:
+            # Entity lane can promote articles not found by other lanes
+            if r["id"] not in item_lookup:
+                item_lookup[r["id"]] = r
+            else:
+                existing_type = item_lookup[r["id"]].get("match_type", "")
+                item_lookup[r["id"]]["match_type"] = (
+                    f"entity+{existing_type}" if existing_type else "entity"
+                )
 
         filter_ids = [r["id"] for r in filter_results]
         kw_ids = [r["id"] for r in kw_results]
         sem_ids = [r["id"] for r in sem_results]
 
-        # Three-way RRF: fuse keyword + semantic first, then fuse with filter
-        kw_sem_fused = rrf_fuse(kw_ids, sem_ids, k=60)
-        all_fused = rrf_fuse(filter_ids, kw_sem_fused, k=60, limit=fetch)
+        # Four-way fusion: filter/keyword/semantic use rank-based RRF (k=60).
+        # Entity lane uses its IDF-dampened similarity score directly (already
+        # capped-sum inside _entity_search), scaled to sit alongside RRF weights.
+        # A typical top-RRF score is ~1/61 ≈ 0.0164; entity scores range 0.2–0.7,
+        # so we scale by 0.025 to keep entity contribution comparable but subordinate.
+        _ENTITY_SCORE_SCALE = 0.025
+        from collections import defaultdict as _dd
+
+        _scores: dict[str, float] = _dd(float)
+        for _rank, _id in enumerate(filter_ids, 1):
+            _scores[_id] += 1.0 / (60 + _rank)
+        for _rank, _id in enumerate(kw_ids, 1):
+            _scores[_id] += 1.0 / (60 + _rank)
+        for _rank, _id in enumerate(sem_ids, 1):
+            _scores[_id] += 1.0 / (60 + _rank)
+        for r in entity_results:
+            _scores[r["id"]] += r.get("score", 0.0) * _ENTITY_SCORE_SCALE
+        all_fused = sorted(_scores, key=lambda x: _scores[x], reverse=True)[:fetch]
 
         fused_results = []
         for rank, id_ in enumerate(all_fused, start=1):

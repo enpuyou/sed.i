@@ -257,7 +257,6 @@ class TestHybridSearchQuality:
                 db=db_module,
                 limit=10,
                 user_authors=user_authors,
-                user_tags=user_tags,
             )
             elapsed_ms = (time.perf_counter() - start) * 1000
             latencies.append(
@@ -267,9 +266,7 @@ class TestHybridSearchQuality:
             result_ids = [r["id"] for r in results]
 
             # Track API calls avoided (filter/keyword don't call OpenAI)
-            intent, _ = classify_query(
-                eq["query"], user_authors=user_authors, user_tags=user_tags
-            )
+            intent, _ = classify_query(eq["query"], user_authors=user_authors)
             if intent in ("filter", "keyword"):
                 api_calls_avoided += 1
 
@@ -376,7 +373,6 @@ class TestBeforeAfterComparison:
                 db=db_module,
                 limit=10,
                 user_authors=user_authors,
-                user_tags=user_tags,
             )
 
         old_metrics = {"hits": 0, "rr_sum": 0, "rr_count": 0, "latencies": []}

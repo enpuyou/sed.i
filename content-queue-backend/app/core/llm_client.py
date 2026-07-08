@@ -39,6 +39,9 @@ TASK_SUMMARY = "summary"
 TASK_MCP_SUMMARY = "mcp_summary"
 TASK_SQL_GEN = "sql_gen"
 TASK_INSIGHT = "insight"
+TASK_ENTITY_EXTRACTION = "entity_extraction"
+TASK_ARTICLE_ANALYSIS = "article_analysis"
+TASK_ENTITY_DEDUP = "entity_dedup"
 
 _EMBED_MODEL_OPENAI = "text-embedding-3-small"
 _EMBED_MODEL_BEDROCK = (

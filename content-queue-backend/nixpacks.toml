@@ -11,4 +11,4 @@ cmds = [
 cmds = []
 
 [start]
-cmd = "poetry run alembic upgrade heads && poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+cmd = "poetry run alembic upgrade heads && poetry run python scripts/post_deploy.py && poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT"

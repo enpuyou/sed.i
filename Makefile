@@ -1,10 +1,12 @@
 # sed.i — Dev Makefile
 # Encodes the pyenv shim workaround so agents and humans don't need to rediscover it.
-# Requires: pyenv at /usr/local/opt/pyenv, Python 3.11.12, Poetry 2.x, pnpm, docker
+# Requires: pyenv at ~/.pyenv (or pyenv on PATH), Python 3.11.12, Poetry 2.x, pnpm, docker
 
-.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend lint ruff tsc generate-types safari-sync safari-open help
+.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend eval eval-bt lint ruff tsc generate-types safari-sync safari-open help
 
-PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.12 /usr/local/opt/pyenv/bin/pyenv exec poetry run
+# Override PYENV_BIN to point at your pyenv if it's not at ~/.pyenv/bin/pyenv
+PYENV_BIN ?= $(firstword $(wildcard $(HOME)/.pyenv/bin/pyenv) $(shell which pyenv 2>/dev/null) pyenv)
+PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.12 $(PYENV_BIN) exec poetry run
 
 # ── Dev stack ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +44,14 @@ test: test-backend test-frontend
 ## Run backend pytest suite
 test-backend:
 	$(PYENV_RUN) pytest tests/ -x -q
+
+## Run retrieval evals against a live DB (DATABASE_URL must point at a populated DB)
+eval:
+	$(PYENV_RUN) pytest tests/evals/test_retrieval_evals.py tests/evals/test_search_evals.py -v
+
+## Log retrieval eval to Braintrust (BRAINTRUST_API_KEY + DATABASE_URL required)
+eval-bt:
+	$(PYENV_RUN) python scripts/run_evals.py
 
 ## Run frontend Jest suite
 test-frontend:
