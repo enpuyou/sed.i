@@ -14,25 +14,16 @@ HNSW (Hierarchical Navigable Small World) is pgvector's approximate nearest-
 neighbor graph index. It reduces the cosine scan from O(N) to O(log N) at query
 time. Tradeoff: ~5% recall loss (approximate, not exact) and extra memory.
 
-Parameters chosen:
-  m = 16        — number of connections per layer; 16 is pgvector default, good
-                  for 1536-dim vectors up to ~1M rows
-  ef_construction = 64 — build-time search width; higher = better index quality,
-                          slower build. 64 is the pgvector default.
+Parameters: m=16, ef_construction=64 (pgvector defaults for 1536-dim vectors).
 
-The index is on the full table (not partial by user_id) because pgvector does
-not support partial HNSW indexes. The WHERE user_id = :uid filter is applied
-after the ANN lookup — Postgres's planner uses the index for the vector scan
-and the B-tree user_id index for the equality filter together.
-
-Build time: ~1s per 10K rows at 1536 dims. Concurrent build (CONCURRENTLY)
-avoids locking the table during migration but is not supported inside a
-transaction, so this migration uses op.execute() directly with CONCURRENTLY.
+The index is built by scripts/post_deploy.py using CREATE INDEX CONCURRENTLY,
+which runs after alembic upgrade and outside a transaction. This avoids the
+table lock that a transactional CREATE INDEX would impose. The migration only
+records the downgrade path so alembic can drop the index if rolled back.
 """
 
 from alembic import op
 
-# Alembic metadata
 revision = "a3f1e8b2c7d9"
 down_revision = "014958e5"
 branch_labels = None
@@ -40,18 +31,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Production note: run this migration outside a transaction to use
-    # CREATE INDEX CONCURRENTLY (avoids table lock). On Railway/Render, apply
-    # the index manually with CONCURRENTLY after deploying. In dev/CI the
-    # non-concurrent form is fine.
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS entities_embedding_hnsw
-        ON entities
-        USING hnsw (embedding vector_cosine_ops)
-        WITH (m = 16, ef_construction = 64)
-        """
-    )
+    # Index is built by scripts/post_deploy.py (CONCURRENTLY, outside transaction).
+    pass
 
 
 def downgrade() -> None:
