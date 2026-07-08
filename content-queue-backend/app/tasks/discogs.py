@@ -68,13 +68,18 @@ def fetch_discogs_metadata(self, vinyl_record_id: str):
         record.year = data.get("year")
 
         # Images
+        # Use uri150 (thumbnail) — sized for display and lighter than full-res.
+        # Append the token so the URL is directly browser-loadable; without it
+        # Discogs returns 401 when the browser requests the image.
         if data.get("images"):
-            # Try to find a primary image, otherwise pick the first one
             primary_image = next(
                 (img for img in data["images"] if img.get("type") == "primary"),
                 data["images"][0],
             )
-            record.cover_url = primary_image.get("uri")
+            img_url = primary_image.get("uri150") or primary_image.get("uri")
+            if img_url and settings.DISCOGS_TOKEN:
+                img_url = f"{img_url}?token={settings.DISCOGS_TOKEN}"
+            record.cover_url = img_url
 
         # Genres and Styles
         record.genres = data.get("genres", [])
