@@ -42,6 +42,17 @@ repos:
         name: Format backend with Ruff
         files: ^content-queue-backend/
 
+  # Alembic single-head check — catches multiple heads before deploy breaks
+  - repo: local
+    hooks:
+      - id: alembic-single-head
+        name: Check alembic has a single head
+        entry: ./scripts/check_alembic_single_head.sh
+        language: system
+        pass_filenames: false
+        files: ^content-queue-backend/alembic/
+        stages: [pre-commit]
+
   # Backend tests
   - repo: local
     hooks:
