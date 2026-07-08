@@ -66,6 +66,9 @@ def upsert_entity(
             db.flush()
     except IntegrityError:
         # Concurrent worker inserted the same entity between our SELECT and INSERT.
+        # Expunge the stale entity object so SQLAlchemy doesn't attempt a re-INSERT
+        # on the next flush in the same transaction.
+        db.expunge(entity)
         existing = _query_existing()
         if existing:
             return existing

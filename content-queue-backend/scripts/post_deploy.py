@@ -39,21 +39,21 @@ def main() -> None:
     conn = psycopg2.connect(dsn)
     conn.autocommit = True  # CONCURRENTLY requires autocommit (no transaction)
     cur = conn.cursor()
-
-    for name, sql in CONCURRENT_INDEXES:
-        cur.execute(
-            "SELECT 1 FROM pg_indexes WHERE indexname = %s",
-            (name,),
-        )
-        if cur.fetchone():
-            print(f"post_deploy: index {name} already exists, skipping")
-            continue
-        print(f"post_deploy: building {name} ...", flush=True)
-        cur.execute(sql)
-        print(f"post_deploy: {name} done")
-
-    cur.close()
-    conn.close()
+    try:
+        for name, sql in CONCURRENT_INDEXES:
+            cur.execute(
+                "SELECT 1 FROM pg_indexes WHERE indexname = %s",
+                (name,),
+            )
+            if cur.fetchone():
+                print(f"post_deploy: index {name} already exists, skipping")
+                continue
+            print(f"post_deploy: building {name} ...", flush=True)
+            cur.execute(sql)
+            print(f"post_deploy: {name} done")
+    finally:
+        cur.close()
+        conn.close()
 
 
 if __name__ == "__main__":

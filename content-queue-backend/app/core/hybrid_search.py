@@ -532,10 +532,7 @@ def _entity_search(
         if not rows:
             return []
 
-        # Gate: require at least one entity above threshold (exact matches always pass).
-        top_sim = max(float(r.sim) for r in rows)
-        if top_sim < _ENTITY_SIM_THRESHOLD and not exact_rows:
-            return []
+        # Gate: exact matches always pass; sim_rows are already threshold-filtered by SQL.
 
         # Build sim_map, name_map, and collect expand-eligible anchors.
         # No hub cap — IDF dampening in _score_entity_articles handles high-frequency
@@ -585,7 +582,10 @@ def _entity_search(
                 ).fetchall()
                 for nb in nb_sim_rows:
                     nb_eid = str(nb.id)
-                    sim_map[nb_eid] = float(nb.sim)
+                    # Only include neighbors that have positive similarity to the
+                    # query — otherwise low-sim hub neighbors pollute scoring.
+                    if float(nb.sim) > 0:
+                        sim_map[nb_eid] = float(nb.sim)
 
                 # Fetch names for neighbor entities not already in name_map
                 new_nb_ids = [n for n in new_neighbors if n not in name_map]

@@ -234,13 +234,16 @@ def analyze_article(
 
         # ── Tags ─────────────────────────────────────────────────────────────
         all_tags: list[str] = []
-        concept_tags: list[str] = []
+        domain_tags: list[str] = []
+        # Always extract concept_tags so the promotion block below can run even
+        # when skip_tags=True (backfill path skips writing item.tags but still
+        # needs concept entities created for search).
+        concept_tags = [
+            t for t in (_validate_label(t) for t in result.concept_tags[:4]) if t
+        ]
         if not skip_tags:
             domain_tags = [
                 t for t in (_validate_label(t) for t in result.domain_tags[:2]) if t
-            ]
-            concept_tags = [
-                t for t in (_validate_label(t) for t in result.concept_tags[:4]) if t
             ]
             all_tags = domain_tags + concept_tags
             if all_tags:

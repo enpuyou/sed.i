@@ -199,7 +199,7 @@ def deduplicate_entities(
                 f"[dry-run] Would merge {name_b!r} → {name_a!r} (sim={sim:.3f})"
             )
             merged += 1
-            already_merged.add(id_b)
+            already_merged.update({id_a, id_b})
             continue
 
         try:
@@ -208,7 +208,7 @@ def deduplicate_entities(
             db.commit()
             logger.info(f"Merged {name_b!r} → {name_a!r} (sim={sim:.3f})")
             merged += 1
-            already_merged.add(id_b)
+            already_merged.update({id_a, id_b})
         except Exception as e:
             db.rollback()
             logger.error(f"Failed to merge {name_b!r} → {name_a!r}: {e}")
