@@ -60,6 +60,21 @@ jobs:
         fi
         echo "✓ ARCHITECTURE.md freshness check passed"
 
+    - name: Alembic single-head check
+      working-directory: ./content-queue-backend
+      run: |
+        HEAD_COUNT=$(poetry run alembic heads 2>/dev/null | grep -c "(head)" || true)
+        if [ "$HEAD_COUNT" -ne 1 ]; then
+          echo "ERROR: alembic has $HEAD_COUNT heads (expected 1)."
+          echo "Fix: poetry run alembic merge heads -m 'merge_heads'"
+          exit 1
+        fi
+        echo "✓ alembic single head: OK"
+
+    - name: poetry.lock consistency check
+      working-directory: ./content-queue-backend
+      run: poetry check --lock
+
     - name: Set up PostgreSQL with pgvector
       run: |
         docker run -d \
@@ -80,6 +95,14 @@ jobs:
     - name: Enable pgvector extension
       run: |
         docker exec postgres-pgvector psql -U postgres -d content_queue_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+    - name: App import smoke test (catches startup errors before uvicorn)
+      working-directory: ./content-queue-backend
+      run: poetry run python -c "import app.main; print('✓ app.main imports OK')"
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-for-ci
 
     - name: Golden-path tests (must pass before full suite)
       working-directory: ./content-queue-backend

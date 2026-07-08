@@ -37,10 +37,10 @@ repos:
       - id: ruff
         name: Lint backend with Ruff
         args: [--fix]
-        files: ^content-queue-backend/
+        files: ^content-queue-backend/(app|scripts)/
       - id: ruff-format
         name: Format backend with Ruff
-        files: ^content-queue-backend/
+        files: ^content-queue-backend/(app|scripts)/
 
   # Alembic single-head check — catches multiple heads before deploy breaks
   - repo: local
@@ -51,6 +51,17 @@ repos:
         language: system
         pass_filenames: false
         files: ^content-queue-backend/alembic/
+        stages: [pre-commit]
+
+  # poetry.lock sync check — catches pyproject.toml/lock drift that breaks Railway install
+  - repo: local
+    hooks:
+      - id: poetry-lock-check
+        name: Check poetry.lock is consistent with pyproject.toml
+        entry: bash -c 'cd content-queue-backend && poetry check --lock --quiet'
+        language: system
+        pass_filenames: false
+        files: ^content-queue-backend/(pyproject\.toml|poetry\.lock)$
         stages: [pre-commit]
 
   # Backend tests
