@@ -1,10 +1,12 @@
 # sed.i — Dev Makefile
 # Encodes the pyenv shim workaround so agents and humans don't need to rediscover it.
-# Requires: pyenv at ~/.pyenv, Python 3.11.12, Poetry 2.x, pnpm, docker
+# Requires: pyenv at ~/.pyenv (or pyenv on PATH), Python 3.11.12, Poetry 2.x, pnpm, docker
 
 .PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend eval eval-bt lint ruff tsc generate-types safari-sync safari-open help
 
-PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.12 $(HOME)/.pyenv/bin/pyenv exec poetry run
+# Override PYENV_BIN to point at your pyenv if it's not at ~/.pyenv/bin/pyenv
+PYENV_BIN ?= $(firstword $(wildcard $(HOME)/.pyenv/bin/pyenv) $(shell which pyenv 2>/dev/null) pyenv)
+PYENV_RUN = cd content-queue-backend && PYENV_VERSION=3.11.12 $(PYENV_BIN) exec poetry run
 
 # ── Dev stack ──────────────────────────────────────────────────────────────────
 

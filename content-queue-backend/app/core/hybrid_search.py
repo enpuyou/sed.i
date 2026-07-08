@@ -613,7 +613,7 @@ def _entity_search(
                   AND em.user_id = :uid
                 """
             ),
-            {"eids": all_entity_ids, "uid": str(user.id)},
+            {"eids": all_entity_ids, "uid": user.id},
         ).fetchall()
 
         if not mention_rows:
@@ -748,7 +748,10 @@ def hybrid_search(
             if r["id"] not in item_lookup:
                 item_lookup[r["id"]] = r
             else:
-                item_lookup[r["id"]]["match_type"] = "entity+semantic"
+                existing_type = item_lookup[r["id"]].get("match_type", "")
+                item_lookup[r["id"]]["match_type"] = (
+                    f"entity+{existing_type}" if existing_type else "entity"
+                )
 
         filter_ids = [r["id"] for r in filter_results]
         kw_ids = [r["id"] for r in kw_results]

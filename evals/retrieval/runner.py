@@ -43,7 +43,7 @@ PROD_DB_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5433/content_queue",
 )
-EVAL_USER_EMAIL = os.getenv("EVAL_USER_EMAIL", "enpu@example.com")
+EVAL_USER_EMAIL = os.getenv("EVAL_USER_EMAIL", "")
 RESULTS_DIR = Path(__file__).parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
@@ -185,6 +185,10 @@ def run(
     else:
         from evals.retrieval.dataset.full import FULL_QUERIES as queries
 
+    if not EVAL_USER_EMAIL:
+        print("ERROR: EVAL_USER_EMAIL env var is required.", file=sys.stderr)
+        sys.exit(1)
+
     engine = create_engine(PROD_DB_URL, poolclass=NullPool)
     SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     db = SessionLocal()
@@ -192,7 +196,9 @@ def run(
     from app.models.user import User
     user = db.query(User).filter(User.email == EVAL_USER_EMAIL).first()
     if user is None:
-        print(f"ERROR: User {EVAL_USER_EMAIL!r} not found in DB.")
+        db.close()
+        engine.dispose()
+        print(f"ERROR: User {EVAL_USER_EMAIL!r} not found in DB.", file=sys.stderr)
         sys.exit(1)
 
     print(f"\nRetrieval eval — {dataset_size} ({len(queries)} queries), variants {variants}")

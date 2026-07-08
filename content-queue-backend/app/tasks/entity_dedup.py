@@ -203,7 +203,7 @@ def deduplicate_entities(
             continue
 
         try:
-            # Winner = id_a (lower UUID string — deterministic tie-breaker)
+            # Winner = id_a (lower UUID string — deterministic, not creation-order)
             merge_entity(uuid.UUID(id_a), uuid.UUID(id_b), db)
             db.commit()
             logger.info(f"Merged {name_b!r} → {name_a!r} (sim={sim:.3f})")
