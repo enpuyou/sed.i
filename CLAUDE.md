@@ -108,6 +108,7 @@ Scope is optional but recommended: `(search)`, `(auth)`, `(mcp)`, `(worker)`, `(
 - **User asks to open a PR** → run `/finalize` first, then let user create the PR
 - **Non-trivial feature starts** → state acceptance criteria before writing code
 - **`/pre-commit-dev` invoked** → runs PoC grep + code-reviewer subagent if >1 file changed
+- **User asks to eval / compare / pick the best prompt or variant** → invoke `/eval` immediately; do not do ad-hoc inline analysis instead
 
 ## When to read more
 

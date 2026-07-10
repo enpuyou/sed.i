@@ -483,6 +483,27 @@ POST /content (201, processing_status='completed' immediately)
 | `generate_summary` | `tasks/summarization.py` | Triggered by `POST /content/{id}/summary`. Calls OpenAI to produce a summary. |
 | `fetch_discogs_metadata` | `tasks/discogs.py` | Fetches vinyl metadata from Discogs API. |
 | `cleanup` | `tasks/cleanup.py` | Periodic task (beat). Removes old data / temp files. |
+| `consolidate_memory_task` | `tasks/memory.py` | Per-user: merges reading activity since `last_consolidated` onto the user's `user_profiles` row. First run (bootstrap) uses earliest actual activity up to 30 days back. Skipped if < 3 activity items. |
+| `consolidate_all_users_task` | `tasks/memory.py` | Nightly beat fan-out — queries users with activity since their last consolidation and dispatches `consolidate_memory_task` for each. |
+
+### Memory profile system
+
+`user_profiles` stores a hybrid memory record per user:
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `current_focus` | Text | Specific sub-domain, updated by consolidation. Used by MCP synthesis tool for context injection. |
+| `reading_velocity` | Enum | `fast` / `deep` / `browsing` — inferred from read% and highlight count, not topics. |
+| `memory_text` | Text | Free-form prose (3–6 sentences), LLM-managed. Covers trajectory, depth asymmetry, behavioral pattern, backlog signal. |
+| `last_consolidated` | Timestamp | Delta cutoff for next run. Null = bootstrap pending. |
+
+**Activity format**: consolidation formats saved articles, read articles (with inline highlights, in chronological order), never-opened saves, reading lists, and topic clusters into a structured activity string. Relative timestamps (`2h ago`, `5d ago`) and reading order are included so the LLM can observe sequencing signals (burst-saving, curriculum progression, topic pivots).
+
+**Bootstrap vs delta**: if `last_consolidated` is null, the task uses `_BOOTSTRAP_PROMPT` and finds the earliest actual activity (up to 30 days). Subsequent runs use `_DELTA_PROMPT` with `last_consolidated` as the since cutoff. The delta prompt instructs the model to patch/merge rather than rewrite.
+
+**Prompt selection (eval-validated)**: the bootstrap prompt uses an explicit four-dimension checklist (trajectory, depth asymmetry, behavioral pattern, backlog signal) plus a specificity rule. Evaluated against two alternatives (A: old single prompt, C: briefing framing) on 10 synthetic cases — current prompt (B) scores 0.860 weighted vs. 0.621 for the baseline. See `evals/memory-consolidation-prompt/results/report.md`.
+
+**API**: `GET /memory/profile` returns current profile. `POST /memory/consolidate` queues `consolidate_memory_task` for the current user (202 async).
 
 ---
 
