@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     LLM_MODEL_ARTICLE_ANALYSIS_OPENAI: str = "gpt-4o"
     LLM_MODEL_ENTITY_EXTRACTION_OPENAI: str = "gpt-4o-mini"
     LLM_MODEL_ENTITY_DEDUP_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_MEMORY_CONSOLIDATION_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_ROUTING_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_SYNTHESIS_OPENAI: str = "gpt-4o"
     # Bedrock chat models
     LLM_MODEL_TAGGING_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_SUMMARY_BEDROCK: str = "amazon.nova-lite-v1:0"
@@ -67,6 +70,9 @@ class Settings(BaseSettings):
     LLM_MODEL_ARTICLE_ANALYSIS_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_ENTITY_EXTRACTION_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_ENTITY_DEDUP_BEDROCK: str = "amazon.nova-micro-v1:0"
+    LLM_MODEL_MEMORY_CONSOLIDATION_BEDROCK: str = "amazon.nova-micro-v1:0"
+    LLM_MODEL_ROUTING_BEDROCK: str = "amazon.nova-micro-v1:0"
+    LLM_MODEL_SYNTHESIS_BEDROCK: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
     # AWS / Bedrock (Layer 4)
     # Required when LLM_PROVIDER="bedrock". Leave empty when using OpenAI.

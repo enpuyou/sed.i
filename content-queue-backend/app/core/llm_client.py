@@ -42,6 +42,9 @@ TASK_INSIGHT = "insight"
 TASK_ENTITY_EXTRACTION = "entity_extraction"
 TASK_ARTICLE_ANALYSIS = "article_analysis"
 TASK_ENTITY_DEDUP = "entity_dedup"
+TASK_MEMORY_CONSOLIDATION = "memory_consolidation"
+TASK_ROUTING = "routing"
+TASK_SYNTHESIS = "synthesis"
 
 _EMBED_MODEL_OPENAI = "text-embedding-3-small"
 _EMBED_MODEL_BEDROCK = (

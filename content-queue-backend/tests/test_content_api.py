@@ -16,6 +16,7 @@ import json
 import pytest
 from uuid import uuid4
 from unittest.mock import patch
+from tests.conftest import TestingSessionLocal
 
 
 class TestCreateContent:
@@ -203,9 +204,25 @@ class TestListContent:
                 headers=auth_headers,
             )
             created_ids.append(response.json()["id"])
-            import time
 
-            time.sleep(0.01)  # Ensure timestamps are different for sorting checks
+        # Force distinct created_at values via direct DB update so ordering is
+        # deterministic without wall-clock sleeps (which are flaky on slow CI).
+        from sqlalchemy import text as sa_text
+        from datetime import datetime, timezone, timedelta
+
+        override_db = TestingSessionLocal()
+        try:
+            for i, item_id in enumerate(created_ids):
+                ts = datetime(2020, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=i)
+                override_db.execute(
+                    sa_text(
+                        "UPDATE content_items SET created_at = :ts WHERE id = CAST(:id AS uuid)"
+                    ),
+                    {"ts": ts, "id": item_id},
+                )
+            override_db.commit()
+        finally:
+            override_db.close()
 
         # List all content
         response = client.get("/content", headers=auth_headers)
