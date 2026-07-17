@@ -2,7 +2,7 @@
 # Encodes the pyenv shim workaround so agents and humans don't need to rediscover it.
 # Requires: pyenv at ~/.pyenv (or pyenv on PATH), Python 3.11.12, Poetry 2.x, pnpm, docker
 
-.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend eval eval-bt lint ruff tsc generate-types safari-sync safari-open help
+.PHONY: dev backend worker frontend migrate migrate-generate test test-backend test-frontend eval eval-bt eval-memory-pilot eval-memory lint ruff tsc generate-types safari-sync safari-open help
 
 # Override PYENV_BIN to point at your pyenv if it's not at ~/.pyenv/bin/pyenv
 PYENV_BIN ?= $(firstword $(wildcard $(HOME)/.pyenv/bin/pyenv) $(shell which pyenv 2>/dev/null) pyenv)
@@ -52,6 +52,14 @@ eval:
 ## Log retrieval eval to Braintrust (BRAINTRUST_API_KEY + DATABASE_URL required)
 eval-bt:
 	$(PYENV_RUN) python scripts/run_evals.py
+
+## Memory consolidation prompt eval — pilot (10 cases, all 3 variants, ~$0.50 in judge calls)
+eval-memory-pilot:
+	$(PYENV_RUN) python evals/memory-consolidation-prompt/runner.py --size pilot
+
+## Memory consolidation prompt eval — full dataset with Braintrust logging
+eval-memory:
+	$(PYENV_RUN) python evals/memory-consolidation-prompt/runner.py --size full --braintrust
 
 ## Run frontend Jest suite
 test-frontend:

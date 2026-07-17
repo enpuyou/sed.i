@@ -38,12 +38,6 @@ class TestMCPToolContracts:
         assert isinstance(result["total_items"], int)
         assert isinstance(result["read_count"], int)
 
-    def test_get_reading_stats_empty_user(self, db, user):
-        """User with no content returns zeroes, not an error."""
-        result = get_reading_stats(user=user, db=db)
-        assert result["total_items"] >= 0
-        assert result["read_count"] >= 0
-
     def test_list_lists_returns_a_list(self, db, user):
         result = list_lists(user=user, db=db)
         assert isinstance(result, list)

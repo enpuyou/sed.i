@@ -176,10 +176,9 @@ def _get_forbidden_node_types():
         exp.Delete,
         exp.Drop,
         exp.Create,
-        exp.AlterTable,
+        exp.Alter,
         exp.TruncateTable,
         exp.Grant,
-        exp.Revoke,
     )
     return _FORBIDDEN_NODE_TYPES
 
