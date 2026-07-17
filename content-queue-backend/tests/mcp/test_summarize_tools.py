@@ -128,13 +128,17 @@ class TestGetSummaryJob:
         result = get_summary_job(job_id="nonexistent-job", user=user, db=db)
         assert result["status"] == "not_found"
 
-    def test_returns_result_for_completed_job(self, db, user, list_with_articles):
-        # Run a summary to create a cached entry, then retrieve it by job_id
+    def test_summary_job_id_not_in_synchronous_result(
+        self, db, user, list_with_articles
+    ):
+        # summarize_list returns synchronously (no job queue); the result must not
+        # contain a job_id key, which would indicate an accidental async regression.
         with patch(
             "app.core.llm_client.llm_client.chat", return_value=_fake_chat_result()
         ):
             r = summarize_list(list_id=str(list_with_articles.id), user=user, db=db)
 
-        if "job_id" in r:
-            job_result = get_summary_job(job_id=r["job_id"], user=user, db=db)
-            assert job_result["status"] in ("pending", "done", "not_found")
+        assert "job_id" not in r, (
+            "summarize_list returned a job_id — the tool has become async. "
+            "Wire up get_summary_job to actually retrieve the result, then update this test."
+        )

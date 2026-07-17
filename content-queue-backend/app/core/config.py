@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     LLM_MODEL_MEMORY_CONSOLIDATION_OPENAI: str = "gpt-4o-mini"
     LLM_MODEL_ROUTING_OPENAI: str = "gpt-4o-mini"
     LLM_MODEL_SYNTHESIS_OPENAI: str = "gpt-4o"
+    # Research pipeline — granular per-step model config (all default to synthesis models)
+    LLM_MODEL_RESEARCH_PLANNING_OPENAI: str = "gpt-4o"
+    LLM_MODEL_RESEARCH_EXPANSION_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_RESEARCH_FILTER_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_RESEARCH_ARTICLE_SUMMARY_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_RESEARCH_SYNTHESIS_OPENAI: str = "gpt-4o"
     # Bedrock chat models
     LLM_MODEL_TAGGING_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_SUMMARY_BEDROCK: str = "amazon.nova-lite-v1:0"
@@ -73,6 +79,22 @@ class Settings(BaseSettings):
     LLM_MODEL_MEMORY_CONSOLIDATION_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_ROUTING_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_SYNTHESIS_BEDROCK: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    LLM_MODEL_RESEARCH_PLANNING_BEDROCK: str = (
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    LLM_MODEL_RESEARCH_EXPANSION_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_RESEARCH_FILTER_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_RESEARCH_ARTICLE_SUMMARY_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_RESEARCH_SYNTHESIS_BEDROCK: str = (
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    # Research memory extraction (post-synthesis, cheap summarization)
+    LLM_MODEL_MEMORY_RESEARCH_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_MEMORY_RESEARCH_BEDROCK: str = "amazon.nova-lite-v1:0"
+
+    # Research memory retrieval tuning
+    RESEARCH_MEMORY_K: int = 5
+    RESEARCH_MEMORY_MAX_AGE_DAYS: int = 90
 
     # AWS / Bedrock (Layer 4)
     # Required when LLM_PROVIDER="bedrock". Leave empty when using OpenAI.

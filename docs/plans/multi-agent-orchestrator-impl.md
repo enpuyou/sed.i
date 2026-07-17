@@ -1,7 +1,7 @@
 ---
 type: plan
 status: draft
-last_updated: 2026-07-09
+last_updated: 2026-07-10
 feature_doc: docs/design/product/multi-agent-research-orchestrator.md
 ---
 
@@ -733,12 +733,79 @@ class TestMemorySkillsIntegration:
 **Files:**
 - `alembic/versions/NNN_add_research_runs.py`
 - `app/models/research.py`
+- `app/schemas/research.py` (ResearchBrief Pydantic schema)
 - `app/api/research.py`
 - `app/main.py` (register router)
 
 **What to build:**
 
-`ResearchRun` model mirrors the SQL spec in the feature doc exactly.
+`ResearchRun` SQLAlchemy model. Key fields:
+
+```python
+class ResearchRun(Base):
+    __tablename__ = "research_runs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    question: Mapped[str]
+    mode: Mapped[str]  # "quick" | "deep"
+    status: Mapped[str]  # "queued" | "planning" | "searching" | "synthesizing" | "verifying" | "done" | "partial" | "failed"
+    plan: Mapped[str | None]                       # sub-questions JSON string from planning step
+    sub_questions: Mapped[list | None] = mapped_column(JSONB)  # list[str]
+    subagent_results: Mapped[list | None] = mapped_column(JSONB)  # list[SubagentResult]
+    item_ids_retrieved: Mapped[list | None] = mapped_column(JSONB)
+    searches_run: Mapped[list | None] = mapped_column(JSONB)   # [{idempotency_key, subagent_id}]
+    result: Mapped[dict | None] = mapped_column(JSONB)         # ResearchBrief when done
+    cost: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[dict | None] = mapped_column(JSONB)
+    iteration_count: Mapped[int] = mapped_column(default=0)
+    budget: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+```
+
+`ResearchBrief` Pydantic schema (`app/schemas/research.py`) — this is the output
+structure the synthesis task produces and the eval runner consumes:
+
+```python
+class SourceCitation(BaseModel):
+    item_id: str
+    title: str
+    representative_highlight: str | None
+
+class SubQuestionFinding(BaseModel):
+    sub_question: str
+    coverage: Literal["full", "partial", "none"]
+    finding: str
+    key_sources: list[SourceCitation]
+    tensions: list[str]
+
+class GapItem(BaseModel):
+    sub_question: str
+    what_is_missing: str
+    partial_coverage: list[str]  # item_ids that touch this sub-Q but don't answer it
+
+class ResearchBrief(BaseModel):
+    summary: str
+    sub_question_findings: list[SubQuestionFinding]
+    cross_cutting_tensions: list[str]
+    gaps: list[GapItem]
+    engagement_note: str
+    confidence: Literal["high", "medium", "low"]
+```
+
+`SubagentResult` (also in `app/schemas/research.py`) — what each subagent returns:
+
+```python
+class SubagentResult(BaseModel):
+    sub_question: str
+    articles: list[dict]  # {id, title, description, highlights, engagement_score}
+    coverage_assessment: Literal["full", "partial", "none"]
+```
+
+Engagement score computed in subagent:
+```python
+engagement_score = highlight_count * 2 + int(is_read) * 1 + draft_citation_count * 3
+```
 
 `GET /research/{run_id}` endpoint — auth-guarded, scoped to `current_user.id`:
 ```python
@@ -754,6 +821,7 @@ def get_research_run(run_id: UUID, current_user=Depends(get_current_user), db=De
         "error": run.error,
         "progress": {
             "iteration": run.iteration_count,
+            "sub_questions": run.sub_questions or [],
             "searches_run_count": len(run.searches_run or []),
         },
     }
@@ -761,7 +829,7 @@ def get_research_run(run_id: UUID, current_user=Depends(get_current_user), db=De
 
 **Done when:** `GET /research/{run_id}` returns 200 with `{status: "queued"}` for
 a newly created row. Returns 404 for unknown ID. Returns 403 (or 404) for another
-user's run ID.
+user's run ID. `ResearchBrief` model imports without error.
 
 **Tests** (`tests/test_research_api.py`):
 
@@ -801,8 +869,14 @@ class TestResearchRunStatus:
         run = ResearchRun(
             user_id=test_user.id, question="test", mode="deep",
             status="done",
-            result={"summary": "Found 3 articles.", "perspectives": [],
-                    "key_concepts": [], "sources": [], "confidence": "medium"},
+            result={
+                "summary": "Found 3 articles.",
+                "sub_question_findings": [],
+                "cross_cutting_tensions": [],
+                "gaps": [],
+                "engagement_note": "No high-engagement articles in this run.",
+                "confidence": "medium",
+            },
             budget={"max_tokens": 10000, "max_iterations": 3,
                     "max_subagents": 5, "timeout_s": 300},
         )
@@ -811,10 +885,11 @@ class TestResearchRunStatus:
         resp = client.get(f"/research/{run.id}", headers=auth_headers)
         assert resp.json()["result"]["summary"] == "Found 3 articles."
 
-    def test_returns_progress_counts(self, client, auth_headers, db_session, test_user):
+    def test_returns_progress_with_sub_questions(self, client, auth_headers, db_session, test_user):
         run = ResearchRun(
             user_id=test_user.id, question="test", mode="deep",
             status="searching", iteration_count=2,
+            sub_questions=["What is X?", "What is Y?"],
             searches_run=[{"subagent_id": "a"}, {"subagent_id": "b"}],
             budget={"max_tokens": 10000, "max_iterations": 3,
                     "max_subagents": 5, "timeout_s": 300},
@@ -825,6 +900,7 @@ class TestResearchRunStatus:
         progress = resp.json()["progress"]
         assert progress["iteration"] == 2
         assert progress["searches_run_count"] == 2
+        assert "What is X?" in progress["sub_questions"]
 ```
 
 ---
@@ -1203,53 +1279,105 @@ class TestCollectSubagentResults:
 **Files:**
 
 - `app/tasks/research.py` (add `synthesize_run`, `verify_synthesis`)
-- `app/core/llm_client.py` (add `TASK_SYNTHESIS`, `TASK_VERIFY`)
+- `app/core/llm_client.py` (`TASK_SYNTHESIS` already added in Phase 1)
 
 **What to build:**
 
-`synthesize_run(run_id)` — loads articles from `item_ids_retrieved`, builds
-context via `_build_context` (tiktoken-gated), calls `structured_chat(TASK_SYNTHESIS)`
-→ `SynthesisResponse`, writes to `run.result`, sets status `verifying`.
+`synthesize_run(run_id)`:
 
-`verify_synthesis(run_id)` — for each `SourceCitation` in `result.sources`,
-checks `citation.item_id in run.item_ids_retrieved`. Citations whose ID is not in
-the retrieved set are **removed** (not marked, not flagged — removed). Sets status `done`.
+1. Loads articles from `item_ids_retrieved`, fetches all highlights per article.
+2. Computes engagement score per article: `highlight_count × 2 + is_read × 1 + draft_citation_count × 3`.
+3. Builds context via `_build_context_for_brief`:
+   - High-engagement articles (score ≥ 3): include full highlight set.
+   - Low-engagement articles (score < 3): title + description only.
+   - Token budget: 6000 tokens (tiktoken cl100k_base), drop whole blocks not partial.
+   - Context labeled by sub-question (from `run.sub_questions`) so synthesis is structured.
+4. Calls `structured_chat(TASK_SYNTHESIS, response_model=ResearchBrief)`.
+5. Writes result as dict to `run.result`, sets status `verifying`.
+
+`_build_context_for_brief(articles_with_engagement, sub_questions, max_tokens)` —
+private helper, unit-testable. Returns `(context_str, included_ids)`.
+
+`verify_synthesis(run_id)`:
+
+- For each `SourceCitation` in every `sub_question_findings[].key_sources`:
+  check `citation.item_id in run.item_ids_retrieved`.
+- Citations whose ID is not in the retrieved set are **removed** (not marked,
+  not flagged — removed). The finding text is unchanged.
+- Also removes from `result.gaps[].partial_coverage` any IDs not in retrieved set.
+- Sets status `done`.
 
 **Done when:** A run with `item_ids_retrieved=[article.id]` and a synthesis
 claiming that article produces a `done` result with the citation present.
 A synthesis citing a fabricated ID produces a `done` result with that citation absent.
+High-engagement articles (highlight_count=5) include all their highlights in the prompt
+while low-engagement (highlight_count=0) include title+description only.
 
 **Tests** (`tests/test_research_tasks.py`, continued):
 
 ```python
 class TestSynthesisAndVerification:
-    def test_synthesis_writes_result_to_run(self, db_session, test_user, article):
+    def test_synthesis_writes_research_brief_to_run(self, db_session, test_user, article):
         run = _make_run(db_session, test_user, status="searching",
-                        item_ids=[str(article.id)])
+                        item_ids=[str(article.id)],
+                        sub_questions=["What is RAG?"])
 
+        mock_brief = ResearchBrief(
+            summary="One article found on RAG.",
+            sub_question_findings=[SubQuestionFinding(
+                sub_question="What is RAG?",
+                coverage="full",
+                finding="RAG grounds LLM outputs in retrieved documents.",
+                key_sources=[SourceCitation(item_id=str(article.id),
+                                            title=article.title,
+                                            representative_highlight=None)],
+                tensions=[],
+            )],
+            cross_cutting_tensions=[],
+            gaps=[],
+            engagement_note="1 high-engagement article contributed all highlights.",
+            confidence="medium",
+        )
         with patch("app.tasks.research.llm_client") as mock_llm:
-            mock_llm.structured_chat.return_value = SynthesisResponse(
-                summary="One article found on topic.",
-                perspectives=[],
-                key_concepts=["RAG"],
-                sources=[SourceCitation(item_id=str(article.id),
-                                        title=article.title, quote=None)],
-                confidence="medium",
-            )
+            mock_llm.structured_chat.return_value = mock_brief
             synthesize_run(str(run.id))
 
         db_session.refresh(run)
         assert run.result is not None
-        assert run.result["summary"] == "One article found on topic."
+        assert run.result["summary"] == "One article found on RAG."
+        assert len(run.result["sub_question_findings"]) == 1
         assert run.status == "verifying"
+
+    def test_synthesis_context_allocates_more_to_high_engagement(self, db_session, test_user):
+        from app.tasks.research import _build_context_for_brief
+        high_eng = {"id": "a", "title": "H", "description": "desc",
+                    "highlights": ["hl1", "hl2", "hl3"], "engagement_score": 9}
+        low_eng = {"id": "b", "title": "L", "description": "desc",
+                   "highlights": ["hl1"], "engagement_score": 0}
+        ctx, ids = _build_context_for_brief([high_eng, low_eng],
+                                             sub_questions=["Q"], max_tokens=4000)
+        # High-engagement article includes highlights; low-engagement does not
+        assert "hl1" in ctx or "hl2" in ctx or "hl3" in ctx  # high-eng highlights present
+        assert "hl1" not in ctx.split("L")[1] if "L" in ctx else True  # low-eng no highlights
 
     def test_verification_passes_grounded_citations(self, db_session, test_user, article):
         run = _make_run(db_session, test_user, status="verifying",
                         item_ids=[str(article.id)])
         run.result = {
             "summary": "x",
-            "sources": [{"item_id": str(article.id), "title": article.title, "quote": None}],
-            "perspectives": [], "key_concepts": [], "confidence": "medium",
+            "sub_question_findings": [{
+                "sub_question": "Q1",
+                "coverage": "full",
+                "finding": "finding",
+                "key_sources": [{"item_id": str(article.id),
+                                 "title": article.title,
+                                 "representative_highlight": None}],
+                "tensions": [],
+            }],
+            "cross_cutting_tensions": [],
+            "gaps": [],
+            "engagement_note": "",
+            "confidence": "medium",
         }
         db_session.commit()
 
@@ -1257,8 +1385,7 @@ class TestSynthesisAndVerification:
 
         db_session.refresh(run)
         assert run.status == "done"
-        # Citation survives — item_id was in retrieved set
-        sources = run.result["sources"]
+        sources = run.result["sub_question_findings"][0]["key_sources"]
         assert any(s["item_id"] == str(article.id) for s in sources)
 
     def test_verification_removes_fabricated_citations(self, db_session, test_user, article):
@@ -1267,38 +1394,73 @@ class TestSynthesisAndVerification:
                         item_ids=[str(article.id)])
         run.result = {
             "summary": "x",
-            "sources": [
-                {"item_id": str(article.id), "title": "Real article", "quote": None},
-                {"item_id": fake_id, "title": "Fabricated article", "quote": None},
-            ],
-            "perspectives": [], "key_concepts": [], "confidence": "medium",
+            "sub_question_findings": [{
+                "sub_question": "Q1",
+                "coverage": "partial",
+                "finding": "finding",
+                "key_sources": [
+                    {"item_id": str(article.id), "title": "Real", "representative_highlight": None},
+                    {"item_id": fake_id, "title": "Fabricated", "representative_highlight": None},
+                ],
+                "tensions": [],
+            }],
+            "cross_cutting_tensions": [],
+            "gaps": [],
+            "engagement_note": "",
+            "confidence": "medium",
         }
         db_session.commit()
 
         verify_synthesis(str(run.id))
 
         db_session.refresh(run)
-        result_ids = [s["item_id"] for s in run.result["sources"]]
-        # Real citation survives
+        sources = run.result["sub_question_findings"][0]["key_sources"]
+        result_ids = [s["item_id"] for s in sources]
         assert str(article.id) in result_ids
-        # Fabricated citation is removed — not marked, not rewritten, gone
         assert fake_id not in result_ids
+
+    def test_verification_cleans_partial_coverage_in_gaps(self, db_session, test_user, article):
+        fake_id = str(uuid.uuid4())
+        run = _make_run(db_session, test_user, status="verifying",
+                        item_ids=[str(article.id)])
+        run.result = {
+            "summary": "x",
+            "sub_question_findings": [],
+            "cross_cutting_tensions": [],
+            "gaps": [{
+                "sub_question": "Q2",
+                "what_is_missing": "Policy research",
+                "partial_coverage": [str(article.id), fake_id],
+            }],
+            "engagement_note": "",
+            "confidence": "low",
+        }
+        db_session.commit()
+
+        verify_synthesis(str(run.id))
+
+        db_session.refresh(run)
+        assert run.status == "done"
+        gap_ids = run.result["gaps"][0]["partial_coverage"]
+        assert str(article.id) in gap_ids
+        assert fake_id not in gap_ids
 
     def test_full_run_ends_in_done_status(self, db_session, test_user, article):
         run = _make_run(db_session, test_user, status="queued",
                         budget={"max_tokens": 50000, "max_iterations": 3,
                                 "max_subagents": 3, "timeout_s": 300})
 
+        mock_brief = ResearchBrief(
+            summary="Found one article.",
+            sub_question_findings=[],
+            cross_cutting_tensions=[],
+            gaps=[],
+            engagement_note="",
+            confidence="medium",
+        )
         with patch("app.tasks.research.llm_client") as mock_llm:
             mock_llm.chat.return_value = MagicMock(content="query")
-            mock_llm.structured_chat.return_value = SynthesisResponse(
-                summary="Found one article.",
-                perspectives=[],
-                key_concepts=[],
-                sources=[SourceCitation(item_id=str(article.id),
-                                        title=article.title, quote=None)],
-                confidence="medium",
-            )
+            mock_llm.structured_chat.return_value = mock_brief
             with patch("app.tasks.research.hybrid_search") as mock_search:
                 mock_search.return_value = [{"id": str(article.id), "title": article.title}]
                 run_research_lead(str(run.id))
@@ -1471,7 +1633,6 @@ class TestSynthesizeTopicDeep:
         mock_task.assert_not_called()
 
     def test_rate_limit_blocks_fourth_concurrent_run(self, db, user):
-        # Create 3 active (non-terminal) runs for this user
         for _ in range(3):
             db.add(ResearchRun(
                 user_id=user.id, question="x", mode="deep", status="searching",
@@ -1486,12 +1647,10 @@ class TestSynthesizeTopicDeep:
                 topic="fourth run", depth="deep", user=user, db=db
             )
 
-        # Fourth run is rejected — no new run created, no task dispatched
         assert result.get("error") == "run_limit_exceeded"
         mock_task.delay.assert_not_called()
 
     def test_rate_limit_allows_run_when_under_limit(self, db, user):
-        # 2 active runs — still under limit of 3
         for _ in range(2):
             db.add(ResearchRun(
                 user_id=user.id, question="x", mode="deep", status="searching",
@@ -1510,7 +1669,6 @@ class TestSynthesizeTopicDeep:
         mock_task.delay.assert_called_once()
 
     def test_rate_limit_counts_only_active_runs(self, db, user):
-        # 3 terminal runs — should not count against the limit
         for status in ("done", "failed", "partial"):
             db.add(ResearchRun(
                 user_id=user.id, question="x", mode="deep", status=status,
@@ -1536,30 +1694,42 @@ class TestSynthesizeTopicDeep:
 **File:** `tests/test_orchestrator_e2e.py`
 
 ```python
+def _make_brief(article_id=None, summary="Found articles."):
+    finding = SubQuestionFinding(
+        sub_question="Q1",
+        coverage="full",
+        finding="finding text",
+        key_sources=[SourceCitation(item_id=str(article_id),
+                                    title="Article",
+                                    representative_highlight=None)] if article_id else [],
+        tensions=[],
+    )
+    return ResearchBrief(
+        summary=summary,
+        sub_question_findings=[finding],
+        cross_cutting_tensions=[],
+        gaps=[],
+        engagement_note="",
+        confidence="medium",
+    )
+
+
 class TestOrchestratorEndToEnd:
     def test_full_run_queued_to_done(self, db_session, test_user, article):
         """
-        synthesize_topic deep → run created → lead task → subagent → synthesis →
-        verification → status=done → GET /research/{run_id} returns result.
+        synthesize_topic deep → run created → lead task → sub-question decomposition
+        → parallel subagent retrieval with engagement scoring → ResearchBrief synthesis
+        → verification → status=done → GET /research/{run_id} returns brief.
         """
+        mock_brief = _make_brief(article_id=article.id, summary="One article found.")
+
         with patch("app.tasks.research.llm_client") as mock_llm:
             mock_llm.chat.return_value = MagicMock(content="reformulated")
-            mock_llm.structured_chat.return_value = SynthesisResponse(
-                summary="One article found.",
-                perspectives=[],
-                key_concepts=["test concept"],
-                sources=[SourceCitation(item_id=str(article.id),
-                                        title=article.title, quote=None)],
-                confidence="medium",
-            )
+            mock_llm.structured_chat.return_value = mock_brief
             with patch("app.tasks.research.hybrid_search") as mock_search:
                 mock_search.return_value = [{"id": str(article.id), "title": article.title}]
                 with patch("app.mcp.tools.synthesis.run_research_lead") as mock_lead:
-                    # Run synchronously for test
-                    def run_sync(run_id):
-                        run_research_lead(run_id)
-                    mock_lead.delay = run_sync
-
+                    mock_lead.delay = lambda run_id: run_research_lead(run_id)
                     result = synthesize_topic.__wrapped__(
                         topic="test topic", depth="deep", user=test_user, db=db_session
                     )
@@ -1567,16 +1737,19 @@ class TestOrchestratorEndToEnd:
         run = db_session.query(ResearchRun).filter_by(id=result["run_id"]).first()
         assert run.status == "done"
         assert run.result["summary"] == "One article found."
+        assert "sub_question_findings" in run.result
+        assert "gaps" in run.result
         assert len(run.item_ids_retrieved) >= 1
         assert run.cost is not None
 
     def test_partial_result_on_budget_exhaustion(self, db_session, test_user):
+        mock_brief = ResearchBrief(
+            summary="partial", sub_question_findings=[], cross_cutting_tensions=[],
+            gaps=[], engagement_note="", confidence="low",
+        )
         with patch("app.tasks.research.llm_client") as mock_llm:
             mock_llm.chat.return_value = MagicMock(content="query")
-            mock_llm.structured_chat.return_value = SynthesisResponse(
-                summary="partial", perspectives=[], key_concepts=[],
-                sources=[], confidence="low",
-            )
+            mock_llm.structured_chat.return_value = mock_brief
             with patch("app.tasks.research.hybrid_search", return_value=[]):
                 with patch("app.mcp.tools.synthesis.run_research_lead") as mock_lead:
                     mock_lead.delay = lambda run_id: run_research_lead(run_id)
@@ -1598,12 +1771,13 @@ class TestOrchestratorEndToEnd:
         )
         db_session.add(other_article); db_session.commit()
 
+        mock_brief = ResearchBrief(
+            summary="no results", sub_question_findings=[], cross_cutting_tensions=[],
+            gaps=[], engagement_note="", confidence="low",
+        )
         with patch("app.tasks.research.llm_client") as mock_llm:
             mock_llm.chat.return_value = MagicMock(content="query")
-            mock_llm.structured_chat.return_value = SynthesisResponse(
-                summary="no results", perspectives=[], key_concepts=[],
-                sources=[], confidence="low",
-            )
+            mock_llm.structured_chat.return_value = mock_brief
             with patch("app.mcp.tools.synthesis.run_research_lead") as mock_lead:
                 mock_lead.delay = lambda run_id: run_research_lead(run_id)
                 result = synthesize_topic.__wrapped__(
@@ -1627,18 +1801,14 @@ class TestOrchestratorEndToEnd:
         db_session.refresh(run)
         assert run.status == "partial"
 
-    def test_run_result_accessible_via_api(self, client, auth_headers,
-                                            db_session, test_user, article):
-        """Poll endpoint returns correct result after run completes."""
+    def test_run_result_has_research_brief_shape(self, client, auth_headers,
+                                                   db_session, test_user, article):
+        mock_brief = _make_brief(article_id=article.id, summary="Found an article.")
+        mock_brief.confidence = "high"
+
         with patch("app.tasks.research.llm_client") as mock_llm:
             mock_llm.chat.return_value = MagicMock(content="query")
-            mock_llm.structured_chat.return_value = SynthesisResponse(
-                summary="Found an article.",
-                perspectives=[], key_concepts=[],
-                sources=[SourceCitation(item_id=str(article.id),
-                                        title=article.title, quote=None)],
-                confidence="high",
-            )
+            mock_llm.structured_chat.return_value = mock_brief
             with patch("app.tasks.research.hybrid_search") as mock_search:
                 mock_search.return_value = [{"id": str(article.id), "title": article.title}]
                 with patch("app.mcp.tools.synthesis.run_research_lead") as mock_lead:
@@ -1651,8 +1821,16 @@ class TestOrchestratorEndToEnd:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "done"
-        assert body["result"]["summary"] == "Found an article."
-        assert body["result"]["confidence"] == "high"
+        result = body["result"]
+        assert result["summary"] == "Found an article."
+        assert result["confidence"] == "high"
+        # ResearchBrief shape — not the old SynthesisResponse shape
+        assert "sub_question_findings" in result
+        assert "gaps" in result
+        assert "engagement_note" in result
+        # SynthesisResponse fields must NOT appear
+        assert "perspectives" not in result
+        assert "key_concepts" not in result
 ```
 
 ---
@@ -1668,11 +1846,11 @@ class TestOrchestratorEndToEnd:
 | 1.5 synthesize_topic quick | Returns structured response; profile seeds prompt; other user's articles absent from context |
 | 1.6 assist_draft | Draft updated in DB; citations verified against retrieved set; library item count unchanged |
 | Phase 1 integration | Profile flows into synthesis prompt end-to-end |
-| 2.1 research_runs + endpoint | 200 for own run; 404 for unknown; 403/404 cross-user |
+| 2.1 research_runs + endpoint | 200 for own run; 404 for unknown; 403/404 cross-user; `ResearchBrief` and `SubagentResult` schemas importable |
 | 2.2 Lead skeleton | `queued → planning → done`; idempotent on re-run; plan written before status advances |
 | 2.3 Single subagent | `{ok, data}` contract; idempotency key blocks re-dispatch; item_ids written to run |
 | 2.4 Chord callback | Merges ids from successful subagents; failed subagents contribute nothing; dispatches synthesize or next round; marks partial on budget breach |
-| 2.5 Synthesis + verification | Synthesis writes result + sets `verifying`; grounded citations survive; fabricated IDs absent from final result |
+| 2.5 Synthesis + verification | Synthesis writes `ResearchBrief` + sets `verifying`; high-engagement articles get full highlights in context; grounded citations survive; fabricated IDs removed from `key_sources` and `partial_coverage` |
 | 2.6 Recovery task | Stale non-terminal run → partial; terminal and recent runs untouched; returns count |
 | 2.7 Deep mode | task enqueued not executed; queued run in DB; rate limit rejects 4th concurrent run; terminal runs don't count |
-| Phase 2 E2E | Full run → done; cross-user isolation; API returns result; recovery works |
+| Phase 2 E2E | Full run → done; result has `sub_question_findings`/`gaps`/`engagement_note` (not old `perspectives`/`key_concepts`); cross-user isolation; recovery works |

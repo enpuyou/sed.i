@@ -66,6 +66,11 @@ celery_app.conf.update(
             * 60
             * 24,  # Every 24 hours at 3 AM UTC (offset via crontab if needed)
         },
+        # Recover stalled research runs every 5 minutes
+        "recover-orphaned-runs": {
+            "task": "app.tasks.research.recover_orphaned_runs_task",
+            "schedule": 60 * 5,
+        },
     },
 )
 
@@ -91,6 +96,8 @@ from app.tasks import (
     entity_dedup,
     entity_backfill,
     memory,
+    research,
+    research_memory,
 )
 
 

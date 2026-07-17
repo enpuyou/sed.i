@@ -22,6 +22,7 @@ from app.api import (
     drafts,
     themes,
     memory,
+    research,
 )
 from app.api.endpoints import public
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -163,6 +164,7 @@ app.include_router(vinyl.router)
 app.include_router(drafts.router)
 app.include_router(themes.router)
 app.include_router(memory.router)
+app.include_router(research.router)
 app.include_router(public.router)
 app.include_router(mcp_oauth_router)
 

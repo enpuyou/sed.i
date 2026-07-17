@@ -161,10 +161,6 @@ class TestSynthesizeTopicQuick:
         combined = " ".join(str(m) for m in captured)
         assert "Secret Article" not in combined
 
-    def test_deep_mode_raises_not_implemented(self, db, user):
-        with pytest.raises(NotImplementedError):
-            synthesize_topic(topic="anything", depth="deep", user=user, db=db)
-
     def test_hallucinated_source_filtered_out(self, db, user, article):
         fake_id = "00000000-0000-0000-0000-000000000000"
         mock_response = SynthesisResponse(
@@ -350,3 +346,129 @@ class TestAssistDraft:
         updated = db.query(Draft).filter_by(list_id=reading_list.id).first()
         assert original_content in updated.content
         assert "New paragraph added." in updated.content
+
+
+class TestSynthesizeTopicDeep:
+    def test_returns_run_id_immediately(self, db, user):
+        with patch("app.mcp.tools.synthesis.run_research_lead_task") as mock_task:
+            mock_task.delay = lambda run_id: None
+            result = synthesize_topic(
+                topic="AI alignment", depth="deep", user=user, db=db
+            )
+
+        assert "run_id" in result
+        assert "status_url" in result
+        assert result["status_url"].startswith("/research/")
+
+    def test_creates_queued_run_in_db(self, db, user):
+        from app.models.research import ResearchRun
+
+        with patch("app.mcp.tools.synthesis.run_research_lead_task") as mock_task:
+            mock_task.delay = lambda run_id: None
+            result = synthesize_topic(
+                topic="RAG systems", depth="deep", user=user, db=db
+            )
+
+        run = db.query(ResearchRun).filter(ResearchRun.id == result["run_id"]).first()
+        assert run is not None
+        assert run.status == "queued"
+        assert run.question == "RAG systems"
+        assert run.user_id == user.id
+
+    def test_dispatches_lead_task(self, db, user):
+        dispatched = []
+        with patch("app.mcp.tools.synthesis.run_research_lead_task") as mock_task:
+            mock_task.delay = lambda run_id: dispatched.append(run_id)
+            result = synthesize_topic(topic="test", depth="deep", user=user, db=db)
+
+        assert len(dispatched) == 1
+        assert dispatched[0] == result["run_id"]
+
+    def test_deep_enqueues_not_executes(self, db, user):
+        with patch("app.mcp.tools.synthesis.run_research_lead_task") as mock_task:
+            mock_task.delay = lambda _: None
+            synthesize_topic(topic="test", depth="deep", user=user, db=db)
+        # task function itself was not called directly
+        mock_task.assert_not_called()
+
+    def test_rate_limit_blocks_fourth_concurrent_run(self, db, user):
+        from app.models.research import ResearchRun
+
+        for _ in range(3):
+            db.add(
+                ResearchRun(
+                    user_id=user.id,
+                    question="x",
+                    mode="deep",
+                    status="searching",
+                    budget={
+                        "max_tokens": 50000,
+                        "max_iterations": 3,
+                        "max_subagents": 5,
+                        "timeout_s": 300,
+                    },
+                )
+            )
+        db.commit()
+
+        with patch("app.mcp.tools.synthesis.run_research_lead_task") as mock_task:
+            dispatched = []
+            mock_task.delay = lambda _: dispatched.append(True)
+            result = synthesize_topic(
+                topic="fourth run", depth="deep", user=user, db=db
+            )
+
+        assert result.get("error") == "run_limit_exceeded"
+        assert len(dispatched) == 0
+
+    def test_rate_limit_allows_run_when_under_limit(self, db, user):
+        from app.models.research import ResearchRun
+
+        for _ in range(2):
+            db.add(
+                ResearchRun(
+                    user_id=user.id,
+                    question="x",
+                    mode="deep",
+                    status="searching",
+                    budget={
+                        "max_tokens": 50000,
+                        "max_iterations": 3,
+                        "max_subagents": 5,
+                        "timeout_s": 300,
+                    },
+                )
+            )
+        db.commit()
+
+        with patch("app.mcp.tools.synthesis.run_research_lead_task") as mock_task:
+            mock_task.delay = lambda _: None
+            result = synthesize_topic(topic="third run", depth="deep", user=user, db=db)
+
+        assert "run_id" in result
+
+    def test_rate_limit_counts_only_active_runs(self, db, user):
+        from app.models.research import ResearchRun
+
+        for status in ("done", "failed", "partial"):
+            db.add(
+                ResearchRun(
+                    user_id=user.id,
+                    question="x",
+                    mode="deep",
+                    status=status,
+                    budget={
+                        "max_tokens": 50000,
+                        "max_iterations": 3,
+                        "max_subagents": 5,
+                        "timeout_s": 300,
+                    },
+                )
+            )
+        db.commit()
+
+        with patch("app.mcp.tools.synthesis.run_research_lead_task") as mock_task:
+            mock_task.delay = lambda _: None
+            result = synthesize_topic(topic="new run", depth="deep", user=user, db=db)
+
+        assert "run_id" in result

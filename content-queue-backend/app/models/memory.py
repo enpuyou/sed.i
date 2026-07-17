@@ -74,4 +74,7 @@ class UserProfile(Base):
         nullable=True,
     )
     memory_text = Column(Text, nullable=True)  # free-form prose, LLM-managed
+    persistent_gaps = Column(
+        Text, nullable=True
+    )  # recurring research gaps, LLM-managed
     last_consolidated = Column(DateTime(timezone=True), nullable=True)

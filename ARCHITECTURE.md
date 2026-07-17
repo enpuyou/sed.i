@@ -1193,6 +1193,58 @@ Opt-in (`PREFECT_ENABLED=false` default). When enabled, ingestion phases 2–5 r
 
 ---
 
+## 25. Multi-agent research pipeline
+
+### Overview
+
+A user submits a natural-language research question via `POST /research`. The API creates a `ResearchRun` row and dispatches `run_research_lead_task` to Celery.
+
+**Status machine**: `queued → planning → searching → synthesizing → verifying → done | partial | failed`
+
+### Agent roles
+
+| Agent | Task | Description |
+|-------|------|-------------|
+| Lead | `run_research_lead_task` | Plans sub-questions, dispatches subagents via Celery chord, collects results, iterates if budget remains |
+| Subagent | `run_research_subagent_task` | For one sub-question: expand query → hybrid search → relevance filter → chunk retrieval |
+| Collector | `collect_subagent_results_task` | Chord callback: merge results, check budget, iterate or advance to synthesis |
+| Synthesizer | `synthesize_run_task` | Compose final `ResearchBrief` from retrieved articles |
+| Verifier | `verify_synthesis_task` | Remove hallucinated citations; after completion fires `extract_research_memory_task` |
+| Recovery | `recover_orphaned_runs` | Beat task: marks stale in-progress runs `partial` after 10 min |
+
+### Key schemas
+
+- `ResearchRun` (`app/models/research.py`) — one row per run; stores plan, sub_questions, subagent_results, synthesized brief as JSONB
+- `ResearchBrief` (`app/schemas/research.py`) — Pydantic output schema: key_findings, source_citations, coverage_assessment, confidence_score, gaps_identified
+- `SourceCitation` — article_id, title, representative_highlight, relevance_score, coverage
+
+### Budget control
+
+Default budget: 50k tokens, 3 iterations, 6 subagents, 300s timeout, 8 target articles. The lead agent tracks token usage across iterations; if budget exhausted before convergence, status is set to `partial`.
+
+### Resume support
+
+`POST /research/{run_id}/resume` re-enters the lead with the existing plan, skipping already-covered sub-questions (intra-run resume). Searches already run (tracked by `idempotency_key` in `searches_run` JSONB) are skipped.
+
+### Cross-run persistent memory (`research_memory` table)
+
+After each `done` run, `extract_research_memory_task` writes one `ResearchMemory` row per sub-question with:
+- `topic_embedding` (1536-dim via text-embedding-3-small)
+- `coverage` ("full" | "partial" | "none")
+- `topic_summary`, `gap_description`, `source_item_ids`
+
+At planning time, the lead agent embeds the new question, performs pgvector cosine similarity search (IVFFlat, lists=100), and injects top-K past memory entries as "past research context" into the planner system prompt. Config: `RESEARCH_MEMORY_K=5`, `RESEARCH_MEMORY_MAX_AGE_DAYS=90`.
+
+### Gap propagation to user profile
+
+The nightly memory consolidation task (`consolidate_memory`) reads recurring `none`-coverage sub-questions from `research_memory` and writes a `persistent_gaps` text field to `user_profiles`. This feeds back into the MCP synthesis context.
+
+### Agentic features reference
+
+See `docs/design/systems/agentic-features.md` for a full inventory of all agentic capabilities, design tradeoffs, and known gaps.
+
+---
+
 ## 22. Engineering workflow standard
 
 The operational standard for this repository is documented in:

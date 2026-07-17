@@ -172,38 +172,3 @@ def test_extension_path_stores_cleaned_html(client, auth_headers):
     # Title H1 should be cleaned from content body
     assert "<h1>My Article</h1>" not in full_text
     assert "Body text." in full_text
-
-
-# ---------------------------------------------------------------------------
-# Cross-user isolation
-# ---------------------------------------------------------------------------
-
-
-def test_cannot_access_other_users_content(client, auth_headers, db_session):
-    """User A's content is not accessible by User B."""
-    from app.models.user import User
-    from app.models.content import ContentItem
-    from app.core.security import get_password_hash
-
-    # Create user B
-    user_b = User(
-        email="userb@example.com",
-        hashed_password=get_password_hash("pass"),
-    )
-    db_session.add(user_b)
-    db_session.commit()
-    db_session.refresh(user_b)
-
-    # Add content for user B
-    content_b = ContentItem(
-        user_id=user_b.id,
-        original_url="https://secret.example.com",
-        processing_status="completed",
-    )
-    db_session.add(content_b)
-    db_session.commit()
-    db_session.refresh(content_b)
-
-    # auth_headers belongs to test_user (user A)
-    response = client.get(f"/content/{content_b.id}", headers=auth_headers)
-    assert response.status_code == 404

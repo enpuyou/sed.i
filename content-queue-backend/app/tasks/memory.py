@@ -93,6 +93,7 @@ Existing profile:
 New activity since last update:
 {activity}
 
+{research_gaps_section}
 Rules for current_focus:
 - Update ONLY if new activity shows a clear shift in direction.
 - Minor topic variation does not warrant a change.
@@ -110,7 +111,22 @@ Rules for memory_text:
 - Add new depth asymmetries or behavioral patterns observed.
 - Remove or soften claims that the new activity contradicts.
 - Keep 3-6 sentences. Be specific. No filler.
+
+Rules for persistent_gaps:
+- If research_gaps are provided: summarize recurring topics the library cannot answer.
+  Name the specific angles, not just domain labels.
+  Example: "Library has no empirical AI safety benchmarks or interpretability-at-scale coverage."
+- If no research_gaps provided: carry forward the existing persistent_gaps unchanged (null if none).
+- Only update if new gaps are observed or existing gaps have been filled by recent saves.
 """
+
+_BOOTSTRAP_GAPS_SECTION = """\
+Recent research gaps (topics where the library had no relevant articles):
+{gaps}
+
+"""
+
+_NO_GAPS_SECTION = """"""
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +138,42 @@ class ConsolidationResult(BaseModel):
     current_focus: str  # specific sub-domain, one line
     reading_velocity: Literal["fast", "deep", "browsing"]
     memory_text: str  # free-form prose, LLM-managed
+    persistent_gaps: str | None = None  # recurring research gaps, null if none
+
+
+# ---------------------------------------------------------------------------
+# Research gap loading
+# ---------------------------------------------------------------------------
+
+
+def _load_research_gaps(user_id: str, since: datetime, db: Session) -> list[str]:
+    """
+    Return none-coverage sub-questions from ResearchRun rows completed since `since`.
+    Used to populate persistent_gaps in the UserProfile.
+    """
+    from sqlalchemy import text as sa_text
+
+    uid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    try:
+        rows = db.execute(
+            sa_text(
+                """
+                SELECT rm.sub_question, COUNT(*) AS occurrences
+                FROM research_memory rm
+                WHERE rm.user_id = :uid
+                  AND rm.coverage = 'none'
+                  AND rm.created_at >= :since
+                GROUP BY rm.sub_question
+                ORDER BY occurrences DESC
+                LIMIT 10
+            """
+            ),
+            {"uid": uid, "since": since},
+        ).fetchall()
+        return [r.sub_question for r in rows]
+    except Exception as e:
+        logger.warning("_load_research_gaps: query failed: %s", e)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +445,7 @@ def _upsert_profile(user_id: str, result: ConsolidationResult, db: Session) -> N
                 current_focus=result.current_focus,
                 reading_velocity=ReadingVelocity(result.reading_velocity),
                 memory_text=result.memory_text,
+                persistent_gaps=result.persistent_gaps,
                 last_consolidated=datetime.now(tz=timezone.utc),
             )
         )
@@ -400,6 +453,8 @@ def _upsert_profile(user_id: str, result: ConsolidationResult, db: Session) -> N
         existing.current_focus = result.current_focus
         existing.reading_velocity = ReadingVelocity(result.reading_velocity)
         existing.memory_text = result.memory_text
+        if result.persistent_gaps is not None:
+            existing.persistent_gaps = result.persistent_gaps
         existing.last_consolidated = datetime.now(tz=timezone.utc)
 
 
@@ -453,12 +508,26 @@ def consolidate_memory(user_id: str, db: Session | None = None) -> dict:
 
         activity_str = _format_activity(recent)
 
+        # Load recurring research gaps from the research_memory table.
+        research_gaps = _load_research_gaps(user_id, since=since, db=db)
+        if research_gaps:
+            gaps_str = _BOOTSTRAP_GAPS_SECTION.format(
+                gaps="\n".join(f"  - {g}" for g in research_gaps)
+            )
+        else:
+            gaps_str = _NO_GAPS_SECTION
+
         if is_bootstrap:
+            # Bootstrap prompt doesn't have a research_gaps_section placeholder;
+            # append it only when gaps exist.
             prompt = prompt_template.format(activity=activity_str)
+            if gaps_str:
+                prompt += f"\n{gaps_str}"
         else:
             prompt = prompt_template.format(
                 current_profile=_format_profile(current_profile),
                 activity=activity_str,
+                research_gaps_section=gaps_str,
             )
 
         result: ConsolidationResult = llm_client.structured_chat(

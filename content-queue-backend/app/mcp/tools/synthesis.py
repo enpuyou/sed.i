@@ -17,6 +17,7 @@ from app.core.hybrid_search import hybrid_search
 from app.core.llm_client import llm_client, TASK_SYNTHESIS
 from app.models.memory import UserProfile
 from app.models.user import User
+from app.tasks.research import run_research_lead_task
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,53 @@ def _load_profile(user: User, db: Session) -> UserProfile | None:
 # ---------------------------------------------------------------------------
 
 
+def _synthesize_deep(*, topic: str, user: User, db: Session) -> dict:
+    """
+    Enqueue a deep research run and return {run_id, status_url} immediately.
+
+    Rate limit: max 3 active (non-terminal) runs per user.
+    """
+    from app.models.research import ResearchRun
+
+    _TERMINAL = ("done", "failed", "partial")
+    _MAX_ACTIVE = 3
+
+    active_count = (
+        db.query(ResearchRun)
+        .filter(
+            ResearchRun.user_id == user.id,
+            ResearchRun.status.notin_(_TERMINAL),
+        )
+        .count()
+    )
+    if active_count >= _MAX_ACTIVE:
+        return {"error": "run_limit_exceeded"}
+
+    run = ResearchRun(
+        user_id=user.id,
+        question=topic,
+        mode="deep",
+        status="queued",
+        budget={
+            "max_tokens": 50000,
+            "max_iterations": 3,
+            "max_subagents": 6,
+            "timeout_s": 300,
+            "target_count": 8,
+        },
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    run_research_lead_task.delay(str(run.id))
+
+    return {
+        "run_id": str(run.id),
+        "status_url": f"/research/{run.id}",
+    }
+
+
 def synthesize_topic(
     *,
     topic: str,
@@ -187,8 +235,7 @@ def synthesize_topic(
     deep:  returns {run_id, status_url} immediately (Phase 2, not yet implemented).
     """
     if depth == "deep":
-        # Phase 2 path — not implemented in Phase 1
-        raise NotImplementedError("depth='deep' requires Phase 2 orchestration")
+        return _synthesize_deep(topic=topic, user=user, db=db)
 
     profile = _load_profile(user, db)
     memory_context = ""

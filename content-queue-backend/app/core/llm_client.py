@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Generator
 
 from pydantic import BaseModel
 from openai import OpenAI
@@ -45,6 +46,13 @@ TASK_ENTITY_DEDUP = "entity_dedup"
 TASK_MEMORY_CONSOLIDATION = "memory_consolidation"
 TASK_ROUTING = "routing"
 TASK_SYNTHESIS = "synthesis"
+# Research pipeline — granular tags so Braintrust can slice by step
+TASK_RESEARCH_PLANNING = "research_planning"
+TASK_RESEARCH_EXPANSION = "research_expansion"
+TASK_RESEARCH_FILTER = "research_filter"
+TASK_RESEARCH_SUMMARY = "research_article_summary"
+TASK_RESEARCH_SYNTHESIS = "research_synthesis"
+TASK_MEMORY_RESEARCH = "memory_research"
 
 _EMBED_MODEL_OPENAI = "text-embedding-3-small"
 _EMBED_MODEL_BEDROCK = (
@@ -472,3 +480,33 @@ class LLMClient:
 
 # Module-level singleton — import this everywhere
 llm_client = LLMClient()
+
+
+@contextmanager
+def braintrust_span(
+    name: str, *, input: dict | None = None
+) -> Generator[Any, None, None]:
+    """
+    Context manager that wraps a logical step in a Braintrust span when tracing
+    is active. No-op when BRAINTRUST_API_KEY is not set.
+
+    Usage:
+        with braintrust_span("planning", input={"question": q}):
+            result = llm_client.structured_chat(...)
+
+    The Braintrust wrap_openai integration auto-attaches child LLM call spans
+    under whichever span is current — so wrapping each pipeline step here groups
+    all its LLM calls together in the trace UI.
+    """
+    if not settings.BRAINTRUST_API_KEY:
+        yield None
+        return
+
+    try:
+        import braintrust
+    except Exception:
+        yield None
+        return
+
+    with braintrust.start_span(name=name, input=input or {}) as span:
+        yield span
