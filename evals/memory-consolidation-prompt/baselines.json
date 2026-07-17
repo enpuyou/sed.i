@@ -1,0 +1,17 @@
+{
+  "variant": "B",
+  "mean_weighted": 0.860,
+  "pass_rate": 0.90,
+  "hard_fail_rate": 0.0,
+  "dimension_means": {
+    "specificity": 4.6,
+    "trajectory": 4.1,
+    "depth_asymmetry": 4.4,
+    "behavioral_pattern": 4.8,
+    "faithfulness": 4.6
+  },
+  "_updated": "2026-07-10",
+  "_reason": "Pilot run (10 cases). Variant B prescriptive four-dimension checklist. +0.239 over baseline A (0.621). Pass rate 90% vs 30% for A.",
+  "_dataset": "pilot",
+  "_n": 10
+}

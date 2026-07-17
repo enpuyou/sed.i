@@ -19,12 +19,14 @@ Claude Desktop config (~/.../Claude/claude_desktop_config.json):
 Get your JWT from browser devtools → Application → localStorage → "token".
 """
 
+import json
 import sys
 import logging
 
 from mcp.server.fastmcp import FastMCP
 
 from app.mcp.auth import get_user_from_env
+from app.mcp.skills import SEDI_SKILLS
 from app.mcp.db import get_db
 from app.mcp.tools.lists import (
     list_lists as _list_lists,
@@ -46,6 +48,8 @@ from app.mcp.tools.write import (
     add_to_list as _add_to_list,
 )
 from app.mcp.tools.query import query_library as _query_library
+from app.mcp.tools.synthesis import synthesize_topic as _synthesize_topic
+from app.mcp.tools.synthesis import assist_draft as _assist_draft
 
 # MCP stdio uses stdout for JSON-RPC — all logging must go to stderr.
 logging.basicConfig(
@@ -61,6 +65,17 @@ mcp = FastMCP(
         "Always operate on the authenticated user's data only."
     ),
 )
+
+
+# ---------------------------------------------------------------------------
+# Skills resource
+# ---------------------------------------------------------------------------
+
+
+@mcp.resource("skills://sedi")
+def skills_resource() -> str:
+    """Agent Skills for sed.i — load the relevant skill before executing a task."""
+    return json.dumps(SEDI_SKILLS, indent=2)
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +388,48 @@ def query_library(question: str) -> dict:
     with get_db() as db:
         user = get_user_from_env(db)
         return _query_library(question=question, user=user, db=db)
+
+
+# ---------------------------------------------------------------------------
+# Synthesis tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def synthesize_topic(topic: str, depth: str = "quick") -> dict:
+    """
+    Synthesize a topic across your library.
+
+    Args:
+        topic: The topic or question to research.
+        depth: "quick" (default) — single-pass synthesis, ~5s, synchronous.
+
+    Returns a structured synthesis with summary, perspectives, key_concepts,
+    sources (with item IDs), and a confidence level.
+    """
+    with get_db() as db:
+        user = get_user_from_env(db)
+        return _synthesize_topic(topic=topic, depth=depth, user=user, db=db)  # type: ignore[arg-type]
+
+
+@mcp.tool()
+def assist_draft(list_id: str, instruction: str) -> dict:
+    """
+    Draft a paragraph using your library as source material.
+
+    Finds relevant articles and highlights from your library and drafts one
+    paragraph matching your writing style. Appends it to the list's draft.
+    Only calls update_draft — does not modify your library.
+
+    Args:
+        list_id: UUID of the reading list whose draft to append to.
+        instruction: What to write, e.g. "write an intro about RAG systems".
+
+    Returns {added, citations, source_count}.
+    """
+    with get_db() as db:
+        user = get_user_from_env(db)
+        return _assist_draft(list_id=list_id, instruction=instruction, user=user, db=db)
 
 
 # ---------------------------------------------------------------------------

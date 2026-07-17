@@ -1,6 +1,6 @@
 [project]
 name = "content-queue-backend"
-version = "0.4.1"
+version = "0.5.0"
 description = "Content Queue API"
 authors = [
     {name = "enpuyou",email = "enpuyou@gmail.com"}
@@ -88,7 +88,22 @@ torchvision = [
 [tool.pytest.ini_options]
 # Disable xdist by default — tests share one DB and parallel TRUNCATEs conflict.
 # Run a single file fast with: pytest tests/test_foo.py
-addopts = "-p no:xdist"
+addopts = "-p no:xdist --cov=app --cov-report=term-missing:skip-covered --cov-report=html:htmlcov --cov-fail-under=0"
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/migrations/*", "*/__pycache__/*"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -103,3 +118,5 @@ ruff = ">=0.14.11,<0.15.0"
 pre-commit = ">=4.5.1,<5.0.0"
 psycopg2-binary = "^2.9.11"
 python-dotenv = ">=1.2.1,<2.0.0"
+pytest-cov = "^7.1.0"
+freezegun = "^1.5.5"

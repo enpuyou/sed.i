@@ -10,6 +10,9 @@ from app.models.tag_embedding import TagEmbedding
 from app.models.reading_cluster import ReadingCluster
 from app.models.refresh_token import RefreshToken
 from app.models.entity import Entity, EntityMention, EntityRelation
+from app.models.memory import UserMemoryEvent, UserProfile, ReadingVelocity
+from app.models.research import ResearchRun
+from app.models.research_memory import ResearchMemory
 
 __all__ = [
     "User",
@@ -27,4 +30,9 @@ __all__ = [
     "Entity",
     "EntityMention",
     "EntityRelation",
+    "UserMemoryEvent",
+    "UserProfile",
+    "ReadingVelocity",
+    "ResearchRun",
+    "ResearchMemory",
 ]

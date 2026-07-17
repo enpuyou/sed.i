@@ -59,6 +59,18 @@ celery_app.conf.update(
             "task": "app.tasks.entity_backfill.backfill_missing_entities_task",
             "schedule": 60 * 60 * 24,  # Every 24 hours
         },
+        # Nightly memory consolidation: extract structured insights per active user
+        "consolidate-memory-nightly": {
+            "task": "app.tasks.memory.consolidate_all_users_task",
+            "schedule": 60
+            * 60
+            * 24,  # Every 24 hours at 3 AM UTC (offset via crontab if needed)
+        },
+        # Recover stalled research runs every 5 minutes
+        "recover-orphaned-runs": {
+            "task": "app.tasks.research.recover_orphaned_runs_task",
+            "schedule": 60 * 5,
+        },
     },
 )
 
@@ -83,6 +95,9 @@ from app.tasks import (
     entity_embedding,
     entity_dedup,
     entity_backfill,
+    memory,
+    research,
+    research_memory,
 )
 
 
