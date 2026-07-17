@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Column, DateTime, Integer, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.core.database import Base
@@ -21,7 +21,12 @@ class ResearchRun(Base):
     __tablename__ = "research_runs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     question = Column(Text, nullable=False)
     mode = Column(Text, nullable=False, default="deep")  # "quick" | "deep"
 

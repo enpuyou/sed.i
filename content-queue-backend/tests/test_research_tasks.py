@@ -1064,6 +1064,10 @@ class TestSynthesisAndVerification:
                 FakeRelevance(),
                 mock_brief,
             ]
+            # embed: used by memory injection path at planning time
+            mock_embed_result = MagicMock()
+            mock_embed_result.embeddings = [[0.1] * 1536]
+            mock_llm.embed.return_value = mock_embed_result
             # chat: article summary (one per relevant article)
             mock_llm.chat.return_value = _fake_chat_result()
             with patch("app.tasks.research.hybrid_search") as mock_search:
@@ -1233,22 +1237,22 @@ class TestCeleryTaskRegistry:
         run.result = brief.model_dump()
         db_session.commit()
 
-        fired_run_ids = []
+        fired_args = []
 
         import app.tasks.research_memory as _rm_mod
 
-        original_delay = _rm_mod.extract_research_memory.delay
+        original_apply_async = _rm_mod.extract_research_memory_task.apply_async
 
-        def fake_delay(run_id):
-            fired_run_ids.append(run_id)
+        def fake_apply_async(args=(), kwargs=None, **opts):
+            fired_args.append(args)
 
-        _rm_mod.extract_research_memory.delay = fake_delay
+        _rm_mod.extract_research_memory_task.apply_async = fake_apply_async
         try:
             verify_synthesis(str(run.id), db=db_session)
         finally:
-            _rm_mod.extract_research_memory.delay = original_delay
+            _rm_mod.extract_research_memory_task.apply_async = original_apply_async
 
-        assert fired_run_ids == [str(run.id)], (
-            "verify_synthesis must call extract_research_memory.delay(run_id) "
+        assert len(fired_args) == 1 and fired_args[0] == (str(run.id),), (
+            "verify_synthesis must call extract_research_memory_task.apply_async((run_id,), countdown=5) "
             "after setting status=done"
         )

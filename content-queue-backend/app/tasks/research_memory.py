@@ -148,8 +148,17 @@ def extract_research_memory(run_id: str, db: Session | None = None) -> None:
                 gap_description=gap_description,
                 source_item_ids=source_uuids or None,
             )
-            db.add(entry)
-            rows_written += 1
+            try:
+                db.add(entry)
+                db.flush()
+                rows_written += 1
+            except Exception as e:
+                logger.warning(
+                    "extract_research_memory: skipping entry sq=%r: %s",
+                    sub_question,
+                    e,
+                )
+                db.rollback()
 
         db.commit()
         logger.info(

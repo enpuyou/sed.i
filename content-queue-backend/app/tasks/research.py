@@ -384,23 +384,28 @@ def _fetch_research_memory(
 
     try:
         embedding_str = "[" + ",".join(map(str, question_embedding)) + "]"
-        cutoff = f"now() - interval '{max_age_days} days'"
         rows = db.execute(
             text(
-                f"""
+                """
                 SELECT id, sub_question, coverage, topic_summary, gap_description,
                        1 - (topic_embedding <=> CAST(:q AS vector)) AS similarity
                 FROM research_memory
                 WHERE user_id = :uid
-                  AND created_at > {cutoff}
+                  AND created_at > now() - interval :age_interval
                   AND topic_embedding IS NOT NULL
+                  AND 1 - (topic_embedding <=> CAST(:q AS vector)) >= 0.75
                 ORDER BY topic_embedding <=> CAST(:q AS vector)
                 LIMIT :k
             """
             ),
-            {"uid": user_id, "q": embedding_str, "k": k},
+            {
+                "uid": user_id,
+                "q": embedding_str,
+                "k": k,
+                "age_interval": f"{max_age_days} days",
+            },
         ).fetchall()
-        return [r for r in rows if r.similarity >= 0.75]
+        return list(rows)
     except Exception as e:
         logger.warning("_fetch_research_memory: query failed: %s", e)
         try:
@@ -606,6 +611,9 @@ def run_research_lead(run_id: str, db: Session | None = None, resume: bool = Fal
 )
 def run_research_lead_task(self, run_id: str, resume: bool = False):
     run_research_lead(run_id, db=self.db, resume=resume)
+
+
+run_research_lead.delay = run_research_lead_task.delay
 
 
 # ---------------------------------------------------------------------------
@@ -1207,11 +1215,12 @@ def verify_synthesis(run_id: str, db: Session | None = None) -> None:
         db.commit()
 
         # Fire-and-forget: extract memory entries for future planning context.
+        # countdown=5 gives the commit time to propagate before the task reads the run.
         # Import here to avoid a circular import (research_memory imports research models).
         try:
-            from app.tasks.research_memory import extract_research_memory
+            from app.tasks.research_memory import extract_research_memory_task
 
-            extract_research_memory.delay(run_id)
+            extract_research_memory_task.apply_async((run_id,), countdown=5)
         except Exception as e:
             logger.warning(
                 "verify_synthesis: could not fire extract_research_memory: %s", e
