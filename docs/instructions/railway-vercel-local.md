@@ -182,7 +182,7 @@ check it on Railway (where it's set) or look in the codebase.
 
 **Prefect internal URL**: Use `http://<prefect-service>.railway.internal/api` for
 service-to-service calls within Railway. The public URL
-(`prefect-production-b0dc.up.railway.app/api`) works but routes through the public
+(`<prefect-service>.up.railway.app/api`) works but routes through the public
 internet unnecessarily.
 
 ---

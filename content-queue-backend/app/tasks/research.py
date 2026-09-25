@@ -27,6 +27,7 @@ from app.core.hybrid_search import hybrid_search
 from app.core.llm_client import (
     llm_client,
     braintrust_span,
+    BudgetExceededError,
     TASK_RESEARCH_PLANNING,
     TASK_RESEARCH_EXPANSION,
     TASK_RESEARCH_FILTER,
@@ -513,7 +514,14 @@ def run_research_lead(run_id: str, db: Session | None = None, resume: bool = Fal
         elif not resume:
             # First iteration only: inject cross-run memory from past research sessions.
             try:
-                question_embedding = llm_client.embed(run.question).embeddings[0]
+                with braintrust_span(
+                    "memory_fetch_embed",
+                    input={"question": run.question, "run_id": run_id},
+                    metadata={"user_id": str(run.user_id)},
+                ):
+                    question_embedding = llm_client.embed(
+                        run.question, user_id=str(run.user_id)
+                    ).embeddings[0]
                 memory_entries = _fetch_research_memory(
                     run.user_id, question_embedding, db
                 )
@@ -535,31 +543,46 @@ def run_research_lead(run_id: str, db: Session | None = None, resume: bool = Fal
 
         planning_system, planning_user_tmpl = _PLANNING_PROMPT
         memory_count = prior_context.count("\n- ") if prior_context else 0
-        with braintrust_span(
-            "planning",
-            input={
-                "question": run.question,
-                "run_id": run_id,
-                "resume": resume,
-                "memory_entries_injected": memory_count,
-            },
-        ):
-            planning_response = llm_client.structured_chat(
-                messages=[
-                    {"role": "system", "content": planning_system},
-                    {
-                        "role": "user",
-                        "content": planning_user_tmpl.format(
-                            question=run.question,
-                            library_titles=library_titles,
-                            prior_context=prior_context,
-                        ),
-                    },
-                ],
-                response_model=SubQuestionPlan,
-                task=TASK_RESEARCH_PLANNING,
-                max_tokens=512,
+        try:
+            with braintrust_span(
+                "planning",
+                input={
+                    "question": run.question,
+                    "run_id": run_id,
+                    "resume": resume,
+                    "memory_entries_injected": memory_count,
+                },
+                metadata={"user_id": str(run.user_id)},
+            ):
+                planning_response = llm_client.structured_chat(
+                    messages=[
+                        {"role": "system", "content": planning_system},
+                        {
+                            "role": "user",
+                            "content": planning_user_tmpl.format(
+                                question=run.question,
+                                library_titles=library_titles,
+                                prior_context=prior_context,
+                            ),
+                        },
+                    ],
+                    response_model=SubQuestionPlan,
+                    task=TASK_RESEARCH_PLANNING,
+                    max_tokens=512,
+                    user_id=str(run.user_id),
+                )
+        except BudgetExceededError as e:
+            # Surface distinctly rather than letting this propagate uncaught
+            # (this function has no other exception handler) and get picked
+            # up 10 minutes later by recover_orphaned_runs_task as a generic
+            # "stalled" partial — that hides the real cause from the user.
+            logger.warning(
+                "run_research_lead: budget exceeded for run %s: %s", run_id, e
             )
+            run.status = "failed"
+            run.error = {"code": "budget_exceeded", "message": str(e)}
+            db.commit()
+            return
         sub_questions = planning_response.sub_questions[:6]
         run.plan = "\n".join(f"{i+1}. {q}" for i, q in enumerate(sub_questions))
         run.sub_questions = sub_questions
@@ -682,6 +705,7 @@ def run_research_subagent(
             with braintrust_span(
                 "query_expansion",
                 input={"sub_question": sub_question, "run_id": run_id},
+                metadata={"user_id": str(run.user_id)},
             ):
                 expansion = llm_client.structured_chat(
                     messages=[
@@ -696,6 +720,7 @@ def run_research_subagent(
                     response_model=QueryExpansion,
                     task=TASK_RESEARCH_EXPANSION,
                     max_tokens=128,
+                    user_id=str(run.user_id),
                 )
             extra_queries = [q.strip() for q in expansion.queries if q.strip()][:2]
         except Exception:
@@ -773,6 +798,7 @@ def run_research_subagent(
                 "candidate_count": len(candidates),
                 "run_id": run_id,
             },
+            metadata={"user_id": str(run.user_id)},
         ):
             filter_response = llm_client.structured_chat(
                 messages=[
@@ -788,6 +814,7 @@ def run_research_subagent(
                 response_model=RelevanceResult,
                 task=TASK_RESEARCH_FILTER,
                 max_tokens=256,
+                user_id=str(run.user_id),
             )
         relevant_ids = set(str(x).strip() for x in filter_response.relevant_ids)
 
@@ -796,12 +823,16 @@ def run_research_subagent(
         from app.core.embedding_cache import call_embed
 
         try:
-            query_embedding = call_embed(sub_question)
+            query_embedding = call_embed(sub_question, user_id=str(run.user_id))
         except Exception:
             query_embedding = None
 
         articles = []
         item_ids = []
+        # Set once a summary call hits BudgetExceededError, so we stop
+        # retrying a call that will fail identically for every remaining
+        # article and log the cause once instead of per-article silence.
+        summary_budget_exhausted = False
 
         for r in candidates:
             art_id_raw = r.get("id") or r.get("item_id")
@@ -838,46 +869,58 @@ def run_research_subagent(
 
             # Generate focused per-article summary scoped to the sub-question
             article_summary = ""
-            try:
-                chunks_text = (
-                    "\n".join(f"  › {c[:400]}" for c in chunks)
-                    if chunks
-                    else "  (no excerpts available)"
-                )
-                highlights_text = (
-                    "\n".join(f"  › {h[:200]}" for h in highlights[:5])
-                    if highlights
-                    else "  (none)"
-                )
-                summary_system, summary_user_tmpl = _ARTICLE_SUMMARY_PROMPT
-                with braintrust_span(
-                    "article_summary",
-                    input={
-                        "sub_question": sub_question,
-                        "title": r.get("title", ""),
-                        "run_id": run_id,
-                    },
-                ):
-                    summary_response = llm_client.chat(
-                        messages=[
-                            {"role": "system", "content": summary_system},
-                            {
-                                "role": "user",
-                                "content": summary_user_tmpl.format(
-                                    sub_question=sub_question,
-                                    title=r.get("title", ""),
-                                    description=(r.get("description") or "")[:300],
-                                    chunks=chunks_text,
-                                    highlights=highlights_text,
-                                ),
-                            },
-                        ],
-                        task=TASK_RESEARCH_SUMMARY,
-                        max_tokens=150,
+            if not summary_budget_exhausted:
+                try:
+                    chunks_text = (
+                        "\n".join(f"  › {c[:400]}" for c in chunks)
+                        if chunks
+                        else "  (no excerpts available)"
                     )
-                article_summary = summary_response.content.strip()
-            except Exception:
-                pass
+                    highlights_text = (
+                        "\n".join(f"  › {h[:200]}" for h in highlights[:5])
+                        if highlights
+                        else "  (none)"
+                    )
+                    summary_system, summary_user_tmpl = _ARTICLE_SUMMARY_PROMPT
+                    with braintrust_span(
+                        "article_summary",
+                        input={
+                            "sub_question": sub_question,
+                            "title": r.get("title", ""),
+                            "run_id": run_id,
+                        },
+                        metadata={"user_id": str(run.user_id)},
+                    ):
+                        summary_response = llm_client.chat(
+                            messages=[
+                                {"role": "system", "content": summary_system},
+                                {
+                                    "role": "user",
+                                    "content": summary_user_tmpl.format(
+                                        sub_question=sub_question,
+                                        title=r.get("title", ""),
+                                        description=(r.get("description") or "")[:300],
+                                        chunks=chunks_text,
+                                        highlights=highlights_text,
+                                    ),
+                                },
+                            ],
+                            task=TASK_RESEARCH_SUMMARY,
+                            max_tokens=150,
+                            user_id=str(run.user_id),
+                        )
+                    article_summary = summary_response.content.strip()
+                except BudgetExceededError as e:
+                    logger.warning(
+                        "run_research_subagent: budget exceeded during article "
+                        "summaries for run %s, remaining articles will have no "
+                        "summary: %s",
+                        run_id,
+                        e,
+                    )
+                    summary_budget_exhausted = True
+                except Exception:
+                    pass
 
             articles.append(
                 {
@@ -910,6 +953,21 @@ def run_research_subagent(
             },
             "error": None,
             "meta": {"duration_ms": int((time.monotonic() - t0) * 1000)},
+        }
+
+    except BudgetExceededError as exc:
+        # Distinct from subagent_error below — a caller (or the user, via
+        # the run's final error/coverage) needs to be able to tell "the
+        # library search came up empty" apart from "we stopped answering
+        # because the daily LLM budget ran out mid-run."
+        logger.warning(
+            "run_research_subagent budget exceeded for run %s: %s", run_id, exc
+        )
+        return {
+            "ok": False,
+            "data": None,
+            "error": {"code": "budget_exceeded", "message": str(exc)},
+            "meta": {},
         }
 
     except Exception as exc:
@@ -1069,31 +1127,43 @@ def synthesize_run(run_id: str, db: Session | None = None) -> None:
             ),
         }
         synthesis_system, synthesis_user_tmpl = _SYNTHESIS_PROMPT
-        with braintrust_span(
-            "synthesis",
-            input={
-                "run_id": run_id,
-                "question": run.question,
-                "sub_question_count": len(sub_questions),
-                "articles_retrieved": len(run.item_ids_retrieved or []),
-                "coverage": coverage_counts,
-            },
-        ):
-            brief: ResearchBrief = llm_client.structured_chat(
-                messages=[
-                    {"role": "system", "content": synthesis_system},
-                    {
-                        "role": "user",
-                        "content": synthesis_user_tmpl.format(
-                            question=run.question,
-                            per_sq_context=per_sq_context,
-                        ),
-                    },
-                ],
-                response_model=ResearchBrief,
-                task=TASK_RESEARCH_SYNTHESIS,
-                max_tokens=3000,
-            )
+        try:
+            with braintrust_span(
+                "synthesis",
+                input={
+                    "run_id": run_id,
+                    "question": run.question,
+                    "sub_question_count": len(sub_questions),
+                    "articles_retrieved": len(run.item_ids_retrieved or []),
+                    "coverage": coverage_counts,
+                },
+                metadata={"user_id": str(run.user_id)},
+            ):
+                brief: ResearchBrief = llm_client.structured_chat(
+                    messages=[
+                        {"role": "system", "content": synthesis_system},
+                        {
+                            "role": "user",
+                            "content": synthesis_user_tmpl.format(
+                                question=run.question,
+                                per_sq_context=per_sq_context,
+                            ),
+                        },
+                    ],
+                    response_model=ResearchBrief,
+                    task=TASK_RESEARCH_SYNTHESIS,
+                    max_tokens=3000,
+                    user_id=str(run.user_id),
+                )
+        except BudgetExceededError as e:
+            # This function has no other exception handler — without this,
+            # a budget-exhausted synthesis call would crash the task with
+            # run.status stuck at "synthesizing" and no explanation of why.
+            logger.warning("synthesize_run: budget exceeded for run %s: %s", run_id, e)
+            run.status = "failed"
+            run.error = {"code": "budget_exceeded", "message": str(e)}
+            db.commit()
+            return
 
         run.result = brief.model_dump()
         run.status = "verifying"
@@ -1280,7 +1350,22 @@ def recover_orphaned_runs(db: Session | None = None) -> int:
 
 @celery_app.task(base=DatabaseTask, bind=True)
 def recover_orphaned_runs_task(self):
-    return recover_orphaned_runs(db=self.db)
+    """Beat-scheduled every 5 minutes (app.core.celery_app). Guarded by a
+    Redis lock (see app.core.task_locks) so an overrunning previous sweep
+    can't overlap with the next firing — this task's work is synchronous
+    (query + mutate + commit, no async dispatch), so the lock is released
+    as soon as it finishes."""
+    from app.core.task_locks import acquire_run_lock, release_run_lock
+
+    lock_name = "recover_orphaned_runs_task"
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 10):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return 0
+
+    try:
+        return recover_orphaned_runs(db=self.db)
+    finally:
+        release_run_lock(lock_name)
 
 
 recover_orphaned_runs.delay = recover_orphaned_runs_task.delay

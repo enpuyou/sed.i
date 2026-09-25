@@ -31,6 +31,33 @@ CONCURRENT_INDEXES = [
         WITH (m = 16, ef_construction = 64)
         """,
     ),
+    (
+        "content_chunks_embedding_hnsw",
+        """
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS content_chunks_embedding_hnsw
+        ON content_chunks
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64)
+        """,
+    ),
+    (
+        "content_items_embedding_hnsw",
+        """
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS content_items_embedding_hnsw
+        ON content_items
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64)
+        """,
+    ),
+    (
+        "highlights_embedding_hnsw",
+        """
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS highlights_embedding_hnsw
+        ON highlights
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64)
+        """,
+    ),
 ]
 
 

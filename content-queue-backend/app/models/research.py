@@ -46,7 +46,6 @@ class ResearchRun(Base):
     result = Column(JSONB, nullable=True)
 
     # Metadata
-    cost = Column(JSONB, nullable=True)  # {prompt_tokens, completion_tokens, usd}
     error = Column(JSONB, nullable=True)  # {code, message}
     iteration_count = Column(Integer, nullable=False, default=0)
     budget = Column(

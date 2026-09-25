@@ -132,6 +132,30 @@ class TestEnforceUserIsolation:
         sql = "SELECT name FROM lists WHERE owner_id = :user_id"
         _enforce_user_isolation(sql)  # must not raise
 
+    def test_unqualified_user_id_does_not_isolate_multiple_tables(self):
+        """
+        An unqualified `user_id = :user_id` in a multi-table query is ambiguous —
+        Postgres resolves it to exactly one table, not both. The checker must not
+        credit every user-scoped table with isolation just because one of them
+        happens to share the column name.
+        """
+        sql = """
+        SELECT ci.title, h.text
+        FROM content_items ci
+        JOIN highlights h ON h.content_item_id = ci.id
+        WHERE user_id = :user_id
+        """
+        with pytest.raises(ValueError, match="user-scoped"):
+            _enforce_user_isolation(sql)
+
+    def test_unqualified_user_id_isolates_single_candidate_table(self):
+        """
+        When only one joined table has a user-scoping column matching the
+        unqualified predicate, it's unambiguous and should pass.
+        """
+        sql = "SELECT * FROM content_items WHERE user_id = :user_id"
+        _enforce_user_isolation(sql)  # must not raise
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: mocked LLM, real DB execution

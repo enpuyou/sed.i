@@ -32,7 +32,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.models.user import User
-from app.core.llm_client import llm_client, TASK_MCP_SUMMARY, TASK_SQL_GEN
+from app.core.llm_client import (
+    llm_client,
+    braintrust_span,
+    TASK_MCP_SUMMARY,
+    TASK_SQL_GEN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -289,13 +294,24 @@ def _enforce_user_isolation(sql: str) -> None:
             ):
                 col_name = col_side.name.lower()
                 col_table = (col_side.table or "").lower()
-                for alias, tbl in alias_map.items():
-                    expected_col = _USER_SCOPED_TABLES.get(tbl)
-                    if expected_col and col_name == expected_col:
-                        # Accept if the column is qualified with this alias,
-                        # or unqualified (could apply to any table with this col).
-                        if not col_table or col_table == alias:
-                            filtered_aliases.add(alias)
+                # Candidate aliases whose table has a matching user-scoping column.
+                candidates = [
+                    alias
+                    for alias, tbl in alias_map.items()
+                    if _USER_SCOPED_TABLES.get(tbl) == col_name
+                ]
+                if col_table:
+                    # Qualified: isolates exactly the named alias.
+                    if col_table in candidates:
+                        filtered_aliases.add(col_table)
+                elif len(candidates) == 1:
+                    # Unqualified but unambiguous — only one joined table could own
+                    # this column, so Postgres (and this checker) can resolve it.
+                    filtered_aliases.add(candidates[0])
+                # Unqualified with >1 candidate is genuinely ambiguous — Postgres
+                # would only accept this if just one table has the column, so if
+                # multiple do, don't credit any of them with isolation. The
+                # "missing predicate" error below will correctly reject the query.
 
     # Every alias for a user-scoped table must appear in filtered_aliases.
     for alias, tbl in alias_map.items():
@@ -346,7 +362,7 @@ def _validate_sql_regex(sql: str) -> str:
     return sql.strip()
 
 
-def _format_results(rows: list[dict], question: str) -> str:
+def _format_results(rows: list[dict], question: str, user_id: str) -> str:
     """
     Ask the LLM to summarize query results into a natural-language answer.
 
@@ -372,30 +388,36 @@ def _format_results(rows: list[dict], question: str) -> str:
         return table_text + suffix
 
     try:
-        result = llm_client.chat(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a reading assistant. The user asked a question about "
-                        "their reading library and you ran a database query for them. "
-                        "Summarize the results concisely in plain English. "
-                        "Be specific — mention titles, counts, or dates from the data."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Question: {question}\n\n"
-                        f"Query results:\n{table_text}\n\n"
-                        "Summarize these results in 1-3 sentences."
-                    ),
-                },
-            ],
-            task=TASK_MCP_SUMMARY,
-            max_tokens=300,
-            temperature=0.3,
-        )
+        with braintrust_span(
+            "query_library_summarize",
+            input={"question": question, "row_count": len(rows)},
+            metadata={"user_id": user_id},
+        ):
+            result = llm_client.chat(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a reading assistant. The user asked a question about "
+                            "their reading library and you ran a database query for them. "
+                            "Summarize the results concisely in plain English. "
+                            "Be specific — mention titles, counts, or dates from the data."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Question: {question}\n\n"
+                            f"Query results:\n{table_text}\n\n"
+                            "Summarize these results in 1-3 sentences."
+                        ),
+                    },
+                ],
+                task=TASK_MCP_SUMMARY,
+                max_tokens=300,
+                temperature=0.3,
+                user_id=user_id,
+            )
         return result.content
     except Exception as e:
         logger.warning(f"Result summarization failed: {e}, returning raw table")
@@ -422,15 +444,21 @@ def query_library(*, question: str, user: User, db: Session) -> dict:
     schema_prompt = _build_schema_prompt()
 
     # Step 1: generate SQL
-    chat_result = llm_client.chat(
-        messages=[
-            {"role": "system", "content": schema_prompt},
-            {"role": "user", "content": question},
-        ],
-        task=TASK_SQL_GEN,
-        max_tokens=512,
-        temperature=0.0,
-    )
+    with braintrust_span(
+        "query_library_sql_gen",
+        input={"question": question},
+        metadata={"user_id": str(user.id)},
+    ):
+        chat_result = llm_client.chat(
+            messages=[
+                {"role": "system", "content": schema_prompt},
+                {"role": "user", "content": question},
+            ],
+            task=TASK_SQL_GEN,
+            max_tokens=512,
+            temperature=0.0,
+            user_id=str(user.id),
+        )
 
     raw_sql = chat_result.content.strip()
 
@@ -461,7 +489,7 @@ def query_library(*, question: str, user: User, db: Session) -> dict:
         raise ValueError(f"Query execution failed: {e}") from e
 
     # Step 5: format results
-    answer = _format_results(rows, question)
+    answer = _format_results(rows, question, str(user.id))
 
     return {
         "answer": answer,

@@ -7,7 +7,6 @@ import pytest
 from app.models.content import ContentItem
 from app.mcp.tools.synthesis import SynthesisResponse, synthesize_topic
 from app.tasks.memory import ConsolidationResult, consolidate_memory
-from app.core.request_router import classify_request, RouteDecision
 
 
 @pytest.fixture
@@ -124,15 +123,6 @@ class TestMemorySkillsIntegration:
 
         combined = " ".join(m["content"] for m in captured)
         assert "preparing for a distributed systems engineering role" in combined
-
-    def test_router_directs_weekly_question_to_skill(self):
-        mock_decision = RouteDecision(route="skill", skill="weekly-digest")
-        with patch("app.core.request_router.llm_client") as mock:
-            mock.structured_chat.return_value = mock_decision
-            route, skill = classify_request("what did I save this week?")
-
-        assert route == "skill"
-        assert skill == "weekly-digest"
 
     def test_memory_consolidation_does_not_affect_other_users(
         self, db_session, test_user, article

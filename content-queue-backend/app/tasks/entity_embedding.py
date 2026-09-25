@@ -21,7 +21,12 @@ from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
 from app.core.database import SessionLocal
-from app.core.llm_client import llm_client
+from app.core.llm_client import (
+    TASK_ENTITY_EMBEDDING,
+    BudgetExceededError,
+    braintrust_span,
+    llm_client,
+)
 from app.models.entity import Entity
 from app.tasks.base import DatabaseTask
 
@@ -64,7 +69,12 @@ def embed_new_entities(user_id: str, db: Session | None = None) -> dict:
             return {"user_id": user_id, "status": "nothing_to_embed"}
 
         texts = [_entity_text(e) for e in unembedded]
-        result = llm_client.embed(texts)
+        with braintrust_span(
+            TASK_ENTITY_EMBEDDING,
+            input={"count": len(texts)},
+            metadata={"user_id": user_id},
+        ):
+            result = llm_client.embed(texts, user_id=user_id)
 
         for entity, vector in zip(unembedded, result.embeddings):
             entity.embedding = vector
@@ -72,6 +82,10 @@ def embed_new_entities(user_id: str, db: Session | None = None) -> dict:
         db.commit()
         logger.info(f"Embedded {len(unembedded)} entities for user {user_id}")
         return {"user_id": user_id, "status": "completed", "embedded": len(unembedded)}
+
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping entity embeddings for user {user_id}: {e}")
+        return {"user_id": user_id, "status": "budget_exceeded"}
 
     except Exception as e:
         logger.error(f"embed_new_entities failed for user {user_id}: {e}")

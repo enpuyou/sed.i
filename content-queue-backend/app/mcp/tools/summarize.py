@@ -13,7 +13,7 @@ import json
 
 from sqlalchemy.orm import Session
 
-from app.core.llm_client import llm_client, TASK_MCP_SUMMARY
+from app.core.llm_client import TASK_MCP_SUMMARY, braintrust_span, llm_client
 from app.models.user import User
 from app.models.list import List, content_list_membership
 from app.models.content import ContentItem
@@ -153,9 +153,18 @@ def summarize_list(
 
     messages = _build_prompt(articles, style, draft_content)
 
-    result = llm_client.chat(
-        messages=messages, task=TASK_MCP_SUMMARY, max_tokens=512, temperature=0.5
-    )
+    with braintrust_span(
+        TASK_MCP_SUMMARY,
+        input={"list_id": list_id, "style": style},
+        metadata={"user_id": str(user.id)},
+    ):
+        result = llm_client.chat(
+            messages=messages,
+            task=TASK_MCP_SUMMARY,
+            max_tokens=512,
+            temperature=0.5,
+            user_id=str(user.id),
+        )
     summary_text = result.content
 
     result = {

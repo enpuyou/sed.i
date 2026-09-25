@@ -38,6 +38,13 @@ celery_app.conf.update(
             "task": "app.tasks.embedding.process_all_missing_embeddings",
             "schedule": 300.0,  # Every 5 minutes
         },
+        # Safety-net backfill: chunk embeddings are normally dispatched at
+        # ingest time (embedding.py, after item embedding completes) — this
+        # catches items whose dispatch was dropped (e.g. broker unavailable).
+        "process-missing-chunks": {
+            "task": "app.tasks.chunk_embeddings.process_all_missing_chunks",
+            "schedule": 300.0,  # Every 5 minutes
+        },
         # Cluster user tags into reading themes weekly
         "cluster-reading-themes": {
             "task": "app.tasks.clustering.cluster_all_users_task",
@@ -69,6 +76,13 @@ celery_app.conf.update(
         # Recover stalled research runs every 5 minutes
         "recover-orphaned-runs": {
             "task": "app.tasks.research.recover_orphaned_runs_task",
+            "schedule": 60 * 5,
+        },
+        # Re-dispatch content items stuck at processing_status='pending'
+        # (extraction dispatch never reached a worker, e.g. broker
+        # unavailable at ingest time) every 5 minutes
+        "recover-stale-pending-items": {
+            "task": "app.tasks.extraction.recover_stale_pending_items",
             "schedule": 60 * 5,
         },
     },

@@ -189,6 +189,61 @@ def fast_password_hashing(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Clear Redis-backed rate limit buckets before every test.
+
+    RateLimitMiddleware now enforces limits via Redis (app/middleware/rate_limit.py)
+    so limits hold across multiple backend instances. Without this reset, repeated
+    calls to a limited route (POST /content, POST /auth/login, etc.) across
+    different test functions in the same run share the same test-client IP
+    identifier and can trip 429s that have nothing to do with what the test
+    is actually checking.
+    """
+    from app.middleware.rate_limit import _get_redis_client
+
+    r = _get_redis_client()
+    if r is not None:
+        for key in r.scan_iter("ratelimit:*"):
+            r.delete(key)
+        for key in r.scan_iter("task_lock:*"):
+            r.delete(key)
+
+
+@pytest.fixture(autouse=True)
+def reset_auth_cookies(request):
+    """Clear the shared session-scoped HTTP client's cookie jar before every test.
+
+    The `client` HTTP fixture (this file) is session-scoped and reused across
+    all tests for performance — see its docstring. Auth cookies
+    (app/core/auth_cookies.py) set by one test's login/refresh call otherwise
+    persist into unrelated tests via that shared jar (e.g. a leftover CSRF/
+    access cookie from an earlier login making a later "no auth" test
+    unexpectedly authenticated, or tripping the CSRF check on a test that
+    never logged in).
+
+    Looks up `client` via `request.getfixturevalue()` rather than depending
+    on it directly by name — some test files (e.g. test_llm_client.py)
+    define their own unrelated local fixture also named `client`
+    (an LLMClient instance, not the HTTP client), which would otherwise
+    shadow this file's `client` within that file's scope and break here with
+    an AttributeError. Fixtures not using the HTTP client at all skip
+    cleanly since getfixturevalue only resolves it if requested.
+    """
+    if "client" not in request.fixturenames:
+        yield
+        return
+
+    http_client = request.getfixturevalue("client")
+    if not hasattr(http_client, "cookies"):
+        yield
+        return
+
+    http_client.cookies.clear()
+    yield
+    http_client.cookies.clear()
+
+
 @pytest.fixture(scope="function")
 def test_user(db_session):
     """

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { addHeadingAnchors } from "@/lib/bionicReading";
+import { addHeadingAnchors, sanitizeArticleHtml } from "@/lib/bionicReading";
 import { useReadingSettings } from "@/contexts/ReadingSettingsContext";
 
 interface Highlight {
@@ -67,7 +67,7 @@ const HighlightRenderer = ({
   // Strip PDF document wrappers (DOCTYPE, html, head, body) to avoid React hydration errors
   // No-op for regular articles (trafilatura doesn't include these wrappers)
   const [renderedHtml, setRenderedHtml] = useState<string>(
-    stripDocumentWrappers(html),
+    sanitizeArticleHtml(stripDocumentWrappers(html)),
   );
   const { settings } = useReadingSettings();
   const [isMobile, setIsMobile] = useState(false);
@@ -270,8 +270,11 @@ const HighlightRenderer = ({
       parent.replaceChild(fragment, node);
     });
 
-    // Apply heading anchors to the final processed HTML
-    setRenderedHtml(addHeadingAnchors(originalDoc.body.innerHTML));
+    // Apply heading anchors, then sanitize the final string right before it's
+    // handed to html-react-parser — see sanitizeArticleHtml above.
+    setRenderedHtml(
+      sanitizeArticleHtml(addHeadingAnchors(originalDoc.body.innerHTML)),
+    );
   }, [html, highlights, settings.bionicReading]);
 
   // ... (transform function)

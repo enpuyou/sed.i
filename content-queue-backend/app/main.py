@@ -26,6 +26,7 @@ from app.api import (
 )
 from app.api.endpoints import public
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.csrf import CSRFMiddleware
 from app.mcp.oauth import router as mcp_oauth_router
 from app.mcp.http_server import build_mcp_asgi_app, http_mcp  # noqa: E402
 
@@ -140,6 +141,10 @@ app.add_middleware(
 
 # Rate Limiting Middleware
 app.add_middleware(RateLimitMiddleware)
+
+# CSRF Middleware — only enforces on cookie-authenticated requests (see
+# app/core/auth_cookies.py). Bearer-token clients (extension, MCP) unaffected.
+app.add_middleware(CSRFMiddleware)
 
 
 # Rewrite bare /mcp → /mcp/ so the MCP ASGI sub-app receives the request

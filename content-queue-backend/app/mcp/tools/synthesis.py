@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.hybrid_search import hybrid_search
-from app.core.llm_client import llm_client, TASK_SYNTHESIS
+from app.core.llm_client import llm_client, braintrust_span, TASK_SYNTHESIS
 from app.models.memory import UserProfile
 from app.models.user import User
 from app.tasks.research import run_research_lead_task
@@ -259,21 +259,27 @@ def synthesize_topic(
             confidence="low",
         ).model_dump()
 
-    response: SynthesisResponse = llm_client.structured_chat(
-        messages=[
-            {
-                "role": "user",
-                "content": _QUICK_SYNTHESIS_PROMPT.format(
-                    topic=topic,
-                    context=context,
-                    memory_context=memory_context,
-                ),
-            }
-        ],
-        response_model=SynthesisResponse,
-        task=TASK_SYNTHESIS,
-        max_tokens=1024,
-    )
+    with braintrust_span(
+        "synthesize_topic",
+        input={"topic": topic, "depth": depth},
+        metadata={"user_id": str(user.id)},
+    ):
+        response: SynthesisResponse = llm_client.structured_chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": _QUICK_SYNTHESIS_PROMPT.format(
+                        topic=topic,
+                        context=context,
+                        memory_context=memory_context,
+                    ),
+                }
+            ],
+            response_model=SynthesisResponse,
+            task=TASK_SYNTHESIS,
+            max_tokens=1024,
+            user_id=str(user.id),
+        )
 
     # Filter sources to only those actually in context (grounding enforcement)
     grounded_sources = [s for s in response.sources if s.item_id in included_ids]
@@ -338,21 +344,27 @@ def assist_draft(
 
     context = "\n\n".join(context_parts) or "(no relevant articles found)"
 
-    addition: DraftAddition = llm_client.structured_chat(
-        messages=[
-            {
-                "role": "user",
-                "content": _DRAFT_PROMPT.format(
-                    style_notes=style_notes,
-                    instruction=instruction,
-                    context=context,
-                ),
-            }
-        ],
-        response_model=DraftAddition,
-        task=TASK_SYNTHESIS,
-        max_tokens=512,
-    )
+    with braintrust_span(
+        "assist_draft",
+        input={"list_id": list_id, "instruction": instruction},
+        metadata={"user_id": str(user.id)},
+    ):
+        addition: DraftAddition = llm_client.structured_chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": _DRAFT_PROMPT.format(
+                        style_notes=style_notes,
+                        instruction=instruction,
+                        context=context,
+                    ),
+                }
+            ],
+            response_model=DraftAddition,
+            task=TASK_SYNTHESIS,
+            max_tokens=512,
+            user_id=str(user.id),
+        )
 
     # Verify all citations reference retrieved articles
     grounded_citations = [c for c in addition.citations if c.item_id in retrieved_ids]

@@ -5,7 +5,16 @@ extract_research_memory(run_id)  — reads a completed ResearchRun, writes one
                                     ResearchMemory row per sub-question with
                                     topic embedding + coverage + summary/gap.
 
-Triggered by verify_synthesis (fire-and-forget) after status is set to "done".
+Triggered by verify_synthesis (fire-and-forget) after status is set to "done",
+via apply_async(countdown=5) rather than .delay() — 5 seconds is a heuristic
+head start for the commit to become visible, not a guarantee (see
+verify_synthesis's own comment in app/tasks/research.py). If the run still
+isn't visible as "done" when this fires, extract_research_memory raises
+_RunNotReadyError instead of silently returning, so the task wrapper's
+existing max_retries=2/default_retry_delay=30 actually engages — previously
+it logged and returned, meaning a race outside the 5s window silently lost
+the memory extraction for that run with no retry ever attempted.
+
 Failure here does not affect the user-visible run result.
 """
 
@@ -18,12 +27,18 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
-from app.core.llm_client import llm_client, TASK_MEMORY_RESEARCH
+from app.core.llm_client import llm_client, braintrust_span, TASK_MEMORY_RESEARCH
 from app.models.research import ResearchRun
 from app.models.research_memory import ResearchMemory
 from app.tasks.base import DatabaseTask
 
 logger = logging.getLogger(__name__)
+
+
+class _RunNotReadyError(Exception):
+    """Raised when the target run isn't visible as status='done' yet —
+    signals the task wrapper to retry rather than silently give up."""
+
 
 _SUMMARY_PROMPT = (
     "You are extracting a memory entry from a research result.\n\n"
@@ -34,7 +49,9 @@ _SUMMARY_PROMPT = (
 )
 
 
-def _summarize_sub_question(sub_question: str, articles: list[dict]) -> str | None:
+def _summarize_sub_question(
+    sub_question: str, articles: list[dict], user_id: str
+) -> str | None:
     if not articles:
         return None
     article_lines = []
@@ -54,15 +71,21 @@ def _summarize_sub_question(sub_question: str, articles: list[dict]) -> str | No
         summary: str
 
     try:
-        result = llm_client.structured_chat(
-            messages=[
-                {"role": "system", "content": _SUMMARY_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            response_model=SummaryResponse,
-            task=TASK_MEMORY_RESEARCH,
-            max_tokens=150,
-        )
+        with braintrust_span(
+            "research_memory_summary",
+            input={"sub_question": sub_question},
+            metadata={"user_id": user_id},
+        ):
+            result = llm_client.structured_chat(
+                messages=[
+                    {"role": "system", "content": _SUMMARY_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                response_model=SummaryResponse,
+                task=TASK_MEMORY_RESEARCH,
+                max_tokens=150,
+                user_id=user_id,
+            )
         return result.summary
     except Exception as e:
         logger.warning("research_memory: summary LLM call failed: %s", e)
@@ -86,13 +109,21 @@ def extract_research_memory(run_id: str, db: Session | None = None) -> None:
             return
 
         run = db.query(ResearchRun).filter(ResearchRun.id == rid).first()
-        if not run or run.status != "done":
-            logger.info(
-                "extract_research_memory: run %s not ready (status=%s)",
-                run_id,
-                getattr(run, "status", None),
-            )
+        if not run:
+            # Genuinely missing (bad run_id), not a visibility race — retrying
+            # won't help, so this stays a silent no-op, not _RunNotReadyError.
+            logger.warning("extract_research_memory: run %s not found", run_id)
             return
+        if run.status != "done":
+            logger.info(
+                "extract_research_memory: run %s not ready (status=%s), "
+                "requesting retry",
+                run_id,
+                run.status,
+            )
+            raise _RunNotReadyError(
+                f"run {run_id} status={run.status!r}, expected 'done'"
+            )
 
         subagent_results = run.subagent_results or []
         if not subagent_results:
@@ -110,7 +141,14 @@ def extract_research_memory(run_id: str, db: Session | None = None) -> None:
 
             # Embed the sub-question text
             try:
-                embedding = llm_client.embed(sub_question).embeddings[0]
+                with braintrust_span(
+                    "research_memory_embed",
+                    input={"sub_question": sub_question},
+                    metadata={"user_id": str(run.user_id)},
+                ):
+                    embedding = llm_client.embed(
+                        sub_question, user_id=str(run.user_id)
+                    ).embeddings[0]
             except Exception as e:
                 logger.warning(
                     "extract_research_memory: embed failed for sq=%r: %s",
@@ -123,7 +161,9 @@ def extract_research_memory(run_id: str, db: Session | None = None) -> None:
             gap_description = None
 
             if coverage in ("full", "partial"):
-                topic_summary = _summarize_sub_question(sub_question, articles)
+                topic_summary = _summarize_sub_question(
+                    sub_question, articles, str(run.user_id)
+                )
             else:
                 # coverage == "none"
                 gap_description = (
@@ -165,6 +205,16 @@ def extract_research_memory(run_id: str, db: Session | None = None) -> None:
             "extract_research_memory: run=%s wrote %d entries", run_id, rows_written
         )
 
+    except _RunNotReadyError:
+        # Not caught by the generic handler below — must propagate to the
+        # task wrapper so it can retry, not be logged-and-swallowed as an
+        # "unexpected error."
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
+
     except Exception as e:
         logger.exception(
             "extract_research_memory: unexpected error for run=%s: %s", run_id, e
@@ -186,7 +236,10 @@ def extract_research_memory(run_id: str, db: Session | None = None) -> None:
     name="app.tasks.research_memory.extract_research_memory",
 )
 def extract_research_memory_task(self, run_id: str):
-    extract_research_memory(run_id, db=self.db)
+    try:
+        extract_research_memory(run_id, db=self.db)
+    except _RunNotReadyError as e:
+        raise self.retry(exc=e)
 
 
 # Expose .delay on the direct-call function so call sites import one name.

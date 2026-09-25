@@ -33,7 +33,6 @@ def get_research_run(
     return {
         "status": run.status,
         "result": run.result,
-        "cost": run.cost,
         "error": run.error,
         "progress": {
             "iteration": run.iteration_count,

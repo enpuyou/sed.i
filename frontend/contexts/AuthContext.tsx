@@ -33,13 +33,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     initPostHog();
-    // Check if user is logged in on mount
-    const token = localStorage.getItem("token");
-    if (token) {
-      fetchUser();
-    } else {
-      setIsLoading(false);
-    }
+    // Auth is httpOnly-cookie-based (see app/core/auth_cookies.py) — JS
+    // cannot read the cookie to check "is there a token" before deciding
+    // whether to call the backend, unlike the old localStorage flow. Always
+    // attempt fetchUser(); a 401 (no valid cookie) resolves to isLoading=false
+    // with user=null in the catch branch below, same end state as before.
+    fetchUser();
   }, []);
 
   const fetchUser = async () => {
@@ -47,7 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData = await authAPI.getCurrentUser();
       setUser(userData);
     } catch {
-      localStorage.removeItem("token");
+      // getCurrentUser already attempted a refresh-token retry internally
+      // (see fetchWithAuth in lib/api.ts) — reaching here means both the
+      // access-token cookie and the refresh attempt failed, i.e. genuinely
+      // not logged in. Nothing to clear client-side — cookies are managed
+      // entirely by the backend (set on login/refresh, cleared on logout).
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -70,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    authAPI.logout();
+    void authAPI.logout();
     setUser(null);
   };
 

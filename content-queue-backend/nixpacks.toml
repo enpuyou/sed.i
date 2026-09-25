@@ -4,11 +4,26 @@ nixPkgs = ["python311", "poetry"]
 [phases.install]
 cmds = [
   "rm -rf .venv",
-  "poetry install --no-root --only main"
+  "poetry install --no-root --only main",
+  # ultralytics (YOLO PDF-layout extraction) transitively requires
+  # opencv-python (the GUI variant, pulls in libGL). Poetry has no clean
+  # mechanism to exclude a transitive dependency, so both variants get
+  # installed side by side, pointing at the same cv2 import path — whichever
+  # installs last wins. This forces headless to win, once at build time
+  # (not on every boot, which was the previous behavior via the Procfile).
+  "poetry run pip uninstall -y opencv-python opencv-python-headless",
+  "poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
 ]
 
 [phases.build]
 cmds = []
 
 [start]
-cmd = "poetry run alembic upgrade heads && poetry run python scripts/post_deploy.py && poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+# Migrations and the concurrent index build (scripts/post_deploy.py) run in
+# Railway's preDeployCommand (railway.json) — a separate step that runs once
+# per deploy, before any instance starts serving traffic, and is NOT re-run
+# per-replica if RAILWAY_REPLICAS is ever set above 1. Previously both ran
+# inline in this start command, coupling migration time to every instance's
+# boot and re-running "CREATE INDEX CONCURRENTLY IF NOT EXISTS" redundantly
+# per replica.
+cmd = "poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT"

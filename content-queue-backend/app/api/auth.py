@@ -7,9 +7,14 @@ seeds onboarding content for new users.
 """
 
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from app.core.auth_cookies import (
+    clear_auth_cookies,
+    get_refresh_token_from_cookie,
+    set_auth_cookies,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
@@ -48,6 +53,12 @@ import hashlib
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# How long after a refresh token is revoked its retry is treated as the
+# client's own dropped-response retry rather than a theft replay. Generous
+# enough to cover realistic client retry/timeout delays, short enough that a
+# genuine stolen-token replay (minutes/hours later) is still caught.
+_REFRESH_RETRY_GRACE_WINDOW = timedelta(seconds=30)
+
 
 @router.post(
     "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
@@ -84,8 +95,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         full_name=user_data.full_name,
     )
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)  # Get the auto-generated ID and timestamps
+    db.flush()  # assign new_user.id without committing yet
 
     # Generate Verification Token
     token_str = secrets.token_urlsafe(32)
@@ -96,11 +106,6 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
     )
     db.add(verify_token)
-    db.commit()
-
-    # NOTE: email is sent after the token commit but before onboarding content
-    # is created below. This is acceptable — verification works independently.
-    send_verification_email_task.delay(new_user.email, token_str)
 
     # ---------------------------------------------------------
     # Create Default "User Guide" Article
@@ -142,8 +147,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         submitted_via="system_welcome",
     )
     db.add(guide_content)
-    db.commit()
-    db.refresh(guide_content)
+    db.flush()  # assign guide_content.id
 
     # ---------------------------------------------------------
     # Programmatic Highlights (Demo)
@@ -187,8 +191,6 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         )
         db.add(hl_2)
 
-    db.commit()
-
     # ---------------------------------------------------------
     # Add Example Article: TextEdit and the Relief of Simple Software
     # ---------------------------------------------------------
@@ -202,11 +204,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         submitted_via="system_default",
     )
     db.add(example_article)
-    db.commit()
-    db.refresh(example_article)
-
-    # Trigger background extraction for the example article
-    extract_metadata.delay(str(example_article.id))
+    db.flush()  # assign example_article.id
 
     # ---------------------------------------------------------
     # Add Example Article: Why I Finally Quit Spotify (New Yorker)
@@ -221,11 +219,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         submitted_via="system_default",
     )
     db.add(spotify_article)
-    db.commit()
-    db.refresh(spotify_article)
-
-    # Trigger background extraction for the spotify article
-    extract_metadata.delay(str(spotify_article.id))
+    db.flush()  # assign spotify_article.id
 
     # ---------------------------------------------------------
     # Add Default Vinyl Record: Hiroshi Yoshimura – A·I·R
@@ -236,10 +230,22 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
         processing_status="pending",
     )
     db.add(default_vinyl)
-    db.commit()
-    db.refresh(default_vinyl)
+    db.flush()  # assign default_vinyl.id
 
-    # Trigger background Discogs metadata fetch
+    # Single commit for the entire onboarding sequence (user, verification
+    # token, guide article + highlights, example articles, vinyl record) —
+    # a crash partway through previously left a partially onboarded user
+    # (e.g. account created but no welcome content, or content created but
+    # no verification token) since each step committed independently with
+    # no outer transaction. All background dispatches (email, extraction,
+    # Discogs fetch) fire only after this commit succeeds, so nothing gets
+    # queued against rows that didn't actually get persisted.
+    db.commit()
+    db.refresh(new_user)
+
+    send_verification_email_task.delay(new_user.email, token_str)
+    extract_metadata.delay(str(example_article.id))
+    extract_metadata.delay(str(spotify_article.id))
     fetch_discogs_metadata.delay(str(default_vinyl.id))
 
     try:
@@ -258,13 +264,16 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
 ):
     """
     Login and get a JWT token.
 
     - Verifies email and password
-    - Returns access token
+    - Returns access token in the JSON body (extension/MCP clients) AND sets
+      it as an httpOnly cookie (web frontend — see app/core/auth_cookies.py)
     """
     # Find user by email
     user = db.query(User).filter(User.email == form_data.username).first()
@@ -296,6 +305,14 @@ def login(
     except Exception:
         pass
 
+    set_auth_cookies(
+        response,
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        access_max_age_s=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        refresh_max_age_s=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -304,14 +321,29 @@ def login(
 
 
 @router.post("/refresh", response_model=Token)
-def refresh_token_endpoint(body: RefreshRequest, db: Session = Depends(get_db)):
+def refresh_token_endpoint(
+    request: Request,
+    response: Response,
+    body: RefreshRequest,
+    db: Session = Depends(get_db),
+):
     """
     Exchange a valid refresh token for a new access token + rotated refresh token.
 
     The old refresh token is immediately revoked. If the token is already revoked
     (possible theft replay), all refresh tokens for that user are revoked.
+
+    Refresh token source: request body (extension/MCP-style clients) or the
+    httpOnly cookie (web frontend, which can't read/send it in JS) — see
+    app/core/auth_cookies.py.
     """
-    token_hash = hash_token(body.refresh_token)
+    raw_refresh_token = body.refresh_token or get_refresh_token_from_cookie(request)
+    if not raw_refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
+
+    token_hash = hash_token(raw_refresh_token)
     record = (
         db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
     )
@@ -319,18 +351,6 @@ def refresh_token_endpoint(body: RefreshRequest, db: Session = Depends(get_db)):
     if not record:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
-        )
-
-    # Detect theft: token was already rotated — revoke all user tokens
-    if record.revoked_at is not None:
-        db.query(RefreshToken).filter(
-            RefreshToken.user_id == record.user_id,
-            RefreshToken.revoked_at.is_(None),
-        ).update({"revoked_at": datetime.now(timezone.utc)})
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token already used",
         )
 
     if datetime.now(timezone.utc) > record.expires_at.astimezone(timezone.utc):
@@ -344,8 +364,53 @@ def refresh_token_endpoint(body: RefreshRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
         )
 
-    # Rotate: revoke old, issue new pair
-    record.revoked_at = datetime.now(timezone.utc)
+    # Atomic check-and-revoke: the UPDATE's WHERE clause re-checks
+    # revoked_at IS NULL at the database level, so two concurrent requests
+    # for the same token can't both pass — READ COMMITTED serializes
+    # concurrent UPDATEs on the same row, and the second one's WHERE
+    # clause sees the first's committed revocation and matches zero rows.
+    # (A plain `if record.revoked_at is not None` read-then-write here is
+    # a TOCTOU race: both requests can read "not yet revoked" before
+    # either commits — confirmed via live concurrency testing on
+    # 2026-07-28, see docs/retros/2026-07-28-failure-injection-plan.md.)
+    rotated = db.execute(
+        RefreshToken.__table__.update()
+        .where(
+            RefreshToken.id == record.id,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    db.commit()
+
+    if rotated.rowcount == 0:
+        # Already revoked — either a theft replay, or the client's own
+        # request retrying after a dropped response (the first attempt
+        # committed server-side but the client never saw the 200). We can't
+        # tell these apart from rowcount alone, so use a short grace window:
+        # a retry lands within seconds of the original revocation; a real
+        # replay attack (stolen token reused later) does not. Re-read
+        # revoked_at fresh rather than trusting the stale in-memory `record`.
+        db.refresh(record)
+        revoked_at = record.revoked_at
+        within_grace_window = (
+            revoked_at is not None
+            and (datetime.now(timezone.utc) - revoked_at.astimezone(timezone.utc))
+            <= _REFRESH_RETRY_GRACE_WINDOW
+        )
+        if not within_grace_window:
+            # Outside the grace window — treat as theft: revoke every token
+            # for this user so a stolen refresh token can't keep rotating.
+            db.query(RefreshToken).filter(
+                RefreshToken.user_id == record.user_id,
+                RefreshToken.revoked_at.is_(None),
+            ).update({"revoked_at": datetime.now(timezone.utc)})
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token already used",
+        )
+
     new_access = create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -360,6 +425,14 @@ def refresh_token_endpoint(body: RefreshRequest, db: Session = Depends(get_db)):
     )
     db.commit()
 
+    set_auth_cookies(
+        response,
+        access_token=new_access,
+        refresh_token=raw_refresh,
+        access_max_age_s=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        refresh_max_age_s=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return {
         "access_token": new_access,
         "token_type": "bearer",
@@ -368,17 +441,26 @@ def refresh_token_endpoint(body: RefreshRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(body: LogoutRequest, db: Session = Depends(get_db)):
-    """Revoke a refresh token server-side. No-op if token is absent or already revoked."""
-    if not body.refresh_token:
-        return
-    token_hash = hash_token(body.refresh_token)
-    record = (
-        db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
-    )
-    if record and record.revoked_at is None:
-        record.revoked_at = datetime.now(timezone.utc)
-        db.commit()
+def logout(
+    request: Request,
+    response: Response,
+    body: LogoutRequest,
+    db: Session = Depends(get_db),
+):
+    """Revoke a refresh token server-side and clear auth cookies.
+    No-op on the revoke step if no token is found or it's already revoked —
+    cookies are still cleared either way."""
+    raw_refresh_token = body.refresh_token or get_refresh_token_from_cookie(request)
+    if raw_refresh_token:
+        token_hash = hash_token(raw_refresh_token)
+        record = (
+            db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
+        )
+        if record and record.revoked_at is None:
+            record.revoked_at = datetime.now(timezone.utc)
+            db.commit()
+
+    clear_auth_cookies(response)
 
 
 @router.get("/verify-email", response_model=GenericMessage)

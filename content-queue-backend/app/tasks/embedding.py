@@ -10,7 +10,13 @@ Dispatch: generate_embedding.delay(content_item_id)
 """
 
 from app.core.celery_app import celery_app
-from app.core.llm_client import llm_client
+from app.core.llm_client import (
+    TASK_EMBEDDING,
+    TASK_HIGHLIGHT_EMBEDDING,
+    BudgetExceededError,
+    braintrust_span,
+    llm_client,
+)
 from app.models.content import ContentItem
 from app.models.highlight import Highlight
 from app.tasks.base import DatabaseTask, html_to_plain
@@ -66,7 +72,12 @@ def generate_embedding_for_item(content_item_id: str, db: Session) -> dict:
             else combined_text
         )
 
-    result = llm_client.embed(text_to_embed)
+    with braintrust_span(
+        TASK_EMBEDDING,
+        input={"content_item_id": content_item_id},
+        metadata={"user_id": str(item.user_id)},
+    ):
+        result = llm_client.embed(text_to_embed, user_id=str(item.user_id))
     embedding = result.embeddings[0]
     item.embedding = embedding
     db.commit()
@@ -148,7 +159,12 @@ def generate_embedding(self, content_item_id: str):
                 text_to_embed = combined_text
 
         # Generate embedding
-        result = llm_client.embed(text_to_embed)
+        with braintrust_span(
+            TASK_EMBEDDING,
+            input={"content_item_id": content_item_id},
+            metadata={"user_id": str(item.user_id)},
+        ):
+            result = llm_client.embed(text_to_embed, user_id=str(item.user_id))
         embedding = result.embeddings[0]
 
         # Store in database
@@ -171,6 +187,10 @@ def generate_embedding(self, content_item_id: str):
             "embedding_dimension": len(embedding),
             "status": "completed",
         }
+
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping embedding for {content_item_id}: {e}")
+        return {"content_item_id": content_item_id, "status": "budget_exceeded"}
 
     except Exception as e:
         logger.error(f"Failed to generate embedding for {content_item_id}: {str(e)}")
@@ -240,7 +260,12 @@ def generate_highlight_embeddings_batch(self, user_id: str):
 
         # Batch embed all texts at once
         texts_to_embed = [text for _, text in embed_tasks]
-        result = llm_client.embed(texts_to_embed)
+        with braintrust_span(
+            TASK_HIGHLIGHT_EMBEDDING,
+            input={"count": len(texts_to_embed)},
+            metadata={"user_id": user_id},
+        ):
+            result = llm_client.embed(texts_to_embed, user_id=user_id)
 
         # Update highlights with embeddings
         embeddings_map = {i: emb for i, emb in enumerate(result.embeddings)}
@@ -269,6 +294,10 @@ def generate_highlight_embeddings_batch(self, user_id: str):
             "status": "completed",
         }
 
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping highlight batch embed for user {user_id}: {e}")
+        return {"user_id": user_id, "status": "budget_exceeded"}
+
     except Exception as e:
         logger.error(f"Failed to batch embed highlights for user {user_id}: {str(e)}")
 
@@ -284,7 +313,20 @@ def process_all_missing_embeddings(self):
 
     - Runs periodically (e.g. every 5 mins)
     - Dispatches per-user tasks to distribute load
+
+    Guarded by a Redis lock (see app.core.task_locks) so a still-draining
+    previous firing's dispatched work can't cause a duplicate dispatch —
+    dispatch is async (.delay() per user), so the lock is held for its full
+    TTL rather than released when this function returns, matching the
+    pattern in clustering.py/memory.py.
     """
+    from app.core.task_locks import acquire_run_lock
+
+    lock_name = "process_all_missing_embeddings"
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 10):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"dispatched_count": 0, "status": "skipped", "reason": "lock_held"}
+
     try:
         # Find distinct user_ids that have highlights with missing embeddings
         # We use distinct() to avoid duplicate user_ids

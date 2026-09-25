@@ -189,6 +189,29 @@ class TestLeadAgentSkeleton:
             run_research_lead(str(uuid.uuid4()), db=db_session)
             mock_llm.structured_chat.assert_not_called()
 
+    def test_budget_exceeded_during_planning_marks_run_failed_distinctly(
+        self, db_session, test_user
+    ):
+        """A BudgetExceededError during the planning LLM call must not crash
+        uncaught (this function has no other exception handler) and must
+        set a distinct 'budget_exceeded' error code, not a generic one that
+        would later be masked by recover_orphaned_runs_task's 'stalled'
+        message."""
+        from app.core.llm_client import BudgetExceededError
+
+        run = _make_run(db_session, test_user, status="queued")
+
+        with patch("app.tasks.research.llm_client") as mock_llm:
+            mock_llm.structured_chat.side_effect = BudgetExceededError(
+                "daily budget exceeded"
+            )
+            with patch("app.tasks.research.hybrid_search", return_value=[]):
+                run_research_lead(str(run.id), db=db_session)
+
+        db_session.refresh(run)
+        assert run.status == "failed"
+        assert run.error["code"] == "budget_exceeded"
+
 
 # ---------------------------------------------------------------------------
 # Step 2.3 — Subagent contract
@@ -288,6 +311,46 @@ class TestSubagentContract:
 
         assert result["ok"] is False
         assert result["error"]["code"] is not None
+
+    def test_budget_exceeded_during_relevance_filter_returns_distinct_code(
+        self, db_session, test_user
+    ):
+        """The relevance filter's BudgetExceededError must surface as
+        'budget_exceeded', not the generic 'subagent_error' — otherwise a
+        budget-throttled run looks identical to "the library search failed"
+        to any caller inspecting the result."""
+        from app.core.llm_client import BudgetExceededError
+
+        run = _make_run(db_session, test_user, status="searching")
+        article = _make_article(db_session, test_user)
+
+        with patch("app.tasks.research.llm_client") as mock_llm, patch(
+            "app.tasks.research.hybrid_search",
+            return_value=[{"id": str(article.id), "title": article.title}],
+        ):
+            # First structured_chat call (query expansion) succeeds and is
+            # non-fatal by design; the second (relevance filter) is where
+            # budget exhaustion must be caught distinctly.
+            class FakeExpansion:
+                queries = []
+
+            mock_llm.structured_chat.side_effect = [
+                FakeExpansion(),
+                BudgetExceededError("daily budget exceeded"),
+            ]
+            result = run_research_subagent(
+                str(run.id),
+                "subagent-1",
+                {
+                    "sub_question": "Q",
+                    "search_params": {"query": "x"},
+                    "budget": {"timeout_s": 30},
+                },
+                db=db_session,
+            )
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "budget_exceeded"
 
     def test_engagement_score_computed(self, db_session, test_user):
         article = _make_article(db_session, test_user)
@@ -749,6 +812,33 @@ class TestSynthesisAndVerification:
         assert len(run.result["sub_question_findings"]) == 1
         assert run.status == "done"
 
+    def test_budget_exceeded_during_synthesis_marks_run_failed_distinctly(
+        self, db_session, test_user
+    ):
+        """synthesize_run has no other exception handler — a
+        BudgetExceededError from the synthesis call must not crash uncaught
+        with run.status stuck at 'synthesizing'; it must set a distinct
+        'budget_exceeded' error and a terminal status."""
+        from app.core.llm_client import BudgetExceededError
+
+        article = _make_article(db_session, test_user)
+        run = _make_run(
+            db_session,
+            test_user,
+            status="searching",
+            item_ids=[str(article.id)],
+        )
+
+        with patch("app.tasks.research.llm_client") as mock_llm:
+            mock_llm.structured_chat.side_effect = BudgetExceededError(
+                "daily budget exceeded"
+            )
+            synthesize_run(str(run.id), db=db_session)
+
+        db_session.refresh(run)
+        assert run.status == "failed"
+        assert run.error["code"] == "budget_exceeded"
+
     def test_synthesis_ends_in_done_via_verify(self, db_session, test_user):
         article = _make_article(db_session, test_user)
         run = _make_run(
@@ -1152,6 +1242,22 @@ class TestRecovery:
 
         count = recover_orphaned_runs(db=db_session)
         assert count == 3
+
+    def test_task_skips_when_lock_held(self):
+        """recover_orphaned_runs_task (the beat-scheduled wrapper, distinct
+        from the recover_orphaned_runs function tested above) is guarded by
+        a Redis lock — a second firing while a previous sweep is still
+        running must not touch the DB."""
+        from unittest.mock import patch
+        from app.tasks.research import recover_orphaned_runs_task
+
+        with patch("app.core.task_locks.acquire_run_lock", return_value=False), patch(
+            "app.tasks.research.recover_orphaned_runs"
+        ) as mock_recover:
+            result = recover_orphaned_runs_task.run()
+
+        assert result == 0
+        mock_recover.assert_not_called()
 
     def test_planning_and_synthesizing_both_recovered(self, db_session, test_user):
         for status in ("planning", "synthesizing", "verifying"):

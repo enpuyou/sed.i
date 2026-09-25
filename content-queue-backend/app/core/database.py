@@ -18,6 +18,13 @@ engine = create_engine(
     max_overflow=2,
     pool_recycle=1800,
     pool_pre_ping=True,
+    # SQLAlchemy's default pool_timeout is 30s — with only 5 total
+    # connections (pool_size + max_overflow), exhaustion under load
+    # presented as a silent 30-second hang indistinguishable from a slow
+    # query, rather than a fast, clear failure. 10s still gives transient
+    # contention a chance to clear without masking real exhaustion as a
+    # generic-looking timeout deep into the request.
+    pool_timeout=10,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

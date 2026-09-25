@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
-from app.core.llm_client import llm_client, TASK_MEMORY_CONSOLIDATION
+from app.core.llm_client import llm_client, braintrust_span, TASK_MEMORY_CONSOLIDATION
 from app.models.content import ContentItem
 from app.models.highlight import Highlight
 from app.models.list import List
@@ -530,12 +530,18 @@ def consolidate_memory(user_id: str, db: Session | None = None) -> dict:
                 research_gaps_section=gaps_str,
             )
 
-        result: ConsolidationResult = llm_client.structured_chat(
-            messages=[{"role": "user", "content": prompt}],
-            response_model=ConsolidationResult,
-            task=TASK_MEMORY_CONSOLIDATION,
-            max_tokens=1024,
-        )
+        with braintrust_span(
+            "memory_consolidation",
+            input={"is_bootstrap": is_bootstrap, "total_items": total_items},
+            metadata={"user_id": user_id},
+        ):
+            result: ConsolidationResult = llm_client.structured_chat(
+                messages=[{"role": "user", "content": prompt}],
+                response_model=ConsolidationResult,
+                task=TASK_MEMORY_CONSOLIDATION,
+                max_tokens=1024,
+                user_id=user_id,
+            )
 
         _upsert_profile(user_id, result, db)
         db.commit()
@@ -570,8 +576,24 @@ def consolidate_memory_task(self, user_id: str):
 
 @celery_app.task(base=DatabaseTask, bind=True)
 def consolidate_all_users_task(self):
-    """Nightly beat fan-out: dispatch consolidation only for users with new activity."""
+    """Nightly beat fan-out: dispatch consolidation only for users with new activity.
+
+    Guarded by a Redis lock (see app.core.task_locks) so a still-draining
+    previous night's fan-out can't overlap with the next nightly firing.
+    Per-user consolidate_memory_task dispatches are async and untracked by
+    this dispatcher, so the lock is held for its TTL rather than released
+    when the dispatch loop returns.
+    """
     from sqlalchemy import text
+    from app.core.task_locks import acquire_run_lock
+
+    lock_name = "consolidate_all_users_task"
+    # TTL covers most of the 24h gap between nightly firings minus a safety
+    # margin — if a run is somehow still going after 20h, let the next one
+    # through rather than risk a permanently stuck lock from a crashed run.
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 60 * 20):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"dispatched": 0, "skipped": "lock_held"}
 
     bootstrap_cutoff = datetime.now(tz=timezone.utc) - timedelta(
         days=_BOOTSTRAP_MAX_DAYS

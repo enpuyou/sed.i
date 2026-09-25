@@ -425,16 +425,28 @@
   container.appendChild(meta);
 
   const articleBody = document.createElement('div'); articleBody.id = 'reader-content';
+  // article.html is extracted from an arbitrary third-party page the user
+  // doesn't control. DOMPurify (vendored in content/vendor/purify.min.js,
+  // loaded before this script — see popup.js's executeScript call) is the
+  // real sanitization pass; it's a superset of the old manual tag/attribute
+  // stripping (also catches srcdoc, SVG-based vectors, data: URLs with
+  // embedded scripts, etc.). Fails closed: if DOMPurify somehow isn't loaded,
+  // fall back to the previous manual filter rather than rendering raw HTML.
+  const sanitizedHtml = (typeof window.DOMPurify !== 'undefined')
+    ? window.DOMPurify.sanitize(article.html)
+    : article.html;
   const _tmp = document.createElement('div');
-  _tmp.innerHTML = article.html;
-  _tmp.querySelectorAll('iframe,frame,object,embed,script,link[rel="import"]').forEach(el => el.remove());
-  _tmp.querySelectorAll('*').forEach(el => {
-    for (const attr of [...el.attributes]) {
-      if (/^on/i.test(attr.name)) { el.removeAttribute(attr.name); continue; }
-      if ((attr.name === 'href' || attr.name === 'src' || attr.name === 'action') &&
-          /^\s*javascript:/i.test(attr.value)) { el.removeAttribute(attr.name); }
-    }
-  });
+  _tmp.innerHTML = sanitizedHtml;
+  if (typeof window.DOMPurify === 'undefined') {
+    _tmp.querySelectorAll('iframe,frame,object,embed,script,link[rel="import"]').forEach(el => el.remove());
+    _tmp.querySelectorAll('*').forEach(el => {
+      for (const attr of [...el.attributes]) {
+        if (/^on/i.test(attr.name)) { el.removeAttribute(attr.name); continue; }
+        if ((attr.name === 'href' || attr.name === 'src' || attr.name === 'action') &&
+            /^\s*javascript:/i.test(attr.value)) { el.removeAttribute(attr.name); }
+      }
+    });
+  }
   while (_tmp.firstChild) articleBody.appendChild(_tmp.firstChild);
   // Normalize galleries: find the actual nested tile row in each ImageGallery figure
   // and force that exact node into a horizontal layout.

@@ -38,18 +38,86 @@ export class APIError extends Error {
   }
 }
 
-// Helper function to get auth token from localStorage
-const getAuthToken = () => {
-  if (typeof window !== "undefined") {
-    return localStorage.getItem("token");
+// Auth is httpOnly-cookie-based (see app/core/auth_cookies.py on the
+// backend) — the access and refresh tokens are never readable by JS, so
+// there is nothing to read/store/clear here. The browser attaches the
+// cookies automatically on every request to the same registrable domain
+// (www.read-sedi.com / api.read-sedi.com) as long as `credentials: "include"`
+// is set. Only the CSRF token cookie is deliberately non-httpOnly, since the
+// double-submit pattern requires the frontend to read it and echo it back.
+
+const CSRF_COOKIE_NAME = "sedi_csrf_token";
+const CSRF_HEADER_NAME = "X-CSRF-Token";
+
+const getCsrfToken = (): string | null => {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(
+    new RegExp(`(?:^|; )${CSRF_COOKIE_NAME}=([^;]*)`),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
+// Exchanges the httpOnly refresh-token cookie for a new access/refresh pair
+// via POST /auth/refresh (no body needed — the backend reads the refresh
+// token from the cookie). Refresh tokens rotate server-side on every use, so
+// the backend sets fresh cookies on the response; nothing to store here.
+// Concurrent 401s share one in-flight refresh instead of each racing their
+// own — the backend revokes the old refresh token immediately on use, so a
+// second concurrent call with the same (now-stale) cookie would fail.
+let refreshInFlight: Promise<boolean> | null = null;
+
+const refreshAccessToken = async (): Promise<boolean> => {
+  if (refreshInFlight) {
+    return refreshInFlight;
   }
-  return null;
+
+  refreshInFlight = (async () => {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        headers[CSRF_HEADER_NAME] = csrfToken;
+      }
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({}),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  })();
+
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
 };
 
 // Helper function to make authenticated requests
-const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
-  const token = getAuthToken();
-
+//
+// suppressRedirect: when true, an unrecovered 401 throws APIError instead of
+// navigating to /login. Needed for AuthContext's mount-time getCurrentUser()
+// call — with httpOnly cookies, JS can't check "is there a token" before
+// deciding whether to call the backend (unlike the old localStorage check),
+// so that call now fires on every page load including anonymous visits to
+// public pages (homepage, /login itself). A 401 there means "not logged in
+// yet," not "session expired mid-action" — it must not force-navigate away
+// from whatever public page the visitor is on. Every other call site keeps
+// the default (unset = redirect), which is the case this behavior was
+// actually designed for: an authenticated user's session expiring mid-use.
+const fetchWithAuth = async (
+  url: string,
+  options: RequestInit = {},
+  isRetry = false,
+  suppressRedirect = false,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> => {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -59,20 +127,30 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     Object.assign(headers, options.headers);
   }
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  // CSRF token required on mutating requests once auth is cookie-based —
+  // GET/HEAD are exempt server-side, but sending it unconditionally is
+  // harmless and simpler than tracking method here too.
+  const csrfToken = getCsrfToken();
+  if (csrfToken) {
+    headers[CSRF_HEADER_NAME] = csrfToken;
   }
 
   const response = await fetch(url, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
-      // Token expired or invalid - redirect to login
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("token");
+    if (response.status === 401 && !isRetry) {
+      // Access token expired or invalid — try refreshing via the httpOnly
+      // refresh cookie before giving up and sending the user to /login.
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return fetchWithAuth(url, options, true, suppressRedirect);
+      }
+
+      if (typeof window !== "undefined" && !suppressRedirect) {
         window.location.href = "/login";
       }
     }
@@ -133,6 +211,7 @@ export const authAPI = {
 
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
@@ -144,14 +223,12 @@ export const authAPI = {
       throw new Error(error.detail || "Login failed");
     }
 
-    const data = await response.json();
-
-    // Store token in localStorage
-    if (typeof window !== "undefined" && data.access_token) {
-      localStorage.setItem("token", data.access_token);
-    }
-
-    return data;
+    // The backend sets httpOnly auth cookies on this response (see
+    // app/core/auth_cookies.py) — nothing to store client-side. The JSON
+    // body still contains access_token/refresh_token for parity with the
+    // extension/MCP-style clients that authenticate via Bearer token
+    // instead, but the web frontend ignores those fields.
+    return response.json();
   },
 
   register: async (
@@ -182,12 +259,37 @@ export const authAPI = {
   },
 
   getCurrentUser: async () => {
-    return fetchWithAuth(`${API_BASE_URL}/auth/me`);
+    // suppressRedirect: called unconditionally on mount by AuthContext,
+    // including on anonymous visits to public pages — a 401 here means "not
+    // logged in yet," not "session expired," so it must not force-navigate
+    // to /login. See fetchWithAuth's suppressRedirect doc comment above.
+    return fetchWithAuth(`${API_BASE_URL}/auth/me`, {}, false, true);
   },
 
-  logout: () => {
+  logout: async () => {
+    // Revoke server-side and clear cookies (see app/core/auth_cookies.py::
+    // clear_auth_cookies) — the backend reads the refresh token from the
+    // httpOnly cookie, nothing to send in the body. Best-effort: a failed
+    // revoke shouldn't block navigating to /login.
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        headers[CSRF_HEADER_NAME] = csrfToken;
+      }
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({}),
+      });
+    } catch {
+      // Ignore — proceed to /login regardless.
+    }
+
     if (typeof window !== "undefined") {
-      localStorage.removeItem("token");
       window.location.href = "/login";
     }
   },

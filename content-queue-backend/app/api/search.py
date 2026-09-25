@@ -450,9 +450,14 @@ def _get_redis_client():
     return redis_lib.from_url(settings.REDIS_URL, socket_connect_timeout=1)
 
 
-def _call_insight(source_text: str, passages: list[str], article_title: str) -> str:
+def _call_insight(
+    source_text: str,
+    passages: list[str],
+    article_title: str,
+    user_id: str | None = None,
+) -> str:
     """Return a one-sentence connection insight via llm_client."""
-    from app.core.llm_client import llm_client, TASK_INSIGHT
+    from app.core.llm_client import TASK_INSIGHT, braintrust_span, llm_client
 
     passages_block = "\n".join(f"- {p}" for p in passages)
     prompt = (
@@ -461,12 +466,18 @@ def _call_insight(source_text: str, passages: list[str], article_title: str) -> 
         "In one sentence, explain the specific idea that connects the highlight to these passages. "
         "Be precise, not generic. Reply with only the sentence."
     )
-    result = llm_client.chat(
-        messages=[{"role": "user", "content": prompt}],
-        task=TASK_INSIGHT,
-        max_tokens=120,
-        temperature=0.3,
-    )
+    with braintrust_span(
+        TASK_INSIGHT,
+        input={"article_title": article_title},
+        metadata={"user_id": user_id},
+    ):
+        result = llm_client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            task=TASK_INSIGHT,
+            max_tokens=120,
+            temperature=0.3,
+            user_id=user_id,
+        )
     return result.content.strip()
 
 
@@ -531,7 +542,12 @@ def generate_highlight_insight(
     article_title = connected_article.title if connected_article else ""
 
     try:
-        insight = _call_insight(source_highlight.text, passages, article_title)
+        insight = _call_insight(
+            source_highlight.text,
+            passages,
+            article_title,
+            user_id=str(current_user.id),
+        )
         if redis_client is not None:
             try:
                 redis_client.setex(cache_key, 604800, insight)  # 7 days

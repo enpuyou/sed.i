@@ -47,22 +47,34 @@ def embed_new_entities_beat_task(self):
 
     Calls embed_new_entities() directly (the underlying function, not the
     task) to avoid blocking on .get() inside a worker. Idempotent — each
-    call skips users whose entities are already fully embedded.
+    call skips users whose entities are already fully embedded. Guarded
+    by a Redis lock (see app.core.task_locks) so a still-running previous
+    hour's sweep can't overlap with this one. All work runs synchronously
+    in this call, so the lock is released as soon as it finishes.
     """
+    from app.core.task_locks import acquire_run_lock, release_run_lock
     from app.tasks.entity_embedding import embed_new_entities
     from app.models.user import User
 
-    user_ids = [str(u.id) for u in self.db.query(User.id).all()]
+    lock_name = "embed_new_entities_beat_task"
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 50):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"status": "skipped", "reason": "lock_held"}
 
-    total = 0
-    for uid in user_ids:
-        result = embed_new_entities(uid, db=self.db)
-        total += result.get("embedded", 0)
+    try:
+        user_ids = [str(u.id) for u in self.db.query(User.id).all()]
 
-    logger.info(
-        f"embed_new_entities_beat: embedded {total} entities across {len(user_ids)} users"
-    )
-    return {"status": "completed", "total_embedded": total}
+        total = 0
+        for uid in user_ids:
+            result = embed_new_entities(uid, db=self.db)
+            total += result.get("embedded", 0)
+
+        logger.info(
+            f"embed_new_entities_beat: embedded {total} entities across {len(user_ids)} users"
+        )
+        return {"status": "completed", "total_embedded": total}
+    finally:
+        release_run_lock(lock_name)
 
 
 @celery_app.task(
@@ -77,36 +89,51 @@ def backfill_missing_entities_task(self):
     Uses entities_analyzed_at IS NULL to find articles that pre-date the
     entity system. Throttled to _BACKFILL_BATCH per run. Articles that were
     analyzed and produced zero entities have entities_analyzed_at set, so
-    they are correctly excluded.
+    they are correctly excluded. Guarded by a Redis lock (see
+    app.core.task_locks) so a still-running previous day's sweep can't
+    overlap with this one. The lock guards this task's own work (querying
+    and queueing) — it's released once queueing finishes, not held until the
+    dispatched analyze_article_task runs complete, since this task doesn't
+    track those.
     """
-    rows = self.db.execute(
-        text(
-            """
-            SELECT id
-            FROM content_items
-            WHERE processing_status = 'completed'
-              AND full_text IS NOT NULL
-              AND entities_analyzed_at IS NULL
-            ORDER BY created_at ASC
-            LIMIT :batch
-            """
-        ),
-        {"batch": _BACKFILL_BATCH},
-    ).fetchall()
+    from app.core.task_locks import acquire_run_lock, release_run_lock
 
-    if not rows:
-        logger.debug("backfill_missing_entities: nothing to backfill")
-        return {"status": "nothing_to_backfill", "queued": 0}
+    lock_name = "backfill_missing_entities_task"
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 60 * 20):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"status": "skipped", "reason": "lock_held"}
 
-    from app.tasks.article_analysis import analyze_article_task
+    try:
+        rows = self.db.execute(
+            text(
+                """
+                SELECT id
+                FROM content_items
+                WHERE processing_status = 'completed'
+                  AND full_text IS NOT NULL
+                  AND entities_analyzed_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT :batch
+                """
+            ),
+            {"batch": _BACKFILL_BATCH},
+        ).fetchall()
 
-    queued = 0
-    for row in rows:
-        try:
-            analyze_article_task.delay(str(row.id))
-            queued += 1
-        except Exception as e:
-            logger.warning(f"backfill: could not queue {row.id}: {e}")
+        if not rows:
+            logger.debug("backfill_missing_entities: nothing to backfill")
+            return {"status": "nothing_to_backfill", "queued": 0}
 
-    logger.info(f"backfill_missing_entities: queued {queued} articles")
-    return {"status": "completed", "queued": queued}
+        from app.tasks.article_analysis import analyze_article_task
+
+        queued = 0
+        for row in rows:
+            try:
+                analyze_article_task.delay(str(row.id))
+                queued += 1
+            except Exception as e:
+                logger.warning(f"backfill: could not queue {row.id}: {e}")
+
+        logger.info(f"backfill_missing_entities: queued {queued} articles")
+        return {"status": "completed", "queued": queued}
+    finally:
+        release_run_lock(lock_name)

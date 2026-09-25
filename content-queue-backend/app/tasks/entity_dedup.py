@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
 from app.core.entity_graph import merge_entity
-from app.core.llm_client import llm_client
+from app.core.llm_client import TASK_ENTITY_DEDUP, braintrust_span, llm_client
 from app.tasks.base import DatabaseTask
 
 logger = logging.getLogger(__name__)
@@ -55,17 +55,26 @@ Entity A: {a}
 Entity B: {b}"""
 
 
-def _verify_pair(name_a: str, name_b: str) -> bool:
+def _verify_pair(name_a: str, name_b: str, user_id: str | None = None) -> bool:
     """Ask gpt-4o-mini whether two entity names are the same entity."""
     try:
-        result = llm_client.chat(
-            messages=[
-                {"role": "user", "content": _VERIFY_PROMPT.format(a=name_a, b=name_b)}
-            ],
-            task="entity_dedup",
-            max_tokens=5,
-            temperature=0.0,
-        )
+        with braintrust_span(
+            TASK_ENTITY_DEDUP,
+            input={"entity_a": name_a, "entity_b": name_b},
+            metadata={"user_id": user_id},
+        ):
+            result = llm_client.chat(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": _VERIFY_PROMPT.format(a=name_a, b=name_b),
+                    }
+                ],
+                task=TASK_ENTITY_DEDUP,
+                max_tokens=5,
+                temperature=0.0,
+                user_id=user_id,
+            )
         return result.content.strip().upper().startswith("YES")
     except Exception as e:
         logger.warning(
@@ -190,7 +199,7 @@ def deduplicate_entities(
 
         logger.debug(f"Candidate pair (sim={sim:.3f}): {name_a!r} vs {name_b!r}")
 
-        if not _verify_pair(name_a, name_b):
+        if not _verify_pair(name_a, name_b, user_id=uid):
             skipped += 1
             continue
 
@@ -239,7 +248,12 @@ def deduplicate_entities_task(
     Deduplicate entity nodes for one user or all users.
 
     user_id=None runs dedup for every user that has entity embeddings.
-    Called by the weekly Celery beat schedule.
+    Called by the weekly Celery beat schedule; guarded by a Redis lock
+    (see app.core.task_locks) so a still-running previous week's sweep
+    can't overlap with this one. Unlike the fan-out dispatchers in
+    clustering.py/memory.py, this task's per-user work runs synchronously
+    in this same call (not dispatched via .delay()), so the lock is
+    released as soon as the loop finishes rather than held for the full TTL.
     """
     if user_id is not None:
         return deduplicate_entities(
@@ -249,19 +263,29 @@ def deduplicate_entities_task(
             dry_run=dry_run,
         )
 
-    rows = self.db.execute(
-        text("SELECT DISTINCT user_id FROM entities WHERE embedding IS NOT NULL")
-    ).fetchall()
+    from app.core.task_locks import acquire_run_lock, release_run_lock
 
-    totals = {"candidates": 0, "merged": 0, "skipped": 0}
-    for row in rows:
-        result = deduplicate_entities(
-            user_id=str(row.user_id),
-            db=self.db,
-            sim_threshold=sim_threshold,
-            dry_run=dry_run,
-        )
-        for k in totals:
-            totals[k] += result.get(k, 0)
+    lock_name = "deduplicate_entities_task"
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 60 * 24 * 6):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"status": "skipped", "reason": "lock_held"}
 
-    return {**totals, "users": len(rows), "status": "completed", "dry_run": dry_run}
+    try:
+        rows = self.db.execute(
+            text("SELECT DISTINCT user_id FROM entities WHERE embedding IS NOT NULL")
+        ).fetchall()
+
+        totals = {"candidates": 0, "merged": 0, "skipped": 0}
+        for row in rows:
+            result = deduplicate_entities(
+                user_id=str(row.user_id),
+                db=self.db,
+                sim_threshold=sim_threshold,
+                dry_run=dry_run,
+            )
+            for k in totals:
+                totals[k] += result.get(k, 0)
+
+        return {**totals, "users": len(rows), "status": "completed", "dry_run": dry_run}
+    finally:
+        release_run_lock(lock_name)

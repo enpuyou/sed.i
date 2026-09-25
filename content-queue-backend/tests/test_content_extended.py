@@ -107,10 +107,17 @@ def test_clean_extension_html_no_metadata_does_nothing():
 
 
 def _reset_rate_limiter():
-    """Clear the global in-memory rate limiter state between tests."""
-    from app.middleware.rate_limit import rate_limiter
+    """Clear rate limiter state between tests — both the in-memory limiter
+    (legacy/local-dev fallback) and the Redis-backed buckets the middleware
+    actually checks for POST /content."""
+    from app.middleware.rate_limit import rate_limiter, _get_redis_client
 
     rate_limiter.requests.clear()
+
+    r = _get_redis_client()
+    if r is not None:
+        for key in r.scan_iter("ratelimit:POST:/content:*"):
+            r.delete(key)
 
 
 def test_extension_path_creates_completed_content(client, auth_headers):
