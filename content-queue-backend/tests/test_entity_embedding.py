@@ -186,9 +186,13 @@ class TestEntitySearch:
         assert any(r["id"] == str(article.id) for r in results)
         assert all(r["match_type"] == "entity" for r in results)
 
-    def test_entity_lane_included_in_full_mode(self, db_session, test_user):
-        """mode='full' calls _entity_search and includes entity-sourced articles."""
+    def test_entity_lane_included_in_full_mode_when_enabled(
+        self, db_session, test_user
+    ):
+        """mode='full' calls _entity_search and includes entity-sourced articles
+        when settings.ENTITY_SEARCH_ENABLED is True."""
         from app.core.hybrid_search import hybrid_search
+        from app.core.config import settings
 
         article = _make_article(db_session, test_user, "RLHF and alignment")
         entity = _make_entity(
@@ -207,7 +211,7 @@ class TestEntitySearch:
             "match_type": "entity",
         }
 
-        with patch(
+        with patch.object(settings, "ENTITY_SEARCH_ENABLED", True), patch(
             "app.core.hybrid_search._entity_search",
             return_value=[entity_result],
         ) as mock_entity:
@@ -220,6 +224,34 @@ class TestEntitySearch:
 
         mock_entity.assert_called_once()
         assert any(r["id"] == str(article.id) for r in results)
+
+    def test_entity_lane_skipped_by_default(self, db_session, test_user):
+        """mode='full' does not call _entity_search when
+        settings.ENTITY_SEARCH_ENABLED is False (the default) — eval found the
+        entity lane underperforms chunks-only in production (see config.py)."""
+        from app.core.hybrid_search import hybrid_search
+        from app.core.config import settings
+
+        article = _make_article(db_session, test_user, "RLHF and alignment")
+        entity = _make_entity(
+            db_session,
+            test_user,
+            "reinforcement learning from human feedback",
+            embedding=[0.7] * 1536,
+        )
+        _link(db_session, entity, article, test_user)
+
+        assert settings.ENTITY_SEARCH_ENABLED is False
+
+        with patch("app.core.hybrid_search._entity_search") as mock_entity:
+            hybrid_search(
+                query="RLHF human feedback",
+                user=test_user,
+                db=db_session,
+                mode="full",
+            )
+
+        mock_entity.assert_not_called()
 
 
 # ── Full pipeline E2E ─────────────────────────────────────────────────────────

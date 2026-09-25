@@ -1,6 +1,14 @@
 # Plan: Entity Search Redesign — Scale-Robust _entity_search
 Date: 2026-07-07
-Status: Draft
+Status: Complete — implemented in `app/core/hybrid_search.py` (commit f3d9f38 and
+follow-ups). All problems listed below are fixed in current code: no `LIMIT 8`,
+no binary hub cap, neighbor sims are measured not proxied, scoring is in the
+pure `_score_entity_articles()` function. Note: the entity lane itself is now
+disabled by default (`settings.ENTITY_SEARCH_ENABLED = False`, 2026-09-25) —
+not because this redesign failed, but because a later eval found the lane
+still underperforms chunks-only search even with these fixes in place; the
+remaining gap is entity extraction quality, not the retrieval-side issues this
+plan addressed. See `docs/design/systems/entity-graph-search.md`.
 
 ## Goal
 
@@ -31,10 +39,10 @@ into a pure function so it can be tested and evolved without a live DB.
 | Scoring loop is inside the try/except | Not unit-testable | Can only be verified end-to-end against a real DB |
 | `_SECONDARY_WEIGHT = 0.3` hardcoded inline | No rationale | May be wrong at any scale |
 
-Investigation finding (from `docs/design/systems/hub-cap-investigation.md`):
-the entity_relations graph currently has only ~80 edges, so expansion
-contributes almost nothing. All regressions come from direct entity→article
-scoring, not expansion. Hub cap is inert for current failures.
+Investigation finding (from `evals/retrieval/results/report.md` §11, "Hub cap
+investigation"): the entity_relations graph currently has only ~80 edges, so
+expansion contributes almost nothing. All regressions come from direct
+entity→article scoring, not expansion. Hub cap is inert for current failures.
 
 ## Architecture decisions
 
@@ -300,7 +308,7 @@ articles rank below anchors. This is correct behavior, not a bug.
 
 1. Run `make eval` against production DB before and after the changes.
 2. Compare R@10 and MRR on the full 45-query set and the 5 regression queries
-   from `hub-cap-investigation.md`.
+   from `evals/retrieval/results/report.md` §10.
 3. Adjust `_ENTITY_SIM_THRESHOLD` and `_ENTITY_EXPAND_THRESHOLD` if warranted
    by eval results. Document in `docs/design/systems/entity-retrieval-eval.md`.
 

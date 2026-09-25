@@ -1,7 +1,7 @@
 ---
 type: design
 status: active
-last_updated: 2026-07-08
+last_updated: 2026-09-25
 ---
 
 # Entity Graph Search
@@ -9,6 +9,15 @@ last_updated: 2026-07-08
 How entity extraction, storage, and entity-augmented retrieval work in sed.i.
 Includes the retrieval eval results showing what the entity graph solves, what it
 doesn't, and what's known to be missing.
+
+**Status: disabled by default in production** (`settings.ENTITY_SEARCH_ENABLED = False`,
+`app/core/config.py`). The retrieval eval (`evals/retrieval/results/report.md`) found
+the entity lane underperforms chunks-only search on R@10/MRR/NDCG, and its §11 root-cause
+investigation ruled out threshold/cap tuning as a fix — every regression traces to entity
+*extraction* quality (fragmented duplicate entities, missing conceptual entities,
+vocabulary gaps), not a retrieval parameter. Extraction, storage, dedup, and the search
+lane itself are all implemented and tested; the lane is gated off pending extraction-quality
+work, not deleted. Set `ENTITY_SEARCH_ENABLED=true` to enable for testing.
 
 ---
 
@@ -56,9 +65,9 @@ Bad predicates (prompt rejects): `"said about"`, `"addressed correspondence to"`
 | `entity_mentions` | Article → entity link with `context_text` (verbatim sentence) |
 | `entity_relations` | Directed edge: source → predicate → target, weight 0.2–1.0, anchored to article |
 
-Entity embeddings are embeddings of the **entity name string** (e.g. `"Donald Trump"`,
-`"ChatGPT"`), not of descriptions or context sentences. This is the root cause of the
-descriptive-query limitation described in Section 4.
+Entity embeddings are embeddings of `"{type}: {name} — {description}"`
+(`_entity_text()` in `app/tasks/entity_embedding.py`) — type, name, and description
+together, not the name string alone.
 
 Entities are upserted by `(user_id, lower(name))` — case-insensitive dedup across
 articles within a user's library.
@@ -73,32 +82,51 @@ Located in `app/core/hybrid_search.py`. Called as one of four lanes in `hybrid_s
 
 ```
 1. Embed query (or use pre-provided query_embedding if passed directly)
-2. Find top-8 entity nodes by cosine similarity to query embedding
-3. Gate: if top entity sim < 0.55 → return [] immediately (no entity contribution)
-4. Split anchors into two tiers:
-   - Strong (sim ≥ 0.60, article_count ≤ 4): eligible for 1-hop graph expansion
-   - Weak (sim ≥ 0.55 but below 0.60, or hub entities): direct articles only
-5. Score articles: Σ(anchor_sim / log2(2 + entity_article_count))
-   IDF-like dampening — hub entities (Anthropic ×10, Claude ×6) contribute less
-6. 1-hop expansion: for strong anchors, fetch neighbor entities via entity_relations;
-   their articles get neighbor_sim = 0.5 × min_anchor_sim
+2. Exact name match path: always included regardless of sim threshold
+3. Threshold-based candidate selection: all entities with cosine similarity
+   >= _ENTITY_SIM_THRESHOLD (0.40), no hardcoded count limit
+4. 1-hop expansion from high-confidence anchors only
+   (sim >= _ENTITY_EXPAND_THRESHOLD, 0.45). No binary hub cap.
+5. Neighbor sims fetched via direct cosine query against stored embeddings
+   (not a proxy derived from anchor sims)
+6. Score articles: best_contribution + 0.3 × sum(secondary contributions), where
+   contribution = sim / log2(2 + entity_article_count) — IDF-like dampening so
+   hub entities (e.g. "Claude" appearing in many articles) contribute less per
+   mention (_score_entity_articles())
 7. Return results with match_type="entity" and matched_via list
 ```
 
-Hub entity handling — three mechanisms suppress hub flooding without a binary cap:
-- IDF dampening: score divided by `log2(2 + article_count)`
-- Hub expansion cap: entities with >4 articles never trigger 1-hop expansion
-- Half-weight RRF: entity lane uses k=120 vs k=60 for keyword/semantic lanes
+Hub entity handling is IDF dampening only (step 6) — there is no separate binary
+expansion cap on high-frequency entities; the eval's hub-cap investigation
+(`evals/retrieval/results/report.md` §11) found the `entity_relations` graph has
+too few edges (80 total, in the eval corpus) for graph expansion to matter, and
+that adjusting any cap or threshold did not change the outcome on any regressed
+query.
 
 ### 1.4 Hybrid search fusion
 
-`hybrid_search(mode="full")` runs four lanes in parallel: keyword, semantic, filter, entity.
-Fused with Reciprocal Rank Fusion (k=60 for keyword/semantic/filter, k=120 for entity).
-See [search.md](search.md) for the full search architecture.
+`hybrid_search(mode="full")` runs four lanes: keyword, semantic, filter, and
+(when `settings.ENTITY_SEARCH_ENABLED`) entity. Keyword/semantic/filter fuse via
+Reciprocal Rank Fusion (k=60). The entity lane does not use RRF — its raw
+similarity-based score (step 6 above) is scaled by `_ENTITY_SCORE_SCALE = 0.025`
+and added directly to the RRF sum, since a typical top RRF score (~0.016) and a
+raw entity score (0.2–0.7) aren't on the same scale. See [search.md](search.md)
+for the full search architecture.
 
 ---
 
 ## 2. Query flow examples
+
+> **Note:** the examples below predate the current thresholds (§1.3) and were
+> written when entity embeddings were name-only. The mechanism they illustrate
+> (exact-match bypass, threshold gate, 1-hop expansion, IDF dampening) is still
+> accurate; the specific similarity numbers and the 0.55/0.60 threshold values
+> are not — see §1.3 for current values. Example D's stated root cause (name-only
+> embeddings) is also outdated: entity embeddings now include type + description
+> (§1.2), so a low-similarity descriptive query is more likely an extraction gap
+> (the entity/concept was never extracted from the target article) than an
+> embedding-content limitation — see `evals/retrieval/results/report.md` §10 for
+> confirmed extraction-quality root causes on real regressed queries.
 
 ### Example A: "ChatGPT and AI tools changing how people work"
 
@@ -232,20 +260,22 @@ appears in ≥2 articles from semantically distant domains.
 
 ### What it does not solve
 
-**Descriptive queries about hub entities** (root cause: name-only embeddings)
+**Descriptive queries about entities the extraction pass missed**
 
-Entity embeddings are computed from the name string alone. Queries describing an entity
-without naming it directly fail the similarity gate.
+Entity embeddings now include type + description (§1.2 fix, since applied), not
+just the name string — so the "fix path" this section previously described
+(embed description alongside name) is already shipped. The similarity/sim table
+below is stale (measured against name-only embeddings) and not reliable evidence
+of current behavior.
 
-| Query | Entity | sim | Gate |
-|---|---|---|---|
-| "Donald Trump tariffs economy 2025" | Donald Trump | 0.331 | FAIL |
-| "Federal Reserve monetary policy independence" | Federal Reserve | 0.536 | FAIL |
-| "how people are using AI in daily lives" | ChatGPT | 0.412 | FAIL |
-
-Fix path: embed entity description or `context_text` sentences alongside the name.
-"Announced sweeping tariff policy" → Trump entity would then be reachable from
-descriptive queries.
+What the retrieval eval found instead, on real production data
+(`evals/retrieval/results/report.md` §10): low-similarity or missing entity
+matches trace to *extraction* gaps — the relevant concept or entity was never
+extracted from the target article (e.g. a narrative/managerial article with no
+named concept for its actual subject), or the entity was extracted as several
+fragmented duplicates (e.g. "Claude", "Claude.ai", "Claude Code" as five separate
+nodes splitting the signal) rather than deduplicated into one. Neither is fixable
+by changing what gets embedded — both require better extraction or deduplication.
 
 **Cross-cluster concept gaps** (root cause: no synthesized CONCEPT nodes)
 
@@ -270,12 +300,18 @@ size — expected win rate increases substantially at 500+ articles.
 
 ## 5. Known gaps (not yet implemented)
 
-- **Richer entity embeddings**: embed `description + context_text` instead of name
-  only — lets descriptive queries reach entities they describe but don't name
 - **Synthesized CONCEPT nodes**: cross-article concept bridging for vocabulary-split
   clusters; would need to be generated by comparing articles, not extracted from any one
 - **Tag-to-entity promotion**: concept tags appearing in ≥2 articles promoted to CONCEPT
   entity nodes with entity_mention rows per article carrying the tag — bridges articles
   on the same topic when named entity overlap is low
-- **Entity deduplication**: "AI", "A.I.", "Artificial Intelligence" currently create
-  separate nodes; a dedup pass on aliases would consolidate them
+- **Entity deduplication for near-duplicate name variants**: `entity_dedup.py` merges
+  exact-name duplicates via `(user_id, lower(name))`, but does not merge semantic
+  variants of the same real-world entity (e.g. "Claude", "Claude.ai", "Claude Code" as
+  separate nodes) — confirmed as a live cause of retrieval regressions
+  (`evals/retrieval/results/report.md` §10, "Claude-family entity fragmentation")
+- **Richer extraction for narrative/managerial content**: articles without an explicit
+  named concept for their actual subject (e.g. a piece about AI's labor impact with no
+  "AI labor" entity extracted) are unreachable via the entity lane regardless of
+  embedding quality — this, not embedding content, is the eval's confirmed largest
+  driver of missed entity-lane matches

@@ -9,10 +9,22 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+# Judge calls (5 per case-variant, gpt-4o) routinely blow through OpenAI's
+# 30K TPM org limit on a full eval run. The LLM client's own built-in retry
+# (2 attempts) fires within ~1s of the same rate-limit window and both fail
+# identically — see results from the 2026-09-25 run, where 21/150 dimension
+# scores silently landed as the score_profile() error fallback (score=1, the
+# rubric floor) instead of a real judgment, corrupting the aggregate without
+# any visible signal in the summary table. Sleeping past the window before
+# retrying at this layer (separate from the LLM client's own retry) fixes it.
+_RATE_LIMIT_RETRY_SLEEP_S = 20
+_RATE_LIMIT_MAX_ATTEMPTS = 3
 
 
 class DimensionScore(BaseModel):
@@ -62,22 +74,40 @@ def score_profile(
             memory_text=memory_text,
             dimension=dimension,
         )
-        try:
-            result: DimensionScore = llm_client.structured_chat(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_model=DimensionScore,
-                task="synthesis",  # reuse synthesis model slot; no separate judge config needed
-                max_tokens=256,
-            )
+        result: DimensionScore | None = None
+        last_error: Exception | None = None
+        for attempt in range(_RATE_LIMIT_MAX_ATTEMPTS):
+            try:
+                result = llm_client.structured_chat(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    response_model=DimensionScore,
+                    task="synthesis",  # reuse synthesis model slot; no separate judge config needed
+                    max_tokens=256,
+                )
+                break
+            except Exception as e:
+                last_error = e
+                is_rate_limit = "rate_limit" in str(e).lower() or "429" in str(e)
+                if is_rate_limit and attempt < _RATE_LIMIT_MAX_ATTEMPTS - 1:
+                    logger.warning(
+                        f"Rate limited on {case_key}/{variant}/{dimension} "
+                        f"(attempt {attempt + 1}/{_RATE_LIMIT_MAX_ATTEMPTS}), "
+                        f"sleeping {_RATE_LIMIT_RETRY_SLEEP_S}s before retry"
+                    )
+                    time.sleep(_RATE_LIMIT_RETRY_SLEEP_S)
+                    continue
+                break
+
+        if result is not None:
             dimension_scores[dimension] = result.score
             dimension_reasons[dimension] = result.reason
-        except Exception as e:
-            logger.warning(f"Judge failed on {case_key}/{variant}/{dimension}: {e}")
+        else:
+            logger.warning(f"Judge failed on {case_key}/{variant}/{dimension}: {last_error}")
             dimension_scores[dimension] = 1
-            dimension_reasons[dimension] = f"ERROR: {e}"
+            dimension_reasons[dimension] = f"ERROR: {last_error}"
 
     total = weighted_score(dimension_scores)
     fail = is_hard_fail(dimension_scores)

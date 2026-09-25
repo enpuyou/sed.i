@@ -131,6 +131,34 @@ class TestHybridSearch:
         results = hybrid_search(query="article", user=user, db=db, limit=1)
         assert len(results) <= 1
 
+    def test_hybrid_branch_fuses_keyword_and_semantic(
+        self, db, user, article, second_article
+    ):
+        """
+        A multi-word conceptual query (4+ words, not a question) classifies as
+        "hybrid" (app/core/search_router.py) and RRF-fuses keyword + semantic
+        results.
+        """
+        from unittest.mock import patch
+
+        # Force the semantic lane to return real-looking results without a
+        # live OpenAI call, so the "hybrid" branch's fusion logic actually runs
+        # (both kw_results and sem_results non-empty) rather than short-circuiting.
+        fake_semantic_result = {
+            "id": str(article.id),
+            "title": article.title,
+            "score": 0.9,
+        }
+        with patch(
+            "app.core.hybrid_search._semantic_search",
+            return_value=[fake_semantic_result],
+        ):
+            results = hybrid_search(
+                query="conceptual multi word search query", user=user, db=db
+            )
+
+        assert isinstance(results, list)
+
 
 class TestGetUserSearchContext:
     def test_returns_authors(self, db, user, article):

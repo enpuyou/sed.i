@@ -80,6 +80,11 @@ Cover all four of:
 
 Be specific and grounded in the evidence. Do not generalize beyond what the activity shows.
 Avoid filler like "the user is interested in". State what the data shows.
+
+If the activity shows no dominant focus — diverse domains, all shallow reads, no highlights, no
+reading lists — say so explicitly in current_focus and memory_text. Do not construct a coherent
+focus where the data shows none. "No dominant focus this window — ambient browsing across unrelated
+domains" is a valid and useful profile.
 """
 
 _VARIANT_C_PROMPT = """\

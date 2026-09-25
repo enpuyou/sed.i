@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     SIMILARITY_THRESHOLD_CONNECTIONS: float = 0.3
     SIMILARITY_THRESHOLD_TAGS: float = 0.75
 
+    # Entity graph search lane (mode="full"). Default disabled: eval
+    # (evals/retrieval/results/report.md) found production entity lane (D)
+    # underperforms chunks-only (B) on R@10/MRR/NDCG — regressions trace to
+    # entity extraction quality, not a fixable retrieval parameter (report §11).
+    # Enable once extraction quality improves and a fresh eval confirms a net win.
+    ENTITY_SEARCH_ENABLED: bool = False
+
     # Email Settings (Resend HTTP API)
     RESEND_API_KEY: str = ""
     EMAILS_FROM_EMAIL: str = "noreply@read-sedi.com"
@@ -35,6 +42,14 @@ class Settings(BaseSettings):
     # Public-facing API base URL (used in OAuth discovery behind reverse proxies)
     # Set to e.g. https://api.read-sedi.com in production Railway env vars.
     API_BASE_URL: str = ""
+
+    # Parent registrable domain for the CSRF cookie (app/core/auth_cookies.py),
+    # so it's readable by frontend JS on a different subdomain than the API
+    # (www.read-sedi.com reading a cookie set by api.read-sedi.com). Leave
+    # empty for local dev — a host-only cookie is correct there since
+    # localhost has no parent domain to share across ports/subdomains anyway.
+    # Set to ".read-sedi.com" (leading dot) in production.
+    COOKIE_DOMAIN: str = ""
 
     # PostHog Analytics
     POSTHOG_API_KEY: str = ""
@@ -95,6 +110,10 @@ class Settings(BaseSettings):
     # Research memory retrieval tuning
     RESEARCH_MEMORY_K: int = 5
     RESEARCH_MEMORY_MAX_AGE_DAYS: int = 90
+
+    # Per-user daily LLM spend ceiling (abuse backstop, not a product-tier limit).
+    # Tracked in Redis, keyed by user_id + UTC date. See app/core/llm_client.py.
+    LLM_DAILY_BUDGET_USD_PER_USER: float = 5.0
 
     # AWS / Bedrock (Layer 4)
     # Required when LLM_PROVIDER="bedrock". Leave empty when using OpenAI.
