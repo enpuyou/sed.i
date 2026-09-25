@@ -60,7 +60,7 @@ The following backend components must exist:
   `collect_subagent_results`, `synthesize_run`, `verify_synthesis`
 - `app/api/research.py` — `GET /research/{run_id}` status endpoint
 
-See `docs/plans/multi-agent-orchestrator-impl.md` for the step-by-step build plan.
+See `docs/plans/OBSOLETE-multi-agent-orchestrator-impl.md` for the step-by-step build plan.
 
 ### 2. Engagement scoring in subagents
 

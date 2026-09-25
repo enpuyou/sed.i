@@ -235,7 +235,7 @@ their own writing.
 ## State record and reliability
 
 One Postgres row per run, versioned schema. Every step transition is a write.
-See `docs/plans/multi-agent-sota.md` for the full reliability and failure-handling
+See `docs/plans/OBSOLETE-multi-agent-sota.md` for the full reliability and failure-handling
 specification.
 
 Key behaviors:
