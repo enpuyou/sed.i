@@ -1,8 +1,10 @@
 """
 S3 object storage helpers for sed.i.
 
-All operations are no-ops when AWS_S3_BUCKET is not configured, so the app
-works in local dev and test environments without any AWS credentials.
+All operations are no-ops unless both settings.S3_STORAGE_ENABLED is true AND
+AWS_S3_BUCKET is configured, so the app works in local dev and test
+environments without any AWS credentials, and a bucket can be provisioned
+without going live until the flag is explicitly turned on.
 
 Key layout:
   pdfs/<user_id>/<item_id>.pdf   — raw PDF bytes uploaded at ingestion time
@@ -33,11 +35,11 @@ def upload_pdf(user_id: str, item_id: str, pdf_bytes: bytes) -> str | None:
     """
     Upload raw PDF bytes to S3 and return the object key.
 
-    Returns None if S3 is not configured or the upload fails — callers should
-    treat a None key as "PDF not in S3" and fall back to re-fetching from the
-    original URL.
+    Returns None if S3 is not enabled/configured or the upload fails —
+    callers should treat a None key as "PDF not in S3" and fall back to
+    re-fetching from the original URL.
     """
-    if not settings.AWS_S3_BUCKET:
+    if not settings.S3_STORAGE_ENABLED or not settings.AWS_S3_BUCKET:
         return None
 
     key = f"pdfs/{user_id}/{item_id}.pdf"
@@ -59,9 +61,9 @@ def presign_url(s3_key: str, expiry: int | None = None) -> str | None:
     """
     Generate a presigned GET URL for a stored object.
 
-    Returns None if S3 is not configured or the key is empty.
+    Returns None if S3 is not enabled/configured or the key is empty.
     """
-    if not settings.AWS_S3_BUCKET or not s3_key:
+    if not settings.S3_STORAGE_ENABLED or not settings.AWS_S3_BUCKET or not s3_key:
         return None
 
     ttl = expiry if expiry is not None else settings.AWS_S3_PRESIGN_EXPIRY

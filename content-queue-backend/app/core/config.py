@@ -121,8 +121,14 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-2"
 
-    # S3 object storage (Layer 6)
-    # Leave empty to disable S3 upload (PDFs processed in-memory only, bytes discarded).
+    # S3 object storage (Layer 6). Default disabled — matches the
+    # ENTITY_SEARCH_ENABLED convention (explicit opt-in flag, not just an
+    # empty-string-as-off config value) so a bucket can be provisioned and
+    # tested without silently going live for all users the moment
+    # AWS_S3_BUCKET is set. Both this flag AND AWS_S3_BUCKET must be set for
+    # PDF upload/presign to actually run; when off, PDFs are processed
+    # in-memory only and bytes are discarded (existing behavior, unchanged).
+    S3_STORAGE_ENABLED: bool = False
     AWS_S3_BUCKET: str = ""
     # Presigned URL expiry in seconds (default 1 hour)
     AWS_S3_PRESIGN_EXPIRY: int = 3600

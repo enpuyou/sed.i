@@ -576,7 +576,19 @@ def consolidate_memory_task(self, user_id: str):
 
 @celery_app.task(base=DatabaseTask, bind=True)
 def consolidate_all_users_task(self):
-    """Nightly beat fan-out: dispatch consolidation only for users with new activity.
+    """Nightly beat fan-out: dispatch consolidation only for users with at
+    least _MIN_ACTIVITY_ITEMS qualifying items since their last run.
+
+    Previously this dispatched on any existence of new activity (even a
+    single new item or highlight), relying entirely on consolidate_memory's
+    own _MIN_ACTIVITY_ITEMS check inside the dispatched task to skip
+    low-activity users — meaning every user with a trickle of activity got
+    a Celery task and a DB round-trip every night regardless of whether it
+    would do anything. Counting here instead (fixed 2026-09-25) avoids that
+    dispatch overhead for the common case, using the same threshold and the
+    same activity definition (saved + read + highlights — matching
+    consolidate_memory's own total_items calculation) so the two stay in
+    sync.
 
     Guarded by a Redis lock (see app.core.task_locks) so a still-draining
     previous night's fan-out can't overlap with the next nightly firing.
@@ -602,25 +614,32 @@ def consolidate_all_users_task(self):
     rows = self.db.execute(
         text(
             """
-        SELECT DISTINCT ci.user_id
-        FROM content_items ci
-        LEFT JOIN user_profiles up ON up.user_id = ci.user_id
-        WHERE ci.deleted_at IS NULL
-          AND (
-            ci.created_at > COALESCE(up.last_consolidated, :bootstrap_cutoff)
-            OR (
-              ci.updated_at > COALESCE(up.last_consolidated, :bootstrap_cutoff)
-              AND ci.read_position > 0.1
-            )
-          )
-        UNION
-        SELECT DISTINCT h.user_id
-        FROM highlights h
-        LEFT JOIN user_profiles up ON up.user_id = h.user_id
-        WHERE h.created_at > COALESCE(up.last_consolidated, :bootstrap_cutoff)
+        SELECT user_id FROM (
+            SELECT ci.user_id, ci.id
+            FROM content_items ci
+            LEFT JOIN user_profiles up ON up.user_id = ci.user_id
+            WHERE ci.deleted_at IS NULL
+              AND (
+                ci.created_at > COALESCE(up.last_consolidated, :bootstrap_cutoff)
+                OR (
+                  ci.updated_at > COALESCE(up.last_consolidated, :bootstrap_cutoff)
+                  AND ci.read_position > 0.1
+                )
+              )
+            UNION ALL
+            SELECT h.user_id, h.id
+            FROM highlights h
+            LEFT JOIN user_profiles up ON up.user_id = h.user_id
+            WHERE h.created_at > COALESCE(up.last_consolidated, :bootstrap_cutoff)
+        ) AS qualifying_activity
+        GROUP BY user_id
+        HAVING COUNT(*) >= :min_activity_items
     """
         ),
-        {"bootstrap_cutoff": bootstrap_cutoff},
+        {
+            "bootstrap_cutoff": bootstrap_cutoff,
+            "min_activity_items": _MIN_ACTIVITY_ITEMS,
+        },
     ).fetchall()
 
     count = 0

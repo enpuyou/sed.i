@@ -539,7 +539,7 @@ POST /content (201, processing_status='completed' immediately)
 | `fetch_discogs_metadata` | `tasks/discogs.py` | Fetches vinyl metadata from Discogs API. |
 | `cleanup` | `tasks/cleanup.py` | Periodic task (beat). Removes old data / temp files. |
 | `consolidate_memory_task` | `tasks/memory.py` | Per-user: merges reading activity since `last_consolidated` onto the user's `user_profiles` row. First run (bootstrap) uses earliest actual activity up to 30 days back. Skipped if < 3 activity items. |
-| `consolidate_all_users_task` | `tasks/memory.py` | Nightly beat fan-out — queries users with activity since their last consolidation and dispatches `consolidate_memory_task` for each. Guarded by a Redis lock (`app/core/task_locks.py`, TTL 20h) so a still-draining previous night's run can't overlap with the next nightly firing. |
+| `consolidate_all_users_task` | `tasks/memory.py` | Nightly beat fan-out — queries users with at least `_MIN_ACTIVITY_ITEMS` (3) qualifying items (saved + read + highlights) since their last consolidation, and dispatches `consolidate_memory_task` for each. Fixed 2026-09-25: previously dispatched on any existence of new activity (even 1 item), relying on `consolidate_memory`'s own threshold check inside the dispatched task to skip low-activity users — every user with a trickle of activity got a Celery task and DB round-trip nightly regardless. Counting here instead avoids that dispatch overhead for the common case; the two thresholds share the same constant so they can't drift apart. Guarded by a Redis lock (`app/core/task_locks.py`, TTL 20h) so a still-draining previous night's run can't overlap with the next nightly firing. |
 
 **Known gap, not yet fixed**: `time_limit`/`soft_time_limit` (task-level and the global 30-min default) are dead configuration under `--pool=solo` (production's actual pool) — confirmed via live-fire chaos testing, `solo.py`'s `apply_target()` has no timer mechanism to enforce either. A hung task blocks the single worker process (and beat, which shares the process under solo) indefinitely. Fix requires an infra/deploy change (switch pool type or add an external watchdog), not an app code change — deliberately out of scope for the code-level fixes above. See `docs/retros/2026-07-28-failure-injection-plan.md` and `docs/changelog/2026-07-28-failure-injection-fixes.md`.
 
@@ -1342,7 +1342,7 @@ Celery workers bootstrap observability via `worker_process_init` signal → `set
 
 ### S3 object storage (`app/core/storage.py`)
 
-PDFs saved to `s3://sedi-assets-{env}/pdfs/{user_id}/{item_id}.pdf`. Presigned URL endpoint: `GET /content/{item_id}/pdf-url` (1h expiry, configurable via `AWS_S3_PRESIGN_EXPIRY`). `AWS_S3_BUCKET` empty = S3 skipped, bytes discarded.
+Disabled by default (`settings.S3_STORAGE_ENABLED = False`, added 2026-09-25) — both this flag AND `AWS_S3_BUCKET` must be set for PDF upload/presign to run, matching the `ENTITY_SEARCH_ENABLED` convention (a bucket can be provisioned without going live until deliberately turned on). Otherwise identical to before: PDFs saved to `s3://sedi-assets-{env}/pdfs/{user_id}/{item_id}.pdf`. Presigned URL endpoint: `GET /content/{item_id}/pdf-url` (1h expiry, configurable via `AWS_S3_PRESIGN_EXPIRY`). Either gate off (or upload/presign failure) = S3 skipped, bytes discarded / 503 returned.
 
 ### Text-to-SQL MCP tool (`app/mcp/tools/query.py`)
 
