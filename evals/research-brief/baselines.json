@@ -1,0 +1,11 @@
+{
+  "_comment": "Research brief G-Eval baselines from variant C full 21-case pilot (2026-07-16). Soft-fail only — LLM-judge scores are probabilistic. CI posts a PR comment but does not block merge.",
+  "_variant": "C",
+  "_updated": "2026-07-16",
+  "_reason": "Planner no-title-anchor + multi-query expansion + chunk fallback + gap strip partial + rubric v2. avg=0.744 (+0.139 vs A, +0.229 vs B_old). 17/21 improved vs A, 20/21 improved vs B_old.",
+  "rubric_score_avg": 0.744,
+  "rubric_score_min": 0.475,
+  "pass_rate": 0.524,
+  "pass_threshold": 0.70,
+  "n_cases": 21
+}

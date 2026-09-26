@@ -27,7 +27,14 @@ from sqlalchemy.orm import Session
 from app.core.celery_app import celery_app
 from app.core.database import SessionLocal
 from app.core.entity_graph import upsert_entity, upsert_mention
-from app.core.llm_client import llm_client, TASK_ARTICLE_ANALYSIS
+from app.core.llm_client import (
+    TASK_ARTICLE_ANALYSIS,
+    TASK_TAG_EMBEDDING,
+    TRANSIENT_CHAT_ERRORS,
+    BudgetExceededError,
+    braintrust_span,
+    llm_client,
+)
 from app.core.llm_schemas import ArticleAnalysisResponse
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -137,24 +144,34 @@ def _validate_label(label: str) -> str | None:
     return label
 
 
-def analyze_article_with_llm(title: str, text: str) -> ArticleAnalysisResponse:
+def analyze_article_with_llm(
+    title: str, text: str, user_id: str | None = None
+) -> ArticleAnalysisResponse:
     """Single-pass extraction: tags, entities, and grounded relations together."""
     words = text.split()
     excerpt = " ".join(words[:_MAX_TEXT_WORDS])
-    return llm_client.structured_chat(
-        messages=[
-            {
-                "role": "user",
-                "content": _ANALYSIS_PROMPT.format(title=title, text=excerpt),
-            }
-        ],
-        response_model=ArticleAnalysisResponse,
-        task=TASK_ARTICLE_ANALYSIS,
-        max_tokens=1000,
-    )
+    with braintrust_span(
+        TASK_ARTICLE_ANALYSIS,
+        input={"title": title},
+        metadata={"user_id": user_id},
+    ):
+        return llm_client.structured_chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": _ANALYSIS_PROMPT.format(title=title, text=excerpt),
+                }
+            ],
+            response_model=ArticleAnalysisResponse,
+            task=TASK_ARTICLE_ANALYSIS,
+            max_tokens=1000,
+            user_id=user_id,
+        )
 
 
-def _upsert_tag_embeddings(labels: list[str], tag_type: str, db: Session) -> None:
+def _upsert_tag_embeddings(
+    labels: list[str], tag_type: str, db: Session, user_id: str | None = None
+) -> None:
     """Embed new labels and upsert into tag_embeddings with their type."""
     if not labels:
         return
@@ -168,7 +185,12 @@ def _upsert_tag_embeddings(labels: list[str], tag_type: str, db: Session) -> Non
     new_labels = [lbl for lbl in labels if lbl not in existing]
 
     if new_labels:
-        result = llm_client.embed(new_labels)
+        with braintrust_span(
+            TASK_TAG_EMBEDDING,
+            input={"count": len(new_labels), "tag_type": tag_type},
+            metadata={"user_id": user_id},
+        ):
+            result = llm_client.embed(new_labels, user_id=user_id)
         for label, embedding in zip(new_labels, result.embeddings):
             db.merge(TagEmbedding(label=label, embedding=embedding, tag_type=tag_type))
 
@@ -230,7 +252,9 @@ def analyze_article(
 
         logger.info(f"Analyzing article {item.original_url} (skip_tags={skip_tags})")
 
-        result = analyze_article_with_llm(item.title or "", text)
+        result = analyze_article_with_llm(
+            item.title or "", text, user_id=str(item.user_id)
+        )
 
         # ── Tags ─────────────────────────────────────────────────────────────
         all_tags: list[str] = []
@@ -248,8 +272,12 @@ def analyze_article(
             all_tags = domain_tags + concept_tags
             if all_tags:
                 item.tags = all_tags
-                _upsert_tag_embeddings(domain_tags, "domain", db)
-                _upsert_tag_embeddings(concept_tags, "concept", db)
+                _upsert_tag_embeddings(
+                    domain_tags, "domain", db, user_id=str(item.user_id)
+                )
+                _upsert_tag_embeddings(
+                    concept_tags, "concept", db, user_id=str(item.user_id)
+                )
 
         # ── Entities + mentions ───────────────────────────────────────────────
         entity_map: dict[str, object] = {}
@@ -336,17 +364,13 @@ def analyze_article(
             f"{entities_written} entities, {relations_written} relations"
         )
 
-        # Embed any new entity nodes asynchronously (no-op if already embedded)
-        if entities_written > 0:
-            try:
-                from app.tasks.entity_embedding import embed_new_entities_task
-
-                embed_new_entities_task.delay(str(item.user_id))
-            except Exception as broker_err:
-                # Broker unavailable (e.g. no Redis in test env) — not fatal.
-                logger.warning(
-                    f"Could not enqueue embed_new_entities_task: {broker_err}"
-                )
+        # New entity nodes get embedded by the hourly embed-new-entities-sweep
+        # beat task — no per-article dispatch needed here. A prior per-article
+        # embed_new_entities_task.delay() call was removed: with N articles
+        # analyzed in a batch (e.g. a backfill), it fired N redundant
+        # dispatches of the same per-user sweep the hourly beat task already
+        # covers, and was the dominant contributor to a 6.5M-message Celery
+        # backlog found in 2026-07-28 chaos testing.
 
         return {
             "content_item_id": content_item_id,
@@ -355,6 +379,20 @@ def analyze_article(
             "entities_written": entities_written,
             "relations_written": relations_written,
         }
+
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping article analysis for {content_item_id}: {e}")
+        return {"content_item_id": content_item_id, "status": "budget_exceeded"}
+
+    except TRANSIENT_CHAT_ERRORS:
+        # Let the caller decide: analyze_article_task retries these via
+        # Celery; a direct/test call has no retry machinery, so it still
+        # needs a rollback before propagating.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
 
     except Exception as e:
         logger.error(f"Failed to analyze article {content_item_id}: {e}")
@@ -370,7 +408,20 @@ def analyze_article(
 
 @celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
 def analyze_article_task(self, content_item_id: str, skip_tags: bool = False):
-    return analyze_article(content_item_id, db=self.db, skip_tags=skip_tags)
+    try:
+        return analyze_article(content_item_id, db=self.db, skip_tags=skip_tags)
+    except TRANSIENT_CHAT_ERRORS as e:
+        logger.warning(
+            f"Transient LLM error analyzing article {content_item_id}, "
+            f"retry {self.request.retries + 1}/{self.max_retries}: {e}"
+        )
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
+        logger.error(
+            f"Failed to analyze article {content_item_id} after "
+            f"{self.max_retries} retries: {e}"
+        )
+        return {"content_item_id": content_item_id, "status": "failed", "error": str(e)}
 
 
 @celery_app.task(base=DatabaseTask, bind=True)

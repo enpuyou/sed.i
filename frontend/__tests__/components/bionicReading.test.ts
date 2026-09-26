@@ -15,6 +15,7 @@ import {
   addHeadingAnchors,
   stripDocumentWrappers,
   sanitizeContentHtml,
+  sanitizeArticleHtml,
 } from "../../lib/bionicReading";
 
 // ---------------------------------------------------------------------------
@@ -170,5 +171,81 @@ describe("sanitizeContentHtml", () => {
 
   it("handles empty string gracefully", () => {
     expect(() => sanitizeContentHtml("")).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeArticleHtml — XSS defense for third-party extracted article HTML
+// ---------------------------------------------------------------------------
+
+describe("sanitizeArticleHtml", () => {
+  it("strips inline <script> tags", () => {
+    const html = '<p>Hello</p><script>alert("xss")</script>';
+    const result = sanitizeArticleHtml(html);
+    expect(result).not.toContain("<script");
+    expect(result).not.toContain("alert");
+    expect(result).toContain("Hello");
+  });
+
+  it("strips on* event handler attributes", () => {
+    const html = '<img src="x.jpg" onerror="alert(1)" onclick="alert(2)">';
+    const result = sanitizeArticleHtml(html);
+    expect(result).not.toContain("onerror");
+    expect(result).not.toContain("onclick");
+  });
+
+  it("strips javascript: URLs from href", () => {
+    const html = '<a href="javascript:alert(1)">click me</a>';
+    const result = sanitizeArticleHtml(html);
+    expect(result).not.toContain("javascript:");
+    expect(result).toContain("click me");
+  });
+
+  it("strips iframe tags", () => {
+    const html =
+      '<p>Content</p><iframe src="https://evil.example.com"></iframe>';
+    const result = sanitizeArticleHtml(html);
+    expect(result).not.toContain("<iframe");
+    expect(result).toContain("Content");
+  });
+
+  it("strips svg-based XSS vectors", () => {
+    const html =
+      '<svg><animatetransform onbegin="alert(1)"></animatetransform></svg>';
+    const result = sanitizeArticleHtml(html);
+    expect(result).not.toContain("onbegin");
+  });
+
+  it("preserves data-* attributes used by highlight spans", () => {
+    const html =
+      '<span data-highlight-id="abc123" data-highlight-color="yellow">highlighted text</span>';
+    const result = sanitizeArticleHtml(html);
+    expect(result).toContain("data-highlight-id");
+    expect(result).toContain("data-highlight-color");
+    expect(result).toContain("highlighted text");
+  });
+
+  it("preserves heading anchor id/href/class/aria-label attributes", () => {
+    const html =
+      '<h2 id="intro"><a href="#intro" class="heading-anchor" aria-label="Link to Introduction"></a>Introduction</h2>';
+    const result = sanitizeArticleHtml(html);
+    expect(result).toContain('id="intro"');
+    expect(result).toContain('href="#intro"');
+    expect(result).toContain("heading-anchor");
+    expect(result).toContain("Introduction");
+  });
+
+  it("preserves normal article markup unchanged", () => {
+    const html =
+      '<p>Normal paragraph with <strong>bold</strong> and <em>italic</em> text.</p><img src="https://example.com/photo.jpg" alt="A photo">';
+    const result = sanitizeArticleHtml(html);
+    expect(result).toContain("<strong>bold</strong>");
+    expect(result).toContain("<em>italic</em>");
+    expect(result).toContain('src="https://example.com/photo.jpg"');
+    expect(result).toContain('alt="A photo"');
+  });
+
+  it("handles empty string gracefully", () => {
+    expect(() => sanitizeArticleHtml("")).not.toThrow();
   });
 });

@@ -10,7 +10,7 @@ consumer: agent
 Each layer is a self-contained PR or pair of PRs. Complete one layer before starting the next.
 For tool/service decisions marked **[decide when ready]**, do a short research spike at that layer rather than committing now.
 
-Reference doc with full rationale for each choice: [sedi-sota-stack-plan](sedi-sota-stack-plan)
+Reference doc with full rationale for each choice: [sedi-sota-stack-plan](OBSOLETE-sedi-sota-stack-plan) (archived)
 
 ---
 
@@ -29,6 +29,7 @@ Reference doc with full rationale for each choice: [sedi-sota-stack-plan](sedi-s
 | 8 | Prefect + pipeline observability | ✓ Done |
 | 9 | Text-to-SQL MCP tool | ✓ Done |
 | 10 | Secrets + docs polish | ☐ Not started |
+| 11 | LLM gateway hardening (cost attribution, budgets, timeouts) | ☐ Not started — see [llm-gateway-hardening](llm-gateway-hardening) |
 
 ---
 
@@ -139,21 +140,34 @@ Consequences: <tradeoffs, what would change this decision>
 
 ---
 
-## Layer 5 — Reranker
+## Layer 5 — Reranker — ✅ tried, removed (2026-09-25)
 
 **Goal:** Cross-encoder reranker on top of hybrid search. Measurable Recall@5 lift.
 
-### Tasks
+Built and evaluated Cohere Rerank v3.5 (`evals/reranker/`, since deleted).
+Result: +3.15pp R@10 in aggregate, but a guard-rail case regressed and the
+gain was mostly two opposing tier-level effects cancelling out — the eval's
+own decision was "investigate, not ship as-is." Shipped anyway with no
+query-shape gating and no cost/budget enforcement; removed under a
+cost-constrained, multi-user product direction. See
+`docs/plans/sota-gap-action-plan.md` item 5 and
+`docs/changelog/2026-09-25-reranker-removal-entity-flag-eval-sync.md` for the
+full numbers and decision. The Modal-vs-Cohere question below is moot —
+neither path is being pursued until the eval's own proposed fix (gate by
+query shape) is built and re-evaluated.
 
-- [ ] Evaluate: Modal (serverless GPU, teaches infra) vs Cohere Rerank API (free tier, zero infra)
-- [ ] Deploy `bge-reranker-base` on Modal **or** wire Cohere Rerank (pick after evaluation)
-- [ ] Add reranking stage to `core/hybrid_search.py`: top-20 hybrid → top-5 reranked
-- [ ] Feature-flag via PostHog: `retrieval.reranker_enabled`
-- [ ] Run Layer 3 retrieval evals: record Recall@5 before and after
-- [ ] Latency budget analysis (reranker adds ~100–200ms — document acceptable or not)
-- [ ] Write ADR-0005: retrieval pipeline architecture, measured lift
+<details>
+<summary>Original task list (historical)</summary>
 
-**[Decide when ready]:** Modal vs Cohere. Modal teaches serverless GPU patterns (higher learning value); Cohere is faster to ship. If the lift from the reranker is small, Cohere's free tier is fine and you spend the time on higher-leverage layers.
+- [x] Evaluate: Modal (serverless GPU, teaches infra) vs Cohere Rerank API (free tier, zero infra) — chose Cohere
+- [x] Deploy `bge-reranker-base` on Modal **or** wire Cohere Rerank (pick after evaluation) — wired Cohere, since removed
+- [x] Add reranking stage to `core/hybrid_search.py`: top-20 hybrid → top-5 reranked — added, since reverted
+- [ ] Feature-flag via PostHog: `retrieval.reranker_enabled` — never built; shipped ungated, which contributed to the removal decision
+- [x] Run Layer 3 retrieval evals: record Recall@5 before and after — see `evals/reranker/results/report.md` history (deleted with the eval directory; numbers preserved in the changelog above)
+- [ ] Latency budget analysis (reranker adds ~100–200ms — document acceptable or not) — never done
+- [ ] Write ADR-0005: retrieval pipeline architecture, measured lift — never written
+
+</details>
 
 ---
 
@@ -200,7 +214,7 @@ Consequences: <tradeoffs, what would change this decision>
 - [ ] LLM-as-judge: citation faithfulness scorer
 - [ ] Minimal UI: one input field, status stream, result displayed inline
 
-**Architecture reference:** see [sedi-sota-stack-plan](sedi-sota-stack-plan#primary-research-agent-build-this) for planner-executor diagram.
+**Architecture reference:** see [sedi-sota-stack-plan](OBSOLETE-sedi-sota-stack-plan#primary-research-agent-build-this) (archived — describes the never-built Temporal architecture; see `sota-gap-action-plan.md` item 6 for current status) for planner-executor diagram.
 
 ---
 

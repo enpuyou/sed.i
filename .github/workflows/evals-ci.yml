@@ -8,8 +8,10 @@ on:
       - 'content-queue-backend/app/core/hybrid_search.py'
       - 'content-queue-backend/app/core/search_router.py'
       - 'content-queue-backend/app/tasks/tagging.py'
+      - 'content-queue-backend/app/tasks/research.py'
       - 'content-queue-backend/app/mcp/tools/**'
       - 'content-queue-backend/tests/evals/**'
+      - 'evals/**'
 
 permissions:
   contents: read
@@ -96,6 +98,11 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: test-secret-key-for-ci
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Check eval regressions against baselines
+        run: |
+          python evals/check_regressions.py --comment-file /tmp/regression_comment.md
+        # Hard-fail exits 1 (blocks merge). Soft-fail exits 0 (comment only).
 
       - name: Post eval summary as PR comment
         if: always() && github.event_name == 'pull_request'
@@ -205,7 +212,14 @@ jobs:
               parts.push(section);
             }
 
-            const body = `## Eval Gate Results\n\n${parts.join('\n\n---\n\n')}`;
+            // Append regression gate output if present
+            let regressionSection = '';
+            const regressionComment = parseOutput('/tmp/regression_comment.md');
+            if (regressionComment && regressionComment.trim()) {
+              regressionSection = '\n\n---\n\n' + regressionComment.trim();
+            }
+
+            const body = `## Eval Gate Results\n\n${parts.join('\n\n---\n\n')}${regressionSection}`;
             await github.rest.issues.createComment({
               ...context.repo,
               issue_number: context.issue.number,

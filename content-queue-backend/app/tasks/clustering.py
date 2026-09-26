@@ -184,8 +184,26 @@ def cluster_user_tags_task(self, user_id: str):
 
 @celery_app.task(base=DatabaseTask, bind=True)
 def cluster_all_users_task(self):
-    """Weekly beat task: cluster tags for all active users."""
+    """Weekly beat task: cluster tags for all active users.
+
+    Guarded by a Redis lock (see app.core.task_locks) so a still-draining
+    previous week's fan-out can't overlap with this one. The per-user tasks
+    this dispatcher fires are async and untracked by it, so the lock is
+    *not* released when the dispatch loop returns — it's held for its full
+    TTL (sized above the expected worst-case total drain time for all
+    per-user tasks, not just the dispatch loop itself) and released early
+    only as an optimization if that ever becomes worth tracking precisely.
+    """
+    from app.core.task_locks import acquire_run_lock
     from app.models.user import User as UserModel
+
+    lock_name = "cluster_all_users_task"
+    # TTL covers the full week between beat firings minus a safety margin —
+    # if a run is somehow still going after 6 days, let the next one through
+    # rather than risk a permanently stuck lock from a crashed run.
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 60 * 24 * 6):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"dispatched": 0, "skipped": "lock_held"}
 
     users = self.db.query(UserModel.id).all()
     for (uid,) in users:

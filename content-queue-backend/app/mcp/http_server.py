@@ -46,6 +46,8 @@ from app.mcp.tools.write import (
     add_to_list as _add_to_list,
 )
 from app.mcp.tools.query import query_library as _query_library
+from app.mcp.tools.synthesis import synthesize_topic as _synthesize_topic
+from app.mcp.tools.synthesis import assist_draft as _assist_draft
 
 logger = logging.getLogger("sedi.mcp.http")
 
@@ -242,6 +244,43 @@ def query_library(question: str) -> dict:
     """Answer a natural-language question about the user's library using SQL."""
     with get_db() as db:
         return _query_library(question=question, user=_current_user(), db=db)
+
+
+@http_mcp.tool()
+def synthesize_topic(topic: str, depth: str = "quick") -> dict:
+    """
+    Synthesize a topic across your library.
+
+    Args:
+        topic: The topic or question to research.
+        depth: "quick" (default) — single-pass synthesis, ~5s, synchronous.
+
+    Returns a structured synthesis with summary, perspectives, key_concepts,
+    sources (with item IDs), and a confidence level.
+    """
+    with get_db() as db:
+        return _synthesize_topic(topic=topic, depth=depth, user=_current_user(), db=db)
+
+
+@http_mcp.tool()
+def assist_draft(list_id: str, instruction: str) -> dict:
+    """
+    Draft a paragraph using your library as source material.
+
+    Finds relevant articles and highlights from your library and drafts one
+    paragraph matching your writing style. Appends it to the list's draft.
+    Only calls update_draft — does not modify your library.
+
+    Args:
+        list_id: UUID of the reading list whose draft to append to.
+        instruction: What to write, e.g. "write an intro about RAG systems".
+
+    Returns {added, citations, source_count}.
+    """
+    with get_db() as db:
+        return _assist_draft(
+            list_id=list_id, instruction=instruction, user=_current_user(), db=db
+        )
 
 
 # ---------------------------------------------------------------------------

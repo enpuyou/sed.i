@@ -8,6 +8,7 @@ Classifies a query via search_router and routes to keyword (tsvector), filter
 
 from __future__ import annotations
 
+import logging
 import math as _math
 import re
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from sqlalchemy import text
 
 from app.models.content import ContentItem
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 _DATE_OPERATOR_RE = re.compile(r"\b(after|before):\d{4}-\d{2}-\d{2}", re.IGNORECASE)
 
@@ -308,12 +311,14 @@ def _semantic_search(
 
             r = redis_lib.from_url(settings.REDIS_URL, socket_connect_timeout=1)
             r.ping()
-            query_embedding = get_or_create_query_embedding(query, redis_client=r)
+            query_embedding = get_or_create_query_embedding(
+                query, redis_client=r, user_id=str(user.id)
+            )
         except Exception:
             # Redis unavailable — call OpenAI directly
             from app.core.embedding_cache import call_embed
 
-            query_embedding = call_embed(query)
+            query_embedding = call_embed(query, user_id=str(user.id))
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
@@ -363,7 +368,12 @@ def _semantic_search(
         scores = {str(row.id): float(row.similarity) for row in rows}
         return hydrate_items(rows, db, scores=scores)
 
-    except Exception:
+    except Exception as e:
+        # Fail open by design (this lane must never break the others in a
+        # multi-lane fusion) — but log so a real outage (e.g. OpenAI down)
+        # is distinguishable from a legitimate zero-result query instead of
+        # looking identical in both cases with no signal anywhere.
+        logger.warning(f"_semantic_search degraded for user {user.id}: {e}")
         return []
 
 
@@ -499,9 +509,11 @@ def _entity_search(
 
                 r = redis_lib.from_url(_settings.REDIS_URL, socket_connect_timeout=1)
                 r.ping()
-                query_embedding = get_or_create_query_embedding(query, redis_client=r)
+                query_embedding = get_or_create_query_embedding(
+                    query, redis_client=r, user_id=str(user.id)
+                )
             except Exception:
-                query_embedding = call_embed(query)
+                query_embedding = call_embed(query, user_id=str(user.id))
 
         embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
 
@@ -641,7 +653,11 @@ def _entity_search(
             r["matched_via"] = matched_via.get(r["id"], [])
         return results
 
-    except Exception:
+    except Exception as e:
+        # Fail open by design (same rationale as _semantic_search above) —
+        # log so an outage here isn't indistinguishable from "no entity
+        # matches."
+        logger.warning(f"_entity_search degraded for user {user.id}: {e}")
         return []
 
 
@@ -707,29 +723,31 @@ def hybrid_search(
         sem_results = (
             _semantic_search(clean_query, user, db, fetch_limit) if clean_query else []
         )
-        # Compute embedding once for the entity lane. _semantic_search already
-        # cached it in Redis; retrieve from cache to avoid a second API call.
-        _entity_embedding: list[float] | None = None
-        if clean_query:
+        # Entity lane disabled by default — eval (evals/retrieval/results/report.md)
+        # found production entity lane underperforms chunks-only on R@10/MRR/NDCG,
+        # with regressions traced to entity extraction quality (report §11), not a
+        # fixable retrieval parameter. See settings.ENTITY_SEARCH_ENABLED.
+        from app.core.config import settings as _cfg
+
+        entity_results: list[dict] = []
+        if _cfg.ENTITY_SEARCH_ENABLED and clean_query:
+            # Compute embedding once for the entity lane. _semantic_search already
+            # cached it in Redis; retrieve from cache to avoid a second API call.
+            _entity_embedding: list[float] | None = None
             try:
                 from app.core.embedding_cache import get_or_create_query_embedding
                 import redis as _redis_lib
-                from app.core.config import settings as _cfg
 
                 _r = _redis_lib.from_url(_cfg.REDIS_URL, socket_connect_timeout=1)
                 _r.ping()
                 _entity_embedding = get_or_create_query_embedding(
-                    clean_query, redis_client=_r
+                    clean_query, redis_client=_r, user_id=str(user.id)
                 )
             except Exception:
                 pass
-        entity_results = (
-            _entity_search(
+            entity_results = _entity_search(
                 clean_query, user, db, fetch_limit, query_embedding=_entity_embedding
             )
-            if clean_query
-            else []
-        )
 
         item_lookup: dict[str, dict] = {}
         for r in filter_results:
@@ -836,6 +854,7 @@ def hybrid_search(
 
     kw_ids = [r["id"] for r in kw_results]
     sem_ids = [r["id"] for r in sem_results]
+
     fused_ids = rrf_fuse(kw_ids, sem_ids, k=60, limit=fetch)
 
     item_lookup: dict[str, dict] = {}
@@ -847,11 +866,12 @@ def hybrid_search(
 
     fused_results = []
     for rank, id_ in enumerate(fused_ids, start=1):
-        if id_ in item_lookup:
-            item = dict(item_lookup[id_])
-            item["score"] = 1.0 / (60 + rank)
-            item["match_type"] = "hybrid"
-            fused_results.append(item)
+        if id_ not in item_lookup:
+            continue
+        result = dict(item_lookup[id_])
+        result["score"] = 1.0 / (60 + rank)
+        result["match_type"] = "hybrid"
+        fused_results.append(result)
 
     paged = fused_results[offset : offset + limit]
     return _apply_date_filter(paged, after_date, before_date)

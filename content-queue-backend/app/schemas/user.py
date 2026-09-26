@@ -52,7 +52,11 @@ class Token(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Optional: the extension/MCP-style clients send the refresh token in the
+    # body since they manage tokens themselves. The web frontend sends none —
+    # its refresh token lives in an httpOnly cookie the endpoint reads
+    # directly (see app/core/auth_cookies.py).
+    refresh_token: str | None = None
 
 
 class LogoutRequest(BaseModel):

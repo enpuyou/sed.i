@@ -10,7 +10,8 @@ Covers:
 """
 
 import asyncio
-import time
+from unittest.mock import patch
+
 from app.middleware.rate_limit import RateLimiter
 
 
@@ -38,22 +39,22 @@ def test_window_expiry_allows_new_requests():
     """
     Requests older than the window are evicted, freeing up capacity.
 
-    We use a 1-second window and sleep past it to verify old entries age out.
+    Uses a mocked clock so the test does not sleep — deterministic and instant.
     """
     limiter = RateLimiter()
+    t0 = 1_000_000.0
 
-    # Fill up the limit
-    for _ in range(3):
-        run(limiter.is_allowed("user:expiry", max_requests=3, window_seconds=1))
+    with patch("app.middleware.rate_limit.time.time", return_value=t0):
+        for _ in range(3):
+            run(limiter.is_allowed("user:expiry", max_requests=3, window_seconds=1))
+        # Immediately at t0: should be blocked
+        assert not run(
+            limiter.is_allowed("user:expiry", max_requests=3, window_seconds=1)
+        )
 
-    # Immediately: should be blocked
-    assert not run(limiter.is_allowed("user:expiry", max_requests=3, window_seconds=1))
-
-    # Wait past window
-    time.sleep(1.1)
-
-    # Now the old requests have expired — should be allowed again
-    assert run(limiter.is_allowed("user:expiry", max_requests=3, window_seconds=1))
+    # Advance clock past the 1-second window
+    with patch("app.middleware.rate_limit.time.time", return_value=t0 + 1.1):
+        assert run(limiter.is_allowed("user:expiry", max_requests=3, window_seconds=1))
 
 
 def test_different_identifiers_are_independent():

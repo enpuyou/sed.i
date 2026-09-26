@@ -98,6 +98,10 @@ frontend/app/mockups/
 frontend/lint-results.json
 docs/PRIVATE.md
 
-# Eval run results (baselines.json is committed; run artifacts are not)
-evals/*/results/
+# Eval run results (baselines.json and results/report.md are committed;
+# timestamped run-artifact JSON dumps are not — per docs/skills/eval/skill.md).
+# The two-step negation (directory, then re-include, then re-exclude JSON) is
+# required because a bare `!` on a file inside an excluded directory doesn't
+# take effect unless the directory itself isn't excluded outright.
+evals/*/results/*.json
 content-queue-backend/tests/evals/results/

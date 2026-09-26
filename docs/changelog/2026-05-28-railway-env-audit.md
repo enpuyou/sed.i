@@ -80,7 +80,7 @@ shared values are rotated — no need to update Celery separately.
 
 Prefect's Railway private domain is `prefect.railway.internal`. We use the internal URL
 (`http://<prefect-service>.railway.internal/api`) for FastAPI and Celery to keep traffic on
-Railway's private network. The public URL (`prefect-production-b0dc.up.railway.app/api`)
+Railway's private network. The public URL (`<prefect-service>.up.railway.app/api`)
 is what the Prefect service itself advertises but should not be used for service-to-service
 calls.
 

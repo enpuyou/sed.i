@@ -8,6 +8,7 @@ Covers:
 - DELETE /auth/me (success, wrong password, unauthenticated, cascade)
 """
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 
@@ -315,12 +316,18 @@ def test_login_returns_refresh_token(client, test_user):
 
 
 def test_refresh_issues_new_token_pair(client, test_user):
-    """POST /auth/refresh returns a new access + refresh token."""
+    """POST /auth/refresh returns a new access + refresh token.
+
+    Body-token flow (extension/MCP-style client) — clears the login cookie
+    jar first so this genuinely exercises the no-cookie, CSRF-exempt path
+    rather than accidentally riding the cookie-authenticated one.
+    """
     login = client.post(
         "/auth/login",
         data={"username": test_user.email, "password": "testpassword"},
     )
     refresh_token = login.json()["refresh_token"]
+    client.cookies.clear()
 
     resp = client.post("/auth/refresh", json={"refresh_token": refresh_token})
     assert resp.status_code == 200
@@ -338,8 +345,12 @@ def test_refresh_rotates_old_token(client, test_user):
         data={"username": test_user.email, "password": "testpassword"},
     )
     old_token = login.json()["refresh_token"]
+    client.cookies.clear()
 
     client.post("/auth/refresh", json={"refresh_token": old_token})
+    # A successful /auth/refresh sets new cookies on the client (rotation) —
+    # clear again so the replay below stays a genuine body-token-only call.
+    client.cookies.clear()
 
     # Replaying the consumed token must fail
     replay = client.post("/auth/refresh", json={"refresh_token": old_token})
@@ -352,6 +363,92 @@ def test_refresh_invalid_token_rejected(client):
     assert resp.status_code == 401
 
 
+def test_refresh_retry_within_grace_window_does_not_revoke_other_sessions(
+    client, test_user, db_session
+):
+    """
+    A client retrying its own /auth/refresh call (e.g. after a dropped
+    response) hits the already-revoked branch just like a theft replay would,
+    but must not be treated as theft — it should not revoke every other
+    refresh token for the user. Simulates the retry by revoking the token
+    directly (as the first, successful request would have) then replaying it
+    immediately, well within the grace window.
+    """
+    from app.core.security import hash_token
+    from app.models.refresh_token import RefreshToken
+
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    old_token = login.json()["refresh_token"]
+
+    # A second, still-valid session for the same user (e.g. another device).
+    other_login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    other_token = other_login.json()["refresh_token"]
+    client.cookies.clear()
+
+    # Simulate: the first refresh request already succeeded and revoked
+    # old_token server-side, but the client never saw the response.
+    record = (
+        db_session.query(RefreshToken)
+        .filter(RefreshToken.token_hash == hash_token(old_token))
+        .first()
+    )
+    record.revoked_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    # The retry replays the same (now-revoked) token immediately.
+    retry = client.post("/auth/refresh", json={"refresh_token": old_token})
+    assert retry.status_code == 401
+
+    # The other session's token must still work — a genuine retry must not
+    # nuke every device.
+    other_resp = client.post("/auth/refresh", json={"refresh_token": other_token})
+    assert other_resp.status_code == 200
+
+
+def test_refresh_replay_outside_grace_window_revokes_other_sessions(
+    client, test_user, db_session
+):
+    """A token replayed well after its revocation (simulating real theft, not
+    a client retry) still triggers full theft-response revocation."""
+    from app.core.security import hash_token
+    from app.models.refresh_token import RefreshToken
+
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    old_token = login.json()["refresh_token"]
+
+    other_login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    other_token = other_login.json()["refresh_token"]
+    client.cookies.clear()
+
+    record = (
+        db_session.query(RefreshToken)
+        .filter(RefreshToken.token_hash == hash_token(old_token))
+        .first()
+    )
+    # Revoked well outside the grace window — a real replay, not a retry.
+    record.revoked_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    db_session.commit()
+
+    replay = client.post("/auth/refresh", json={"refresh_token": old_token})
+    assert replay.status_code == 401
+
+    # Theft response: every other session for this user is revoked too.
+    other_resp = client.post("/auth/refresh", json={"refresh_token": other_token})
+    assert other_resp.status_code == 401
+
+
 def test_logout_revokes_refresh_token(client, test_user):
     """After logout, the refresh token can no longer be used."""
     login = client.post(
@@ -359,6 +456,7 @@ def test_logout_revokes_refresh_token(client, test_user):
         data={"username": test_user.email, "password": "testpassword"},
     )
     refresh_token = login.json()["refresh_token"]
+    client.cookies.clear()
 
     logout = client.post("/auth/logout", json={"refresh_token": refresh_token})
     assert logout.status_code == 204
@@ -372,3 +470,196 @@ def test_logout_no_token_is_noop(client):
     """Logout with no token returns 204 without error."""
     resp = client.post("/auth/logout", json={})
     assert resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# httpOnly cookie auth (app/core/auth_cookies.py) — web frontend flow
+# ---------------------------------------------------------------------------
+
+
+def test_login_sets_httponly_cookies(client, test_user):
+    """Login sets sedi_access_token (httpOnly) and sedi_csrf_token (readable)."""
+    resp = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert resp.status_code == 200
+
+    set_cookie_headers = resp.headers.get_list("set-cookie")
+    access_cookie = next(
+        (h for h in set_cookie_headers if h.startswith("sedi_access_token=")), None
+    )
+    csrf_cookie = next(
+        (h for h in set_cookie_headers if h.startswith("sedi_csrf_token=")), None
+    )
+    refresh_cookie = next(
+        (h for h in set_cookie_headers if h.startswith("sedi_refresh_token=")), None
+    )
+
+    assert access_cookie is not None
+    assert "HttpOnly" in access_cookie
+    assert "SameSite=lax" in access_cookie
+
+    assert refresh_cookie is not None
+    assert "HttpOnly" in refresh_cookie
+    assert "Path=/auth" in refresh_cookie
+
+    # CSRF cookie must NOT be httpOnly — the frontend needs to read it.
+    assert csrf_cookie is not None
+    assert "HttpOnly" not in csrf_cookie
+
+
+def test_cookie_only_request_authenticates_without_bearer_header(client, test_user):
+    """A request with the auth cookie but no Authorization header succeeds —
+    this is the web frontend's actual request shape post-migration."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert login.status_code == 200
+
+    # httpx's TestClient cookie jar carries the cookie automatically on the
+    # next request to the same client — no manual Authorization header set.
+    resp = client.get("/auth/me")
+    assert resp.status_code == 200
+    assert resp.json()["email"] == test_user.email
+
+    client.cookies.clear()
+
+
+def test_no_cookie_no_header_returns_401(client):
+    """Neither cookie nor Bearer header present — must still 401, not crash."""
+    client.cookies.clear()
+    resp = client.get("/auth/me")
+    assert resp.status_code == 401
+    client.cookies.clear()
+
+
+def test_bearer_header_still_works_alongside_cookie_support(
+    client, test_user, auth_headers
+):
+    """Extension/MCP-style Bearer auth is unaffected by the cookie fallback —
+    this is the regression the whole migration must not introduce."""
+    client.cookies.clear()
+    resp = client.get("/auth/me", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["email"] == test_user.email
+    client.cookies.clear()
+
+
+def test_logout_clears_auth_cookies(client, test_user):
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert login.status_code == 200
+    csrf_token = client.cookies.get("sedi_csrf_token")
+
+    logout = client.post("/auth/logout", json={}, headers={"X-CSRF-Token": csrf_token})
+    assert logout.status_code == 204
+
+    set_cookie_headers = logout.headers.get_list("set-cookie")
+    access_cookie = next(
+        (h for h in set_cookie_headers if h.startswith("sedi_access_token=")), None
+    )
+    assert access_cookie is not None
+    # Cleared cookies are set with an expiry in the past / empty value.
+    assert 'sedi_access_token=""' in access_cookie or "Max-Age=0" in access_cookie
+
+    client.cookies.clear()
+
+
+def test_refresh_reads_token_from_cookie_when_body_omits_it(client, test_user):
+    """POST /auth/refresh with an empty body still works if the refresh
+    token cookie is present — the web frontend can't read/send it in JS."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert login.status_code == 200
+    csrf_token = client.cookies.get("sedi_csrf_token")
+
+    resp = client.post("/auth/refresh", json={}, headers={"X-CSRF-Token": csrf_token})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    client.cookies.clear()
+
+    client.cookies.clear()
+
+
+# ---------------------------------------------------------------------------
+# CSRF (app/core/auth_cookies.py::verify_csrf, app/middleware/csrf.py)
+# ---------------------------------------------------------------------------
+
+
+def test_csrf_blocks_cookie_authenticated_mutation_without_token(client, test_user):
+    """A cookie-authenticated POST without the X-CSRF-Token header is rejected."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert login.status_code == 200
+
+    # POST /content is cookie-authenticated (cookie jar carries it) but sends
+    # no X-CSRF-Token header — must be rejected before it ever reaches the route.
+    resp = client.post("/content", json={"url": "https://example.com/csrf-test"})
+    assert resp.status_code == 403
+    assert "csrf" in resp.json()["detail"].lower()
+
+    client.cookies.clear()
+
+
+def test_csrf_allows_cookie_authenticated_mutation_with_matching_token(
+    client, test_user
+):
+    """A cookie-authenticated POST with a matching X-CSRF-Token header passes
+    the CSRF check (may still fail downstream for unrelated reasons — this
+    test only asserts it isn't rejected as 403 CSRF)."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert login.status_code == 200
+    csrf_token = client.cookies.get("sedi_csrf_token")
+    assert csrf_token is not None
+
+    with patch("app.tasks.extraction.extract_metadata.delay"):
+        resp = client.post(
+            "/content",
+            json={"url": "https://example.com/csrf-test-2"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    assert resp.status_code != 403
+
+    client.cookies.clear()
+
+
+def test_csrf_not_enforced_for_bearer_authenticated_requests(
+    client, test_user, auth_headers
+):
+    """Bearer-token requests (extension, MCP) have no CSRF check at all —
+    a cross-site page can't forge an Authorization header."""
+    client.cookies.clear()
+    with patch("app.tasks.extraction.extract_metadata.delay"):
+        resp = client.post(
+            "/content",
+            json={"url": "https://example.com/csrf-test-3"},
+            headers=auth_headers,
+        )
+    assert resp.status_code != 403
+    client.cookies.clear()
+
+
+def test_csrf_not_enforced_for_get_requests(client, test_user):
+    """GET requests never require CSRF verification, cookie-authenticated or not."""
+    login = client.post(
+        "/auth/login",
+        data={"username": test_user.email, "password": "testpassword"},
+    )
+    assert login.status_code == 200
+
+    resp = client.get("/auth/me")
+    assert resp.status_code == 200
+
+    client.cookies.clear()

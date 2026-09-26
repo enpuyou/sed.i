@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     SIMILARITY_THRESHOLD_CONNECTIONS: float = 0.3
     SIMILARITY_THRESHOLD_TAGS: float = 0.75
 
+    # Entity graph search lane (mode="full"). Default disabled: eval
+    # (evals/retrieval/results/report.md) found production entity lane (D)
+    # underperforms chunks-only (B) on R@10/MRR/NDCG — regressions trace to
+    # entity extraction quality, not a fixable retrieval parameter (report §11).
+    # Enable once extraction quality improves and a fresh eval confirms a net win.
+    ENTITY_SEARCH_ENABLED: bool = False
+
     # Email Settings (Resend HTTP API)
     RESEND_API_KEY: str = ""
     EMAILS_FROM_EMAIL: str = "noreply@read-sedi.com"
@@ -35,6 +42,14 @@ class Settings(BaseSettings):
     # Public-facing API base URL (used in OAuth discovery behind reverse proxies)
     # Set to e.g. https://api.read-sedi.com in production Railway env vars.
     API_BASE_URL: str = ""
+
+    # Parent registrable domain for the CSRF cookie (app/core/auth_cookies.py),
+    # so it's readable by frontend JS on a different subdomain than the API
+    # (www.read-sedi.com reading a cookie set by api.read-sedi.com). Leave
+    # empty for local dev — a host-only cookie is correct there since
+    # localhost has no parent domain to share across ports/subdomains anyway.
+    # Set to ".read-sedi.com" (leading dot) in production.
+    COOKIE_DOMAIN: str = ""
 
     # PostHog Analytics
     POSTHOG_API_KEY: str = ""
@@ -58,6 +73,15 @@ class Settings(BaseSettings):
     LLM_MODEL_ARTICLE_ANALYSIS_OPENAI: str = "gpt-4o"
     LLM_MODEL_ENTITY_EXTRACTION_OPENAI: str = "gpt-4o-mini"
     LLM_MODEL_ENTITY_DEDUP_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_MEMORY_CONSOLIDATION_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_ROUTING_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_SYNTHESIS_OPENAI: str = "gpt-4o"
+    # Research pipeline — granular per-step model config (all default to synthesis models)
+    LLM_MODEL_RESEARCH_PLANNING_OPENAI: str = "gpt-4o"
+    LLM_MODEL_RESEARCH_EXPANSION_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_RESEARCH_FILTER_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_RESEARCH_ARTICLE_SUMMARY_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_RESEARCH_SYNTHESIS_OPENAI: str = "gpt-4o"
     # Bedrock chat models
     LLM_MODEL_TAGGING_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_SUMMARY_BEDROCK: str = "amazon.nova-lite-v1:0"
@@ -67,6 +91,29 @@ class Settings(BaseSettings):
     LLM_MODEL_ARTICLE_ANALYSIS_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_ENTITY_EXTRACTION_BEDROCK: str = "amazon.nova-micro-v1:0"
     LLM_MODEL_ENTITY_DEDUP_BEDROCK: str = "amazon.nova-micro-v1:0"
+    LLM_MODEL_MEMORY_CONSOLIDATION_BEDROCK: str = "amazon.nova-micro-v1:0"
+    LLM_MODEL_ROUTING_BEDROCK: str = "amazon.nova-micro-v1:0"
+    LLM_MODEL_SYNTHESIS_BEDROCK: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    LLM_MODEL_RESEARCH_PLANNING_BEDROCK: str = (
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    LLM_MODEL_RESEARCH_EXPANSION_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_RESEARCH_FILTER_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_RESEARCH_ARTICLE_SUMMARY_BEDROCK: str = "amazon.nova-lite-v1:0"
+    LLM_MODEL_RESEARCH_SYNTHESIS_BEDROCK: str = (
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    # Research memory extraction (post-synthesis, cheap summarization)
+    LLM_MODEL_MEMORY_RESEARCH_OPENAI: str = "gpt-4o-mini"
+    LLM_MODEL_MEMORY_RESEARCH_BEDROCK: str = "amazon.nova-lite-v1:0"
+
+    # Research memory retrieval tuning
+    RESEARCH_MEMORY_K: int = 5
+    RESEARCH_MEMORY_MAX_AGE_DAYS: int = 90
+
+    # Per-user daily LLM spend ceiling (abuse backstop, not a product-tier limit).
+    # Tracked in Redis, keyed by user_id + UTC date. See app/core/llm_client.py.
+    LLM_DAILY_BUDGET_USD_PER_USER: float = 5.0
 
     # AWS / Bedrock (Layer 4)
     # Required when LLM_PROVIDER="bedrock". Leave empty when using OpenAI.
@@ -74,8 +121,14 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-2"
 
-    # S3 object storage (Layer 6)
-    # Leave empty to disable S3 upload (PDFs processed in-memory only, bytes discarded).
+    # S3 object storage (Layer 6). Default disabled — matches the
+    # ENTITY_SEARCH_ENABLED convention (explicit opt-in flag, not just an
+    # empty-string-as-off config value) so a bucket can be provisioned and
+    # tested without silently going live for all users the moment
+    # AWS_S3_BUCKET is set. Both this flag AND AWS_S3_BUCKET must be set for
+    # PDF upload/presign to actually run; when off, PDFs are processed
+    # in-memory only and bytes are discarded (existing behavior, unchanged).
+    S3_STORAGE_ENABLED: bool = False
     AWS_S3_BUCKET: str = ""
     # Presigned URL expiry in seconds (default 1 hour)
     AWS_S3_PRESIGN_EXPIRY: int = 3600

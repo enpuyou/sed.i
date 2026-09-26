@@ -8,6 +8,7 @@ those are Celery tasks.
 
 import re
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from uuid import UUID
 from datetime import datetime
@@ -323,6 +324,43 @@ def get_user_tags(
     return [{"tag": tag, "count": count} for tag, count in tag_counts]
 
 
+def _max_similarity_to_recent_reads(
+    db: Session, user_id, seven_days_ago: datetime
+) -> dict[str, float]:
+    """
+    For every unread item with an embedding, compute its max cosine similarity
+    to the user's last-7-days read items — via pgvector's <=> operator (uses
+    the HNSW index on content_items.embedding, migration f4c8b6e21a3d), not a
+    pure-Python nested loop.
+
+    Returns {str(item_id): max_similarity}. Items with no similarity signal
+    (no recent reads, or the item/all recent reads lack embeddings) are
+    absent from the dict — callers should treat a missing key as 0.0.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT unread.id AS item_id,
+                   MAX(1 - (unread.embedding <=> recent.embedding)) AS similarity
+            FROM content_items unread
+            JOIN content_items recent
+              ON recent.user_id = unread.user_id
+             AND recent.is_read
+             AND recent.read_at >= :seven_days_ago
+             AND recent.embedding IS NOT NULL
+             AND recent.id != unread.id
+            WHERE unread.user_id = :uid
+              AND unread.is_read IS FALSE
+              AND unread.deleted_at IS NULL
+              AND unread.embedding IS NOT NULL
+            GROUP BY unread.id
+            """
+        ),
+        {"uid": user_id, "seven_days_ago": seven_days_ago},
+    ).fetchall()
+    return {str(row.item_id): float(row.similarity) for row in rows}
+
+
 @router.get("/recommended", response_model=ContentItemList)
 def get_recommended_content(
     skip: int = Query(0, ge=0),
@@ -343,18 +381,16 @@ def get_recommended_content(
     from datetime import timedelta, timezone
 
     now = datetime.now(timezone.utc)
-
-    # Get recently read articles (last 7 days)
     seven_days_ago = now - timedelta(days=7)
-    recent_reads = (
-        db.query(ContentItem)
-        .filter(
-            ContentItem.user_id == current_user.id,
-            ContentItem.is_read,
-            ContentItem.read_at >= seven_days_ago,
-            ContentItem.embedding.isnot(None),
-        )
-        .all()
+
+    # Embedding similarity is computed in one pgvector query (see
+    # _max_similarity_to_recent_reads), not by loading every recent-read
+    # embedding into Python and nested-looping cosine similarity per unread
+    # item — that was an O(N x M) full-table scan holding a DB connection
+    # for the duration, invisible at low item counts but a multi-second
+    # single-threaded loop once a queue crosses a few thousand unread items.
+    similarity_by_id = _max_similarity_to_recent_reads(
+        db, current_user.id, seven_days_ago
     )
 
     # Get unread content
@@ -378,22 +414,9 @@ def get_recommended_content(
         score = 0
 
         # Factor 1: Embedding similarity (if we have recent reads)
-        if recent_reads and item.embedding is not None:
-            similarities = []
-            for recent in recent_reads:
-                if recent.embedding is None:
-                    continue
-                # Cosine similarity using pure Python
-                a = list(item.embedding)
-                b = list(recent.embedding)
-                dot = sum(x * y for x, y in zip(a, b))
-                norm_a = sum(x * x for x in a) ** 0.5
-                norm_b = sum(x * x for x in b) ** 0.5
-                if norm_a > 0 and norm_b > 0:
-                    similarity = dot / (norm_a * norm_b)
-                    similarities.append(similarity)
-            if similarities:
-                score += max(similarities) * 30  # Max similarity score: 30 points
+        similarity = similarity_by_id.get(str(item.id))
+        if similarity is not None:
+            score += similarity * 30  # Max similarity score: 30 points
 
         # Factor 2: Recency (newer is better)
         days_old = (now - item.created_at).days

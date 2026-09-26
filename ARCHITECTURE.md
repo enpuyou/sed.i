@@ -62,6 +62,35 @@ Browser / Extension
 - Backend enforces auth and data ownership.
 - Workers handle slow/failable work (URL fetching, LLM calls).
 
+### Deploy sequencing
+
+Config: `content-queue-backend/nixpacks.toml` (build + start), `railway.json`
+(`deploy.preDeployCommand`). Migrations (`alembic upgrade heads`) and the
+concurrent HNSW index build (`scripts/post_deploy.py`) run in Railway's
+pre-deploy step — separate from, and before, the app-serving `uvicorn`
+process starts. This matters because `preDeployCommand` runs once per
+deploy, not once per replica — if `RAILWAY_REPLICAS` is ever set above 1,
+migrations don't re-run per instance and instances don't race each other
+to serve traffic against a not-yet-migrated schema.
+
+Both `nixpacks.toml` (web) and `nixpacks.celery.toml` (worker) force-reinstall
+a pinned `opencv-python-headless==4.11.0.86` after `opencv-python` once at
+build time, not on every boot (previous behavior). Root cause: `ultralytics`
+(YOLO PDF-layout extraction) transitively requires `opencv-python` (the GUI
+variant); Poetry has no mechanism to exclude a transitive dependency, so
+both variants install side by side, pointing at the same `cv2` import
+path — whichever installs last wins. The worker needs the same fix as the
+web build because `app/tasks/_yolo_worker.py` (the isolated PDF-extraction
+subprocess, see §9 memory isolation) imports `cv2` and runs inside the
+worker's venv.
+
+**`content-queue-backend/Procfile` is superseded** by `nixpacks.toml` +
+`railway.json` (Railway prefers Nixpacks config when both are present) and
+should not be treated as the source of truth for the deploy sequence —
+kept in place rather than deleted per this repo's dead-code convention,
+but its `alembic upgrade heads`-inline-with-`uvicorn` sequencing and its
+every-boot opencv swap no longer reflect what actually runs in production.
+
 ---
 
 ## 4. Technology choices
@@ -70,7 +99,7 @@ Browser / Extension
 
 | Technology | Role |
 |-----------|------|
-| **Next.js 14 App Router** | Routing, SSR, Vercel deployment. Folders under `frontend/app/` map to URLs. |
+| **Next.js 16 App Router** | Routing, SSR, Vercel deployment. Folders under `frontend/app/` map to URLs. |
 | **React** | Component-based UI. Key pattern: props + local state + context. |
 | **Tailwind CSS** | Utility classes for all styling. |
 | **React Context** | Shared state without prop drilling (auth, lists, toasts, player). |
@@ -293,6 +322,13 @@ use httpOnly cookies + CSRF protection + strict CSP.
 
 All routes require `Authorization: Bearer <token>` unless noted.
 
+**Service-layer convention (ADR-0008)**: business logic goes in
+`app/services/<domain>.py` when called from 2+ entry points (REST + MCP,
+REST + Celery) or when it exceeds ~80 lines of real logic within one route
+handler; otherwise it stays inline in the route function. `app/services/content.py`
+is the only current file under this rule — most routers are simple enough to
+stay inline. Not a retrofit mandate; applies going forward.
+
 ### Auth — `/auth`
 
 | Method | Path | Description |
@@ -307,7 +343,7 @@ All routes require `Authorization: Bearer <token>` unless noted.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 20 req/min per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists. Accepts optional `initial_highlights` array — highlight rows are created atomically with the content item in one transaction (used by ephemeral reader save). |
+| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 10 req/60s + 50 req/3600s per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists. Accepts optional `initial_highlights` array — highlight rows are created atomically with the content item in one transaction (used by ephemeral reader save). |
 | GET | `/content` | List items. Filters: `is_read`, `is_archived`, `tag`. Pagination: `skip`, `limit`. |
 | GET | `/content/tags` | All unique tags for current user with occurrence counts. |
 | GET | `/content/recommended` | Scored unread items. Params: `mood` (`quick_read`, `deep_dive`, `light`). |
@@ -423,18 +459,30 @@ always evaluates to `False` (Column objects are truthy). Replaced with
 
 **Implementation:** `app/middleware/rate_limit.py` — `RateLimitMiddleware`.
 
-- Applies to: `POST /content` only.
-- Algorithm: sliding window. Each user ID gets a `deque` of request timestamps.
-  On each request, timestamps older than the window are popped from the left.
-  If `len(deque) < max_requests`, request is allowed and timestamp is appended.
-- Limit: **10 requests / 60 seconds** AND **50 requests / 3600 seconds** per user
-  (identified by JWT user ID; falls back to client IP if auth not on request state).
+- Applies to: `POST /content`, `POST /auth/login`, `POST /auth/register`,
+  `GET /search/semantic` — configured per-route in `_LIMITED_ROUTES`.
+- Algorithm: sliding window, backed by Redis sorted sets (`RedisRateLimiter`).
+  Each `{route}:{identifier}:{window}` key is a ZSET whose members are
+  per-request tokens scored by request timestamp; each check does
+  `ZREMRANGEBYSCORE` (evict entries older than the window) + `ZCARD`, and on
+  success `ZADD` + `EXPIRE` (TTL = window, so abandoned buckets self-expire).
+  Coordinates correctly across multiple backend instances, unlike a
+  process-local dict.
+- Limits: `POST /content` 10/60s + 50/3600s; `POST /auth/login` 10/60s +
+  30/3600s; `POST /auth/register` 5/60s + 15/3600s; `GET /search/semantic`
+  30/60s + 300/3600s per user (identified by JWT user ID; falls back to
+  client IP if auth not on request state).
 - Response on exceeded: HTTP 429 with `{detail: "Too many requests. Please try again later."}`,
   CORS headers from `ALLOWED_ORIGINS`, and a `Retry-After` header (seconds).
-- **Known limitation:** State is in-memory per process. Does not work correctly
-  across multiple FastAPI instances. Production fix: move to Redis.
-- **Test isolation:** Tests must call `rate_limiter.requests.clear()` between
-  tests that POST to `/content`.
+- **Fail-open on Redis outage**: matches the LLM budget checker's pattern
+  (`app/core/llm_client.py`) — Redis is already a hard dependency for the
+  Celery broker, so an outage already stops the pipeline elsewhere; a
+  second failure mode on top of that would add risk for no safety gain.
+- A pure in-memory `RateLimiter` class still exists in the same file as a
+  fallback primitive for local dev/tests without Redis running, but
+  production traffic goes through the Redis-backed path.
+- **Test isolation:** an autouse `reset_rate_limits` fixture in `conftest.py`
+  flushes all `ratelimit:*` Redis keys before every test.
 
 ---
 
@@ -474,15 +522,57 @@ POST /content (201, processing_status='completed' immediately)
 | Task | File | Description |
 |------|------|-------------|
 | `extract_metadata` | `tasks/extraction.py` | Full pipeline: fetch → parse → trafilatura. For article URLs, limited extraction is flagged via source-restriction/truncation heuristics (paywall/access markers, schema/content-tier signals, teaser-description overlap, media/caption-only extraction, and low extraction coverage), not a raw short-text threshold. Thumbnail extraction uses a fallback chain: OG/Twitter meta → JSON-LD image → `link[rel=image_src]` → first usable in-content image. |
+| `recover_stale_pending_items` | `tasks/extraction.py` | Beat task, every 5 min. Re-dispatches `extract_metadata` for items still `processing_status='pending'` after 10 minutes — recovers from an unguarded `.delay()` broker failure at ingest time (e.g. `ingest_url()`'s dispatch raising if Redis is briefly unreachable), the same detect-and-redispatch pattern as `recover_orphaned_runs_task` below. Guarded by a Redis lock (TTL 10 min, released on completion) added 2026-09-25 — without it, two overlapping firings could double-dispatch the same still-pending item. |
 | `generate_embedding` | `tasks/embedding.py` | OpenAI embedding, stored in pgvector. Also embeds highlights. |
-| `generate_tags` | `tasks/tagging.py` | LLM-only semantic extraction. Two-level prompt (DOMAIN + CONCEPTS), diverse domain examples. Writes to `tags`. Calls `upsert_tag_embeddings` after. |
+| `process_all_missing_embeddings` | `tasks/embedding.py` | Beat task, every 5 min — scans for highlights missing embeddings, dispatches `generate_highlight_embeddings_batch` per user. Guarded by a Redis lock (TTL 10 min, held for the TTL like `cluster_all_users_task` — dispatch is async) added 2026-09-25 — previously unguarded, an overrunning sweep could duplicate-dispatch and duplicate paid embedding API spend. |
+| `process_all_missing_chunks` | `tasks/chunk_embeddings.py` | Beat task, every 5 min — scans for embedded items missing `content_chunks` rows, dispatches `generate_chunk_embeddings_task` per item. Was fully implemented but never wired into the beat schedule until 2026-09-25 (dead safety net); now scheduled and guarded by the same Redis-lock pattern as `process_all_missing_embeddings`. |
+| `analyze_article_task` | `tasks/article_analysis.py` | Combined tag + entity extraction, one LLM call. Retries (`max_retries=3`, exponential backoff) on transient LLM errors (`TRANSIENT_CHAT_ERRORS` — rate limit/timeout/connection) raised by `analyze_article()`; non-transient failures still return a terminal `{"status": "failed"}`. No longer dispatches `embed_new_entities_task` per article — new entities are picked up by the hourly `embed-new-entities-sweep` beat task instead (a prior per-article dispatch was the dominant contributor to a 6.5M-message Celery backlog found in chaos testing; see `docs/changelog/2026-07-28-failure-injection-fixes.md`). |
+| `generate_tags` | `tasks/tagging.py` | LLM-only semantic extraction. Two-level prompt (DOMAIN + CONCEPTS), diverse domain examples. Writes to `tags`. Calls `upsert_tag_embeddings` after. `generate_tags_task` retries on transient LLM errors the same way `analyze_article_task` does — a transient outage now surfaces as a retried/failed attempt rather than a silent, permanent "no tags found." |
 | `upsert_tag_embeddings` | `tasks/tagging.py` | Embeds any new tag labels via `text-embedding-3-small` and writes to `tag_embeddings`. Idempotent — already-present labels are skipped. |
 | `cluster_user_tags_task` | `tasks/clustering.py` | Runs cosine similarity + union-find on a user's tag embeddings, writes `reading_clusters`. Requires ≥10 tagged articles. |
-| `cluster_all_users_task` | `tasks/clustering.py` | Weekly beat task — dispatches `cluster_user_tags_task` for every user. |
+| `cluster_all_users_task` | `tasks/clustering.py` | Weekly beat task — dispatches `cluster_user_tags_task` for every user. Guarded by a Redis lock (`app/core/task_locks.py`, TTL 6 days) so a still-draining previous run can't overlap with the next weekly firing. |
 | `backfill_semantic_tags` | `tasks/tagging.py` | Re-tags articles with empty `tags`. Rate-limited to 50/min. |
+| `deduplicate_entities_task` | `tasks/entity_dedup.py` | Weekly beat task — merges near-duplicate entity nodes per user. Guarded by a Redis lock (TTL 6 days). Unlike `cluster_all_users_task`, per-user work runs synchronously in this call (not `.delay()`-dispatched), so the lock releases as soon as the loop finishes rather than being held for the full TTL (fixed 2026-09-25 — `release_run_lock()` existed but had zero callers anywhere until this). |
+| `embed_new_entities_beat_task` | `tasks/entity_backfill.py` | Hourly sweep — embeds entity nodes missing vectors, all users. Guarded by a Redis lock (TTL 50 min), released on completion (synchronous work, same fix as above). |
+| `backfill_missing_entities_task` | `tasks/entity_backfill.py` | Daily sweep — queues `analyze_article_task` for articles never entity-analyzed. Guarded by a Redis lock (TTL 20h), released once queueing finishes — not held until the dispatched `analyze_article_task` runs complete, since this task doesn't track those. |
 | `generate_summary` | `tasks/summarization.py` | Triggered by `POST /content/{id}/summary`. Calls OpenAI to produce a summary. |
 | `fetch_discogs_metadata` | `tasks/discogs.py` | Fetches vinyl metadata from Discogs API. |
 | `cleanup` | `tasks/cleanup.py` | Periodic task (beat). Removes old data / temp files. |
+| `consolidate_memory_task` | `tasks/memory.py` | Per-user: merges reading activity since `last_consolidated` onto the user's `user_profiles` row. First run (bootstrap) uses earliest actual activity up to 30 days back. Skipped if < 3 activity items. |
+| `consolidate_all_users_task` | `tasks/memory.py` | Nightly beat fan-out — queries users with at least `_MIN_ACTIVITY_ITEMS` (3) qualifying items (saved + read + highlights) since their last consolidation, and dispatches `consolidate_memory_task` for each. Fixed 2026-09-25: previously dispatched on any existence of new activity (even 1 item), relying on `consolidate_memory`'s own threshold check inside the dispatched task to skip low-activity users — every user with a trickle of activity got a Celery task and DB round-trip nightly regardless. Counting here instead avoids that dispatch overhead for the common case; the two thresholds share the same constant so they can't drift apart. Guarded by a Redis lock (`app/core/task_locks.py`, TTL 20h) so a still-draining previous night's run can't overlap with the next nightly firing. |
+
+**Known gap, not yet fixed**: `time_limit`/`soft_time_limit` (task-level and the global 30-min default) are dead configuration under `--pool=solo` (production's actual pool) — confirmed via live-fire chaos testing, `solo.py`'s `apply_target()` has no timer mechanism to enforce either. A hung task blocks the single worker process (and beat, which shares the process under solo) indefinitely. Fix requires an infra/deploy change (switch pool type or add an external watchdog), not an app code change — deliberately out of scope for the code-level fixes above. See `docs/retros/2026-07-28-failure-injection-plan.md` and `docs/changelog/2026-07-28-failure-injection-fixes.md`.
+
+### Memory profile system
+
+`user_profiles` stores a hybrid memory record per user:
+
+| Column | Type | Notes |
+| ------ | ---- | ----- |
+| `current_focus` | Text | Specific sub-domain, updated by consolidation. Used by MCP synthesis tool for context injection. |
+| `reading_velocity` | Enum | `fast` / `deep` / `browsing` — inferred from read% and highlight count, not topics. |
+| `memory_text` | Text | Free-form prose (3–6 sentences), LLM-managed. Covers trajectory, depth asymmetry, behavioral pattern, backlog signal. |
+| `last_consolidated` | Timestamp | Delta cutoff for next run. Null = bootstrap pending. |
+
+**Activity format**: consolidation formats saved articles, read articles (with inline highlights, in chronological order), never-opened saves, reading lists, and topic clusters into a structured activity string. Relative timestamps (`2h ago`, `5d ago`) and reading order are included so the LLM can observe sequencing signals (burst-saving, curriculum progression, topic pivots).
+
+**Bootstrap vs delta**: if `last_consolidated` is null, the task uses `_BOOTSTRAP_PROMPT` and finds the earliest actual activity (up to 30 days). Subsequent runs use `_DELTA_PROMPT` with `last_consolidated` as the since cutoff. The delta prompt instructs the model to patch/merge rather than rewrite.
+
+**Prompt selection (eval-validated)**: the bootstrap prompt uses an explicit four-dimension checklist (trajectory, depth asymmetry, behavioral pattern, backlog signal) plus a specificity rule, and an explicit "resist false coherence" instruction for no-dominant-focus activity. Evaluated against two alternatives (A: old single prompt, C: briefing framing) on 10 synthetic cases — current prompt (B) scores 0.8412 weighted, 90% pass rate, vs. 0.6663 for the baseline (2026-09-25 re-run, after syncing the eval's prompt copy with production and fixing a rate-limit judge-scoring bug in the harness). See `evals/memory-consolidation-prompt/results/report.md` addendum.
+
+**API**: `GET /memory/profile` returns current profile. `POST /memory/consolidate` queues `consolidate_memory_task` for the current user (202 async).
+
+### LLM gateway hardening
+
+`app/core/llm_client.py::LLMClient` (ADR-0003) is the single entry point for all LLM calls. Hardened per `docs/plans/llm-gateway-hardening.md`:
+
+- **Timeout + typed retry**: `OpenAI()` client constructed with `timeout=30.0, max_retries=0` (SDK's own silent retries disabled). `chat()` retries once on the *same* provider for transient errors (`RateLimitError`, `APITimeoutError`, `APIConnectionError`) before falling back to the other provider; any other error falls back immediately.
+- **Cost attribution**: `braintrust_span()` accepts `metadata` (typically `{"user_id": ...}`), attached to the span for Braintrust's cost-by-user/cost-by-task rollups. Every `llm_client.chat`/`structured_chat`/`embed` call site in `app/` (33 as of the last audit — `app/tasks/`, `app/core/`, `app/mcp/tools/`, `app/api/search.py`) wraps the call in a named span with `user_id` in metadata, and passes `user_id=` to the call itself for budget enforcement (see below). `app/core/embedding_cache.py`'s `call_embed`/`get_or_create_query_embedding` wrap their own internal `llm_client.embed` call in a `"query_embed"` span — callers of those two functions pass `user_id` through rather than wrapping again. `ResearchRun.cost` (dead JSONB column, never written to) was dropped — cost data lives in Braintrust, not duplicated in Postgres.
+- **Automated guard** (`tests/test_llm_call_site_guard.py`): a static-analysis test walks the AST of every file under `app/` and fails if any `llm_client.*` call is missing `braintrust_span` wrapping, `user_id` in the span's metadata, or `user_id=` on the call itself. Added after an audit found the coverage above had silently regressed to 19/33 call sites correct despite the original hardening pass — this class of gap was previously only catchable by a manual, whole-codebase audit; now it fails CI on the PR that introduces it.
+- **Per-user daily spend ceiling**: `LLM_DAILY_BUDGET_USD_PER_USER` (default `5.0`) — an abuse backstop, not a product-tier limit. Tracked in Redis (`llm_spend:{user_id}:{date}`, 25h TTL) via `check_budget()`/`record_spend()`, using a per-model price table (`_PRICE_PER_TOKEN_USD` in `llm_client.py`). `embed()`/`chat()`/`structured_chat()` accept an optional `user_id` kwarg — omitting it skips budget enforcement entirely (only `app/core/llm_client.py`'s own docstrings/examples and no real call site now omit it — see the guard above). Raises `BudgetExceededError`, caught by Celery task bodies as a distinct `"budget_exceeded"` status (logged at `WARNING`, not retried — retrying won't resolve a budget ceiling). Degrades open if Redis is unreachable, since Redis is already a hard dependency for the Celery broker.
+- **Uniform Bedrock tracing**: `_bedrock_chat`/`_bedrock_embed` now wrap their body in `braintrust_span` and manually `span.log(metrics={...})` with token counts + estimated cost, since `wrap_openai` can't instrument boto3. Previously Bedrock calls were invisible in Braintrust — this closes that gap so `LLM_PROVIDER=bedrock` gets the same observability as the OpenAI path.
+
+This is an *enhancement* of the existing gateway, not a migration to an external product (LiteLLM/Portkey/Helicone) — see the plan doc's Architecture Decision 1 for the build-vs-buy reasoning.
 
 ---
 
@@ -579,7 +669,16 @@ The old free-pass (pgvector similarity to already-tagged articles) was removed. 
 
 **`matched_via` field:** `_entity_search` now returns `matched_via: [{name, sim}]` on each result — the entity names and cosine similarities that caused the article to be scored. Sorted by sim descending. Backend only; not surfaced in the frontend API response yet.
 
-**Eval results:** See `evals/retrieval/results/report.md`. Entity lane adds net value on 45-query dataset (A→D: +1.4pp R@10 on full set). Regressions on 5 queries traced to vocabulary mismatch and Claude-family name fragmentation. See `docs/design/systems/hub-cap-investigation.md`.
+**Eval results — disabled by default as of 2026-09-25.** See
+`evals/retrieval/results/report.md`. On the 45-query eval set, entity lane (D)
+beats item-only (A: +1.2pp R@10) but **underperforms chunks-only** (B: -0.7pp
+R@10, worse on MRR and NDCG too) — production was running a configuration worse
+than a simpler already-shipped one. The report's own hub-cap investigation (§11)
+tested threshold/cap adjustments against all 5 regressed queries and found zero
+effect; every regression traces to entity extraction quality (Claude-family name
+fragmentation, missing conceptual entities, vocabulary mismatch), not a retrieval
+parameter. `settings.ENTITY_SEARCH_ENABLED` defaults to `False` pending
+extraction-quality work. See `docs/design/systems/entity-graph-search.md`.
 
 ---
 
@@ -650,6 +749,16 @@ is classified by `app/core/search_router.py` and dispatched to the cheapest path
 **`mode=full`** (used by the SearchModal) bypasses classification and always runs
 all three engines, fusing results with three-way Reciprocal Rank Fusion.
 
+**Reranking — removed (2026-09-25).** A Cohere Rerank v3.5 second pass was built
+and evaluated for the `mode=auto` hybrid lane, but the eval's own decision was
+"investigate, not ship as-is" (a guard-rail case regressed; wins on entity-bridge
+queries roughly cancelled with losses on concept-bridge queries in aggregate). It
+shipped anyway with no query-shape gating and no cost/budget enforcement; removed
+entirely under a cost-constrained, multi-user product direction. See
+`docs/plans/sota-gap-action-plan.md` item 5 for the full eval numbers and decision
+history. If revisited, gate by query shape first (the eval's own proposed fix,
+never built) rather than re-shipping ungated.
+
 **Date filtering** — `after:YYYY-MM-DD` / `before:YYYY-MM-DD` operators are
 extracted from the query before routing. Filter path applies them in SQL;
 keyword/semantic paths receive the stripped query and results are post-filtered
@@ -658,6 +767,12 @@ by `created_at` in Python.
 **tsvector index** — `search_vector` column maintained by a PostgreSQL trigger
 using dual-dictionary (english + simple) so stemmed words AND acronyms both match.
 Prefix matching (`llm:*`) catches plurals.
+
+**Vector index** — `content_items.embedding`, `highlights.embedding`, and
+`content_chunks.embedding` (the columns hit by every semantic-search query)
+have HNSW indexes (`m=16, ef_construction=64`), built via `CREATE INDEX
+CONCURRENTLY` in `scripts/post_deploy.py` — same pattern as
+`entities_embedding_hnsw`. Migration `f4c8b6e21a3d`.
 
 **Chunk-level semantic search** — articles are split into ~350-token structure-aware
 chunks stored in `content_chunks`. At query time, an article's score is
@@ -677,21 +792,27 @@ Redis (`qemb:{sha256[:16]}`, 1hr TTL) to avoid redundant OpenAI calls.
 **Untitled items excluded** — content with no title (failed extraction) is
 excluded from all search paths.
 
-**Entity lane** — `hybrid_search(mode="full")` adds a third retrieval path via
-`_entity_search`. Query embedding is pre-computed once (shared with the semantic
-lane to avoid double embedding) and compared against `entities.embedding` vectors
-(type+name+description format) via an HNSW index on `entities.embedding`. All
-entities above a sim threshold (0.40) are returned (no hardcoded `LIMIT`). Each
-matching entity contributes `sim / log2(2 + article_count)` (IDF dampening) to
-each article it mentions; per-article score is `best_contribution + 0.3 × sum(rest)`.
-1-hop neighbor entity sims are computed via direct SQL cosine query against stored
-embeddings rather than a fixed proxy value. Entity-sourced article scores are
-blended into the RRF sum (`entity_score × 0.025`). The `_ENTITY_HUB_ARTICLE_CAP`
-binary gate has been removed — hub entities are penalized proportionally by IDF
-rather than excluded. The scoring logic is isolated in the pure function
-`_score_entity_articles()` (unit-testable without DB). Entity lane adds net
-retrieval value for vocabulary-distant queries; known regressions are documented
-in `docs/design/systems/hub-cap-investigation.md`.
+**Entity lane — disabled by default (2026-09-25, `settings.ENTITY_SEARCH_ENABLED = False`).**
+`hybrid_search(mode="full")` can add a third retrieval path via `_entity_search`,
+gated by this flag. The retrieval eval (`evals/retrieval/results/report.md`) found
+production (entity lane on) underperforms chunks-only search on R@10/MRR/NDCG, and
+its root-cause investigation ruled out threshold/cap tuning as a fix — regressions
+trace to entity extraction quality (fragmented duplicate entities, missing
+conceptual entities), not a fixable retrieval parameter. The lane itself is fully
+implemented and tested (not broken): query embedding is pre-computed once (shared
+with the semantic lane to avoid double embedding) and compared against
+`entities.embedding` vectors (type+name+description format) via an HNSW index on
+`entities.embedding`. All entities above a sim threshold (0.40) are returned (no
+hardcoded `LIMIT`). Each matching entity contributes `sim / log2(2 + article_count)`
+(IDF dampening) to each article it mentions; per-article score is
+`best_contribution + 0.3 × sum(rest)`. 1-hop neighbor entity sims are computed via
+direct SQL cosine query against stored embeddings rather than a fixed proxy value.
+When enabled, entity-sourced article scores are blended into the RRF sum
+(`entity_score × 0.025`). The scoring logic is isolated in the pure function
+`_score_entity_articles()` (unit-testable without DB). See
+`docs/design/systems/entity-graph-search.md` for the full write-up including known
+gaps (entity deduplication for near-duplicate names, extraction coverage for
+narrative/managerial content).
 
 **Entity deduplication** (`tasks/entity_dedup.py`) — replaced the O(N²) self-join
 with a per-entity HNSW ANN query (`_ANN_K = 20` neighbors). Candidate pairs are
@@ -727,7 +848,7 @@ Scoring per unread item (max 75 points):
 
 | Factor | Max points | Logic |
 |--------|-----------|-------|
-| Embedding similarity to recent reads | 30 | Cosine similarity to last 7 days' read articles. Takes max similarity. |
+| Embedding similarity to recent reads | 30 | Cosine similarity to last 7 days' read articles, max across matches. Computed via one pgvector query (`_max_similarity_to_recent_reads`, uses the `content_items.embedding` HNSW index) — not a pure-Python nested loop over every unread × recent-read pair, which was an O(N×M) full-table-scan-in-Python that held a DB connection for its duration and became a multi-second single-threaded bottleneck as unread-item counts grew. |
 | Reading time match | 15 | Penalizes items far from `user.reading_patterns.avg_reading_time`. |
 | Recency | 20 | Linear decay: `max(0, 20 - days_old / 10)`. Decays to 0 at 200 days. |
 | Tag overlap | 10/overlap | +10 per tag that matches `user.reading_patterns.preferred_tags`. |
@@ -835,17 +956,76 @@ Environment variable driven — all default to `true` unless explicitly disabled
 - Password hashing: bcrypt via passlib.
 - JWT: signed with `SECRET_KEY`, expiry enforced.
 - CORS: origin list driven by environment variable.
-- Rate limiting: 20 POST /content per user per 60s.
+- Rate limiting: Redis-backed, covers `POST /content`, `POST /auth/login`,
+  `POST /auth/register`, `GET /search/semantic` (see §8).
 - Cross-user isolation: every query filters by `user_id = current_user.id`.
+- Refresh tokens: rotating, hashed-at-rest, revocable server-side
+  (`POST /auth/refresh`, `POST /auth/logout`) — wired end-to-end including
+  the frontend (`fetchWithAuth` retries once via `/auth/refresh` on a 401
+  before redirecting to `/login`). Theft detection: reusing an already-
+  rotated token revokes every refresh token for that user (assume theft).
+  A 30s grace window (`_REFRESH_RETRY_GRACE_WINDOW` in `app/api/auth.py`)
+  distinguishes this from the client's own retry of a request whose
+  response was dropped after the server-side rotation already succeeded —
+  fixed 2026-09-25; previously any reuse within the atomic
+  check-and-revoke race nuked all of a user's sessions, including from an
+  ordinary network retry, not just genuine token theft.
+- XSS on extracted article HTML: DOMPurify sanitization pass applied to all
+  three ingestion/render paths — `frontend/lib/bionicReading.ts::sanitizeArticleHtml()`
+  (main app reader, called from `HighlightRenderer.tsx` right before
+  `html-react-parser` renders it), and the browser extension's reader overlay
+  (`extension/content/reader-overlay.js` + Safari mirror), which vendors
+  DOMPurify as a static file (`content/vendor/purify.min.js`, no build step
+  in the extension) loaded before the overlay script runs. Fails closed in
+  the extension: if DOMPurify somehow isn't loaded, falls back to the
+  previous manual tag/attribute filter rather than rendering raw HTML.
+  Applied after highlight-span injection and heading-anchor generation so
+  those features' `data-*`/`id`/`href`/`class`/`aria-label` attributes
+  survive DOMPurify's default allow-list.
+
+- httpOnly cookie auth for the web frontend (`app/core/auth_cookies.py`):
+  `POST /auth/login` and `POST /auth/refresh` set `sedi_access_token`
+  (httpOnly, `Secure` in production, `SameSite=Lax`, path `/`) and
+  `sedi_refresh_token` (httpOnly, path scoped to `/auth`) in addition to
+  returning both tokens in the JSON body. The JSON body is what the
+  extension (`chrome.storage`-based Bearer token, see
+  `extension/popup/popup.js`) and MCP OAuth clients use; the cookies are
+  what the web frontend uses — `frontend/lib/api.ts` no longer reads or
+  writes `localStorage` for auth at all, relying on `credentials: "include"`
+  for the browser to attach cookies automatically.
+  `get_current_user` (`app/core/deps.py`) checks the `Authorization: Bearer`
+  header first, then falls back to the cookie — both paths decode the same
+  JWT the same way. `Secure` is conditional on `not settings.DEBUG` (local
+  dev and the test client run over plain HTTP, where a `Secure` cookie is
+  correctly refused by the browser). Frontend and backend are subdomains of
+  the same registrable domain (`www.read-sedi.com` / `api.read-sedi.com`),
+  so `SameSite=Lax` is sufficient — no `SameSite=None` cross-site cookie
+  fragility.
+- CSRF protection (`app/middleware/csrf.py`, `app/core/auth_cookies.py::verify_csrf`):
+  double-submit pattern — login/refresh also set a third, **non-httpOnly**
+  `sedi_csrf_token` cookie (readable by frontend JS by design) with
+  `domain=settings.COOKIE_DOMAIN` (empty/host-only in dev, `.read-sedi.com`
+  in production — needed because the CSRF cookie is set by `api.read-sedi.com`
+  but must be readable by JS running on `www.read-sedi.com`). The frontend
+  echoes it back as `X-CSRF-Token` on every request; the backend verifies
+  the header matches the cookie. Only enforced for cookie-authenticated,
+  state-changing (`POST`/`PUT`/`PATCH`/`DELETE`) requests — Bearer-token
+  requests (extension, MCP) skip it entirely (a cross-site page can't forge
+  an `Authorization` header the way it can a cookie), as does the ambient-
+  cookie-free case (no `sedi_access_token` cookie present at all). Only
+  `/auth/login` is exempt by URL (no cookie exists yet to forge). **`/auth/
+  refresh` and `/auth/logout` are NOT exempt** — fixed 2026-09-25: both
+  endpoints accept a cookie fallback for the refresh token
+  (`get_refresh_token_from_cookie`), so a cross-site page could previously
+  trigger logout or refresh-token rotation using only the ambient cookie,
+  no secret required. They now get the same double-submit check as every
+  other cookie-authenticated mutation.
 
 ### Known gaps / mitigations
 
 | Risk | Current state | Fix |
 |------|--------------|-----|
-| XSS | Extracted HTML rendered directly in reader. | Sanitize HTML (DOMPurify) or use sandboxed iframes. |
 | SSRF | Backend fetches user-provided URLs. | Validate URLs; block internal IPs (169.254.x.x, 10.x.x.x, etc.). |
-| Rate limit in-memory | Resets on restart; no cross-instance enforcement. | Move to Redis. |
-| localStorage token | XSS-accessible. | Migrate to httpOnly cookies + CSRF tokens. |
 
 ---
 
@@ -862,7 +1042,7 @@ All error responses use `{detail: string}` — a single, consistent shape.
 | 403 | Inactive user or forbidden access. |
 | 404 | Item not found or soft-deleted (or belongs to another user). |
 | 422 | Validation error (simplified field messages from `RequestValidationError`). |
-| 429 | Rate limit exceeded on POST /content. Includes `Retry-After` header. |
+| 429 | Rate limit exceeded on a limited route (see §8). Includes `Retry-After` header. |
 | 500 | Unhandled error (sanitized via global exception handler — no internal details leaked). |
 
 **Global exception handlers** (registered in `app/main.py`):
@@ -1022,7 +1202,9 @@ pytest tests/ -x -q --ignore=tests/evals
 **Important patterns:**
 - All Celery tasks are mocked with `patch(...)` — no broker needed.
 - Cross-user isolation: always test that user A cannot act on user B's data.
-- Rate limiter tests call `rate_limiter.requests.clear()` before any POST /content test to avoid 429 from test ordering.
+- An autouse `reset_rate_limits` fixture (`conftest.py`) flushes Redis-backed
+  rate-limit buckets before every test, so limited routes (§8) don't 429
+  from test ordering.
 
 ### Eval harness
 
@@ -1035,7 +1217,7 @@ Location: `evals/` (project root) + `content-queue-backend/tests/evals/`
 | Tagging quality | `tests/evals/test_tagging_evals.py` | Specificity, coverage, forbidden-tag rate |
 | MCP contracts | `tests/evals/test_mcp_evals.py` | Response shape contracts |
 
-Evals requiring a live DB (`tests/evals/`) are excluded from `make test` (CI uses the test DB seeded with synthetic articles for the harness). `evals/retrieval/` requires the production library and runs manually. Baselines stored in `evals/retrieval/baselines.json`; run artifacts in `evals/*/results/` (gitignored). CI regression gate: `evals/check_regressions.py` (not yet implemented).
+Evals requiring a live DB (`tests/evals/`) are excluded from `make test` (CI uses the test DB seeded with synthetic articles for the harness). `evals/retrieval/` requires the production library and runs manually. Baselines stored in `evals/retrieval/baselines.json`; run artifacts in `evals/*/results/` (gitignored). CI regression gate: `evals/check_regressions.py`, wired into `.github/workflows/evals-ci.yml` on every PR touching `hybrid_search.py`, `search_router.py`, `tagging.py`, `research.py`, or MCP tools — hard-fails on drops in deterministic metrics (`classification_accuracy`, `search_hit_rate_at_10`, `search_mrr`), soft-warns (comment only) on LLM-judge metrics.
 
 ### Frontend — Jest
 
@@ -1160,15 +1342,71 @@ Celery workers bootstrap observability via `worker_process_init` signal → `set
 
 ### S3 object storage (`app/core/storage.py`)
 
-PDFs saved to `s3://sedi-assets-{env}/pdfs/{user_id}/{item_id}.pdf`. Presigned URL endpoint: `GET /content/{item_id}/pdf-url` (1h expiry, configurable via `AWS_S3_PRESIGN_EXPIRY`). `AWS_S3_BUCKET` empty = S3 skipped, bytes discarded.
+Disabled by default (`settings.S3_STORAGE_ENABLED = False`, added 2026-09-25) — both this flag AND `AWS_S3_BUCKET` must be set for PDF upload/presign to run, matching the `ENTITY_SEARCH_ENABLED` convention (a bucket can be provisioned without going live until deliberately turned on). Otherwise identical to before: PDFs saved to `s3://sedi-assets-{env}/pdfs/{user_id}/{item_id}.pdf`. Presigned URL endpoint: `GET /content/{item_id}/pdf-url` (1h expiry, configurable via `AWS_S3_PRESIGN_EXPIRY`). Either gate off (or upload/presign failure) = S3 skipped, bytes discarded / 503 returned.
 
 ### Text-to-SQL MCP tool (`app/mcp/tools/query.py`)
 
-`query_library` MCP tool lets Claude query the user's library via natural language → SQL. Security: AST validation via `sqlglot` (SELECT-only, allow-list of 7 tables), `_enforce_user_isolation()` rejects any SQL where `:user_id` is absent or not in an equality predicate (two-tier: text scan + AST EQ walk), `user_id` bound parameter, 500ms `statement_timeout`. See `docs/decisions/0006-text-to-sql-security.md`.
+`query_library` MCP tool lets Claude query the user's library via natural language → SQL. Security: AST validation via `sqlglot` (SELECT-only, allow-list of 7 tables), `_enforce_user_isolation()` rejects any SQL where `:user_id` is absent or not in an equality predicate (two-tier: text scan + AST EQ walk), `user_id` bound parameter, 500ms `statement_timeout`. Fixed 2026-09-25: an unqualified `WHERE user_id = :user_id` predicate in a multi-table join was previously credited as isolating *every* user-scoped table sharing that column name, not just the one it actually binds to — the checker now only accepts an unqualified predicate when exactly one joined table's user-scoping column matches, rejecting the genuinely ambiguous case rather than trusting it. See `docs/decisions/0006-text-to-sql-security.md`.
 
 ### Pipeline observability (Prefect — Layer 8)
 
 Opt-in (`PREFECT_ENABLED=false` default). When enabled, ingestion phases 2–5 run as a Prefect flow (`app/workflows/ingestion.py`) with per-step retries and timing. Requires a Prefect server + worker. In production: two additional Railway services (server + worker), both using `prefecthq/prefect:3-python3.11`. `PREFECT_API_URL` must point to the server's internal Railway URL.
+
+---
+
+## 25. Multi-agent research pipeline
+
+### Overview
+
+A user submits a natural-language research question via `POST /research`. The API creates a `ResearchRun` row and dispatches `run_research_lead_task` to Celery.
+
+**Status machine**: `queued → planning → searching → synthesizing → verifying → done | partial | failed`
+
+### Agent roles
+
+| Agent | Task | Description |
+|-------|------|-------------|
+| Lead | `run_research_lead_task` | Plans sub-questions, dispatches subagents via Celery chord, collects results, iterates if budget remains |
+| Subagent | `run_research_subagent_task` | For one sub-question: expand query → hybrid search → relevance filter → chunk retrieval |
+| Collector | `collect_subagent_results_task` | Chord callback: merge results, check budget, iterate or advance to synthesis |
+| Synthesizer | `synthesize_run_task` | Compose final `ResearchBrief` from retrieved articles |
+| Verifier | `verify_synthesis_task` | Remove hallucinated citations; after completion fires `extract_research_memory_task` |
+| Recovery | `recover_orphaned_runs` | Beat task (every 5 min): marks stale in-progress runs `partial` after 10 min. Guarded by a Redis lock (TTL 10 min, released on completion) added 2026-09-25, matching the overlap-guard convention used by the other beat-scheduled sweep tasks in this codebase. |
+
+### Key schemas
+
+- `ResearchRun` (`app/models/research.py`) — one row per run; stores plan, sub_questions, subagent_results, synthesized brief as JSONB
+- `ResearchBrief` (`app/schemas/research.py`) — Pydantic output schema: key_findings, source_citations, coverage_assessment, confidence_score, gaps_identified
+- `SourceCitation` — article_id, title, representative_highlight, relevance_score, coverage
+
+### Budget control
+
+Default budget: 50k tokens, 3 iterations, 6 subagents, 300s timeout, 8 target articles. The lead agent tracks token usage across iterations; if budget exhausted before convergence, status is set to `partial`.
+
+**Per-user LLM daily spend ceiling (`LLM_DAILY_BUDGET_USD_PER_USER`, distinct from the above)**: `BudgetExceededError` from `llm_client` is caught by name at all four real LLM call sites in the pipeline (planning in `run_research_lead`, relevance filter and per-article summaries in `run_research_subagent`, synthesis in `synthesize_run`) as of 2026-09-25 — previously two of these (`run_research_lead`, `synthesize_run`) had no exception handler at all and would crash uncaught, leaving `run.status` stuck until `recover_orphaned_runs` marked it `partial` with a generic "stalled" message 10 minutes later, hiding that it was actually budget-throttled. Now sets `run.status = "failed"` with `error.code = "budget_exceeded"` (planning/synthesis) or returns a distinctly-coded subagent result (`error.code = "budget_exceeded"` vs. the generic `"subagent_error"`), so the real cause is visible.
+
+### Resume support
+
+`POST /research/{run_id}/resume` re-enters the lead with the existing plan, skipping already-covered sub-questions (intra-run resume). Searches already run (tracked by `idempotency_key` in `searches_run` JSONB) are skipped.
+
+### Cross-run persistent memory (`research_memory` table)
+
+Fired from `verify_synthesis` via `apply_async(countdown=5)` — a 5s heuristic head start for the run's `status="done"` commit to become visible, not a guarantee. If the run still isn't visible as `done` when the task fires, `extract_research_memory` raises `_RunNotReadyError` and the task wrapper calls `self.retry()` (fixed 2026-09-25 — the task declared `max_retries=2` but nothing ever invoked it; a race outside the 5s window previously logged and silently gave up, permanently losing that run's memory extraction).
+
+After each `done` run, `extract_research_memory_task` writes one `ResearchMemory` row per sub-question with:
+- `topic_embedding` (1536-dim via text-embedding-3-small)
+- `coverage` ("full" | "partial" | "none")
+- `topic_summary`, `gap_description`, `source_item_ids`
+
+At planning time, the lead agent embeds the new question, performs pgvector cosine similarity search (IVFFlat, lists=100), and injects top-K past memory entries as "past research context" into the planner system prompt. Config: `RESEARCH_MEMORY_K=5`, `RESEARCH_MEMORY_MAX_AGE_DAYS=90`.
+
+### Gap propagation to user profile
+
+The nightly memory consolidation task (`consolidate_memory`) reads recurring `none`-coverage sub-questions from `research_memory` and writes a `persistent_gaps` text field to `user_profiles`. This feeds back into the MCP synthesis context.
+
+### Agentic features reference
+
+See `docs/design/systems/agentic-features.md` for a full inventory of all agentic capabilities, design tradeoffs, and known gaps.
 
 ---
 

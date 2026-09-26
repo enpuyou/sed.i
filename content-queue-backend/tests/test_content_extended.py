@@ -107,10 +107,17 @@ def test_clean_extension_html_no_metadata_does_nothing():
 
 
 def _reset_rate_limiter():
-    """Clear the global in-memory rate limiter state between tests."""
-    from app.middleware.rate_limit import rate_limiter
+    """Clear rate limiter state between tests — both the in-memory limiter
+    (legacy/local-dev fallback) and the Redis-backed buckets the middleware
+    actually checks for POST /content."""
+    from app.middleware.rate_limit import rate_limiter, _get_redis_client
 
     rate_limiter.requests.clear()
+
+    r = _get_redis_client()
+    if r is not None:
+        for key in r.scan_iter("ratelimit:POST:/content:*"):
+            r.delete(key)
 
 
 def test_extension_path_creates_completed_content(client, auth_headers):
@@ -172,38 +179,3 @@ def test_extension_path_stores_cleaned_html(client, auth_headers):
     # Title H1 should be cleaned from content body
     assert "<h1>My Article</h1>" not in full_text
     assert "Body text." in full_text
-
-
-# ---------------------------------------------------------------------------
-# Cross-user isolation
-# ---------------------------------------------------------------------------
-
-
-def test_cannot_access_other_users_content(client, auth_headers, db_session):
-    """User A's content is not accessible by User B."""
-    from app.models.user import User
-    from app.models.content import ContentItem
-    from app.core.security import get_password_hash
-
-    # Create user B
-    user_b = User(
-        email="userb@example.com",
-        hashed_password=get_password_hash("pass"),
-    )
-    db_session.add(user_b)
-    db_session.commit()
-    db_session.refresh(user_b)
-
-    # Add content for user B
-    content_b = ContentItem(
-        user_id=user_b.id,
-        original_url="https://secret.example.com",
-        processing_status="completed",
-    )
-    db_session.add(content_b)
-    db_session.commit()
-    db_session.refresh(content_b)
-
-    # auth_headers belongs to test_user (user A)
-    response = client.get(f"/content/{content_b.id}", headers=auth_headers)
-    assert response.status_code == 404

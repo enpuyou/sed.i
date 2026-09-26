@@ -13,7 +13,11 @@ Behaviors tested:
 
 from unittest.mock import patch
 
-from app.tasks.chunk_embeddings import split_article_into_chunks, contextual_prefix
+from app.tasks.chunk_embeddings import (
+    split_article_into_chunks,
+    contextual_prefix,
+    process_all_missing_chunks,
+)
 from app.models.content import ContentItem
 
 
@@ -219,3 +223,49 @@ class TestGenerateChunkEmbeddingsTask:
             .all()
         )
         assert len(chunks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Overlap guard on the beat-scheduled scanner task
+# ---------------------------------------------------------------------------
+
+
+class TestProcessAllMissingChunksLock:
+    """
+    process_all_missing_chunks is now wired into the 5-minute beat schedule
+    and guarded by a Redis lock (app.core.task_locks) so an overrunning
+    previous firing can't cause a duplicate dispatch of the same items.
+    """
+
+    def test_skips_when_lock_held(self):
+        """A second firing while the lock is held must not query or dispatch."""
+        with patch("app.core.task_locks.acquire_run_lock", return_value=False), patch(
+            "app.tasks.chunk_embeddings.generate_chunk_embeddings_task.delay"
+        ) as mock_delay:
+            result = process_all_missing_chunks.run()
+
+        assert result["status"] == "skipped"
+        mock_delay.assert_not_called()
+
+    def test_dispatches_when_lock_acquired(self, db_session):
+        """When the lock is free, the task queries and dispatches as before.
+
+        process_all_missing_chunks uses its own DB session (self.db, a real
+        SessionLocal()) bound to DATABASE_URL, not the test's isolated
+        db_session fixture (bound to TEST_DATABASE_URL) — they're different
+        databases under test, so this patches the query result directly
+        rather than relying on real DB state.
+        """
+        fake_id = "11111111-1111-1111-1111-111111111111"
+
+        with patch("app.core.task_locks.acquire_run_lock", return_value=True), patch(
+            "app.tasks.chunk_embeddings.DatabaseTask.db"
+        ) as mock_db, patch(
+            "app.tasks.chunk_embeddings.generate_chunk_embeddings_task.delay"
+        ) as mock_delay:
+            mock_db.execute.return_value.fetchall.return_value = [(fake_id,)]
+            result = process_all_missing_chunks.run()
+
+        assert result["status"] == "completed"
+        assert result["dispatched"] == 1
+        mock_delay.assert_called_once_with(fake_id)

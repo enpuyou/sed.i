@@ -2,16 +2,13 @@
 Shared fixtures for MCP tool tests.
 
 MCP tools take a (user, db) pair directly rather than going through HTTP,
-so we reuse the existing test DB infrastructure and inject them explicitly.
+so we reuse the root conftest engine (QueuePool) rather than creating a
+second engine — two engines against the same test DB caused fixture races
+and test-order-dependent failures (WP3 from test audit).
 """
 
 import pytest
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
-import os
 
-from app.core.database import Base
 from app.models.user import User
 from app.models.content import ContentItem
 from app.models.list import List, content_list_membership
@@ -19,73 +16,28 @@ from app.models.highlight import Highlight
 from app.models.draft import Draft
 from app.core.security import get_password_hash
 
-
-SQLALCHEMY_TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5433/content_queue_test",
-)
-
-engine = create_engine(SQLALCHEMY_TEST_DATABASE_URL, poolclass=NullPool)
-
-
-@event.listens_for(engine, "connect")
-def receive_connect(dbapi_conn, connection_record):
-    with dbapi_conn.cursor() as cursor:
-        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        dbapi_conn.commit()
-
-
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-_SEARCH_VECTOR_TRIGGER_SQL = """
-CREATE OR REPLACE FUNCTION content_items_search_vector_update()
-RETURNS trigger AS $$
-BEGIN
-    NEW.search_vector :=
-        setweight(to_tsvector('english', COALESCE(NEW.title, '')), 'A') ||
-        setweight(to_tsvector('simple',  COALESCE(NEW.title, '')), 'A') ||
-        setweight(to_tsvector('english', COALESCE(NEW.author, '')), 'A') ||
-        setweight(to_tsvector('simple',  COALESCE(NEW.author, '')), 'A') ||
-        setweight(to_tsvector('english', COALESCE(NEW.description, '')), 'B') ||
-        setweight(to_tsvector('simple',  COALESCE(NEW.description, '')), 'B') ||
-        setweight(to_tsvector('english', COALESCE(array_to_string(NEW.tags, ' '), '')), 'B') ||
-        setweight(to_tsvector('simple',  COALESCE(array_to_string(NEW.tags, ' '), '')), 'B');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS tsvector_update ON content_items;
-CREATE TRIGGER tsvector_update
-BEFORE INSERT OR UPDATE OF title, author, description, tags
-ON content_items
-FOR EACH ROW EXECUTE FUNCTION content_items_search_vector_update();
-"""
-
-
-@pytest.fixture(scope="session")
-def setup_database():
-    Base.metadata.create_all(bind=engine)
-    # Install the search_vector trigger (not created by create_all)
-    with engine.connect() as conn:
-        conn.execute(__import__("sqlalchemy").text(_SEARCH_VECTOR_TRIGGER_SQL))
-        conn.commit()
-    yield
-    Base.metadata.drop_all(bind=engine)
-    engine.dispose()
+# Re-export root conftest fixtures so mcp tests see setup_database
+from tests.conftest import engine, TestingSessionLocal, setup_database  # noqa: F401
 
 
 @pytest.fixture(scope="function")
 def db(setup_database):
+    """
+    Function-scoped DB session for MCP tests using SAVEPOINT rollback.
+
+    Uses the same engine as the root conftest (no second engine).
+    Each test gets a clean slate via SAVEPOINT rollback — no DELETE storm.
+    """
+    from sqlalchemy import event as sa_event
+
     connection = engine.connect()
     transaction = connection.begin()
     session = TestingSessionLocal(bind=connection)
 
-    # Start a nested transaction (SAVEPOINT)
     nested = connection.begin_nested()
 
-    # If the application calls session.commit(), it will only commit the SAVEPOINT
-    @event.listens_for(session, "after_transaction_end")
-    def end_savepoint(session, transaction):
+    @sa_event.listens_for(session, "after_transaction_end")
+    def restart_savepoint(session, trans):
         nonlocal nested
         if not nested.is_active:
             nested = connection.begin_nested()

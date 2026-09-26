@@ -9,7 +9,12 @@ Dispatch: generate_summary.delay(item_id)
 """
 
 from app.core.celery_app import celery_app
-from app.core.llm_client import llm_client, TASK_SUMMARY
+from app.core.llm_client import (
+    TASK_SUMMARY,
+    BudgetExceededError,
+    braintrust_span,
+    llm_client,
+)
 from app.models.content import ContentItem
 from app.tasks.base import DatabaseTask, html_to_plain
 from uuid import UUID
@@ -60,14 +65,20 @@ def generate_summary(self, content_item_id: str):
         )
 
         # Generate summary
-        result = llm_client.chat(
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": text_content},
-            ],
-            task=TASK_SUMMARY,
-            max_tokens=500,
-        )
+        with braintrust_span(
+            TASK_SUMMARY,
+            input={"content_item_id": content_item_id},
+            metadata={"user_id": str(item.user_id)},
+        ):
+            result = llm_client.chat(
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": text_content},
+                ],
+                task=TASK_SUMMARY,
+                max_tokens=500,
+                user_id=str(item.user_id),
+            )
         summary = result.content
 
         # Store in database
@@ -81,6 +92,10 @@ def generate_summary(self, content_item_id: str):
             "status": "completed",
             "summary_len": len(summary),
         }
+
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping summary for {content_item_id}: {e}")
+        return {"content_item_id": content_item_id, "status": "budget_exceeded"}
 
     except Exception as e:
         logger.error(f"Failed to generate summary for {content_item_id}: {str(e)}")

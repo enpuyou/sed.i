@@ -9,7 +9,8 @@ echo "→ pre-push: checking lint and types..."
 # Backend lint
 if [ -d "content-queue-backend" ]; then
   cd content-queue-backend
-  PYENV_VERSION=3.11.12 /Users/enpuyou/.pyenv/bin/pyenv exec poetry run ruff check app/ --quiet
+  PYENV_BIN="$(command -v pyenv || echo "$HOME/.pyenv/bin/pyenv")"
+  PYENV_VERSION=3.11.12 "$PYENV_BIN" exec poetry run ruff check app/ --quiet
   cd ..
   echo "  ✓ ruff"
 fi
