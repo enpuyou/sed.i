@@ -1,3 +1,23 @@
+import DOMPurify from "dompurify";
+
+/**
+ * Sanitize article HTML before rendering. content.full_text is extracted from
+ * arbitrary third-party pages the user doesn't control (trafilatura/PDF
+ * extraction on the backend, the extension content script) and rendered via
+ * html-react-parser — which converts HTML attributes (including event
+ * handlers, javascript: URLs) into React props rather than stripping them
+ * the way a sanitizer would. Call this on the final HTML string right before
+ * it's parsed/rendered, after any DOM-manipulation steps (highlight-span
+ * injection, addHeadingAnchors) — their data attributes, id, href, class,
+ * and aria-label all survive DOMPurify's default ALLOWED_ATTR; only
+ * dangerous vectors (event handlers, javascript: URLs, srcdoc, inline
+ * script tags, etc.) are stripped.
+ */
+export function sanitizeArticleHtml(html: string): string {
+  if (typeof window === "undefined") return html; // SSR safety — DOMPurify needs a DOM
+  return DOMPurify.sanitize(html);
+}
+
 /**
  * Convert text to bionic reading format.
  * Bolds the first ~50% of each word to create fixation points for faster reading.

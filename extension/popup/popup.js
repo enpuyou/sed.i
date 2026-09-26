@@ -365,7 +365,9 @@ document.getElementById('btn-read').addEventListener('click', async () => {
     });
     await chrome.scripting.executeScript({
       target: { tabId: _tab.id },
-      files: ['content/reader-overlay.js'],
+      // purify.min.js must load first — reader-overlay.js sanitizes extracted
+      // article HTML via window.DOMPurify before rendering it.
+      files: ['content/vendor/purify.min.js', 'content/reader-overlay.js'],
     });
     window.close();
   } catch (err) {

@@ -1722,3 +1722,56 @@ def extract_full_content_for_item(item_id: str, db) -> None:
 
     item.processing_status = "completed"
     db.commit()
+
+
+@celery_app.task(base=DatabaseTask, bind=True)
+def recover_stale_pending_items(self):
+    """
+    Sweep: re-dispatch content items stuck at processing_status='pending'
+    past a staleness window.
+
+    extract_metadata sets status='processing' as soon as it actually starts
+    (see extract_metadata's first commit above) — an item still 'pending'
+    after 10 minutes never reached a worker at all, most likely because
+    the broker dispatch (ingest_url's extract_metadata.delay() call, or the
+    equivalent in the extension/pre-extracted-content path) raised and was
+    never caught. Those dispatches have no try/except by design elsewhere
+    in this file; recovery happens here instead, matching the same
+    detect-and-redispatch pattern as research.py's recover_orphaned_runs_task
+    rather than adding a try/except at every .delay() call site.
+
+    Guarded by a Redis lock (see app.core.task_locks) so a still-running
+    previous firing's query-then-dispatch can't overlap with the next one —
+    without it, two overlapping firings could both see the same still-
+    'pending' item (status only flips to 'processing' once the re-dispatched
+    task actually starts) and double-dispatch it.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.core.task_locks import acquire_run_lock, release_run_lock
+
+    lock_name = "recover_stale_pending_items"
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 10):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"recovered": 0, "status": "skipped", "reason": "lock_held"}
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        stale = (
+            self.db.query(ContentItem)
+            .filter(
+                ContentItem.processing_status == "pending",
+                ContentItem.created_at < cutoff,
+            )
+            .all()
+        )
+
+        for item in stale:
+            logger.warning(
+                f"recover_stale_pending_items: re-dispatching stuck item {item.id} "
+                f"(created {item.created_at}, still pending)"
+            )
+            extract_metadata.delay(str(item.id))
+
+        return {"recovered": len(stale)}
+    finally:
+        release_run_lock(lock_name)

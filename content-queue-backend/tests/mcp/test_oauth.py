@@ -39,7 +39,7 @@ def _pkce_pair() -> tuple[str, str]:
 
 
 class FakeRedis:
-    """In-memory Redis substitute — supports setex, get, delete."""
+    """In-memory Redis substitute — supports setex, get, delete, getdel."""
 
     def __init__(self):
         self._store: dict[str, tuple[str, int]] = {}  # key → (value, ttl)
@@ -53,6 +53,10 @@ class FakeRedis:
 
     def delete(self, key: str):
         self._store.pop(key, None)
+
+    def getdel(self, key: str) -> str | None:
+        entry = self._store.pop(key, None)
+        return entry[0] if entry else None
 
 
 # ---------------------------------------------------------------------------

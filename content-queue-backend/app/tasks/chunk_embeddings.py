@@ -20,7 +20,12 @@ from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery_app
 from app.core.database import SessionLocal
-from app.core.llm_client import llm_client
+from app.core.llm_client import (
+    TASK_CHUNK_EMBEDDING,
+    BudgetExceededError,
+    braintrust_span,
+    llm_client,
+)
 from app.models.chunk import ContentChunk
 from app.models.content import ContentItem
 from app.tasks.base import DatabaseTask, html_to_plain
@@ -166,7 +171,12 @@ def generate_chunk_embeddings(content_item_id: str, db: Session | None = None) -
         ]
 
         # Batch embed all chunks in one API call
-        result = llm_client.embed(texts_to_embed)
+        with braintrust_span(
+            TASK_CHUNK_EMBEDDING,
+            input={"content_item_id": content_item_id, "count": total},
+            metadata={"user_id": str(item.user_id)},
+        ):
+            result = llm_client.embed(texts_to_embed, user_id=str(item.user_id))
         embeddings = result.embeddings
 
         # Delete existing chunks first (idempotent)
@@ -187,6 +197,10 @@ def generate_chunk_embeddings(content_item_id: str, db: Session | None = None) -
         db.commit()
         logger.info(f"Generated {len(chunks)} chunks for {item.original_url}")
         return {"status": "completed", "chunk_count": len(chunks)}
+
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping chunk embeddings for {content_item_id}: {e}")
+        return {"status": "budget_exceeded"}
 
     except Exception as e:
         logger.error(f"Failed to generate chunks for {content_item_id}: {e}")
@@ -212,7 +226,20 @@ def generate_chunk_embeddings_task(self, content_item_id: str):
 
 @celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
 def process_all_missing_chunks(self):
-    """Scanner task: finds items with embeddings but no chunks and backfills them."""
+    """Scanner task: finds items with embeddings but no chunks and backfills them.
+
+    Guarded by a Redis lock (see app.core.task_locks) so a still-draining
+    previous firing's dispatched work can't cause a duplicate dispatch —
+    dispatch is async (.delay() per item), so the lock is held for its full
+    TTL rather than released when this function returns, matching the
+    pattern in clustering.py/memory.py."""
+    from app.core.task_locks import acquire_run_lock
+
+    lock_name = "process_all_missing_chunks"
+    if not acquire_run_lock(lock_name, ttl_seconds=60 * 10):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"dispatched": 0, "status": "skipped", "reason": "lock_held"}
+
     try:
         from sqlalchemy import text
 

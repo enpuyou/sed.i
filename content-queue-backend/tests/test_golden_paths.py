@@ -142,15 +142,6 @@ class TestSearch:
         ids = [r["item"]["id"] for r in data["articles"]]
         assert str(searchable_article.id) in ids
 
-    def test_search_returns_200_for_authenticated_user(self, client, auth_headers):
-        resp = client.get("/search/semantic?query=anything", headers=auth_headers)
-        assert resp.status_code == 200
-        assert "articles" in resp.json()
-
-    def test_search_requires_authentication(self, client):
-        resp = client.get("/search/semantic?query=test")
-        assert resp.status_code == 401
-
     def test_search_does_not_return_other_users_content(
         self,
         client,

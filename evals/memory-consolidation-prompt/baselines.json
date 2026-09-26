@@ -1,0 +1,17 @@
+{
+  "variant": "B",
+  "mean_weighted": 0.8412,
+  "pass_rate": 0.90,
+  "hard_fail_rate": 0.0,
+  "dimension_means": {
+    "specificity": 4.7,
+    "trajectory": 4.0,
+    "depth_asymmetry": 3.8,
+    "behavioral_pattern": 5.0,
+    "faithfulness": 4.8
+  },
+  "_updated": "2026-09-25",
+  "_reason": "Re-run after syncing runner.py's _VARIANT_B_PROMPT with the 'resist false coherence' addition already live in production app/tasks/memory.py::_BOOTSTRAP_PROMPT (the eval's own prior baseline had drifted out of sync with shipped code). Also fixed a scorer.py harness bug: OpenAI 30K TPM rate limits during judge scoring were silently recorded as the rubric floor (score=1) instead of retried, corrupting 21/150 dimension scores in the first re-run attempt; added retry-with-backoff, re-ran clean (0 errors). Pilot run (10 cases). +0.175 over baseline A (0.6663). Pass rate 90% vs 50% for A this run (A's own score also moved vs the 2026-07-10 baseline — expected LLM-judge run-to-run variance, not a regression). eclectic_browser (the case the prompt fix specifically targeted) still fails (0.475) — the model still constructs a coherent focus instead of stating 'no dominant focus' as instructed; the fix did not fully resolve its target case.",
+  "_dataset": "pilot",
+  "_n": 10
+}

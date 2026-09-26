@@ -421,15 +421,27 @@ def token(
         if not refresh_token:
             return _token_error("invalid_request", "refresh_token is required")
         r = _get_redis()
-        raw = r.get(_refresh_token_redis_key(refresh_token))
+        # GETDEL is atomic — GET then DELETE as two separate calls is a
+        # TOCTOU race (two concurrent requests can both GET the still-present
+        # key before either DELETEs it, both minting tokens off the same
+        # refresh token). Same bug class confirmed live against the
+        # equivalent read-then-write race in the JWT refresh-token flow —
+        # see docs/retros/2026-07-28-failure-injection-plan.md.
+        raw = r.getdel(_refresh_token_redis_key(refresh_token))
         if not raw:
             return _token_error("invalid_grant", "Invalid or expired refresh token")
         data = json.loads(raw)
         if data.get("client_id") != client_id:
             return _token_error("invalid_grant", "client_id mismatch")
-        # Issue new tokens first, then delete old — prevents token loss on failure
         response = _issue_tokens(data["email"])
-        r.delete(_refresh_token_redis_key(refresh_token))
+        if response.status_code != 200:
+            # _issue_tokens failed after we already consumed the old token
+            # (getdel) — restore it so the caller isn't left with no valid
+            # refresh token at all. Best-effort TTL: original expiry isn't
+            # tracked, so this re-grants the full window rather than the
+            # remaining one — acceptable since the alternative is a hard
+            # lockout on a transient failure.
+            r.setex(_refresh_token_redis_key(refresh_token), refresh_ttl, raw)
         return response
 
     if grant_type != "authorization_code":

@@ -22,7 +22,14 @@ from sqlalchemy.orm import Session
 from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.llm_client import llm_client, TASK_TAGGING
+from app.core.llm_client import (
+    TASK_TAG_EMBEDDING,
+    TASK_TAGGING,
+    TRANSIENT_CHAT_ERRORS,
+    BudgetExceededError,
+    braintrust_span,
+    llm_client,
+)
 from app.core.llm_schemas import TagResponse
 from app.models.content import ContentItem
 from app.models.tag_embedding import TagEmbedding
@@ -76,13 +83,14 @@ def generate_tags(content_item_id: str, db: Session | None = None) -> dict:
             item.description,
             item.full_text,
             existing_tags=item.tags or [],
+            user_id=str(item.user_id),
         )
 
         if tags:
             item.tags = tags
             db.commit()
             logger.info(f"Tagged {item.original_url}: {tags}")
-            upsert_tag_embeddings(tags, db=db)
+            upsert_tag_embeddings(tags, db=db, user_id=str(item.user_id))
             return {
                 "content_item_id": content_item_id,
                 "tags": tags,
@@ -94,6 +102,17 @@ def generate_tags(content_item_id: str, db: Session | None = None) -> dict:
             "status": "completed",
             "message": "no tags generated",
         }
+
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping tag generation for {content_item_id}: {e}")
+        return {"content_item_id": content_item_id, "status": "budget_exceeded"}
+
+    except TRANSIENT_CHAT_ERRORS:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
 
     except Exception as e:
         logger.error(f"Failed to generate tags for {content_item_id}: {e}")
@@ -107,7 +126,9 @@ def generate_tags(content_item_id: str, db: Session | None = None) -> dict:
             db.close()
 
 
-def upsert_tag_embeddings(labels: list[str], db: Session | None = None) -> None:
+def upsert_tag_embeddings(
+    labels: list[str], db: Session | None = None, user_id: str | None = None
+) -> None:
     """
     Embed any labels not yet in tag_embeddings and upsert them.
     Labels already present are skipped (no redundant API calls).
@@ -132,7 +153,12 @@ def upsert_tag_embeddings(labels: list[str], db: Session | None = None) -> None:
         if not new_labels:
             return
 
-        result = llm_client.embed(new_labels)
+        with braintrust_span(
+            TASK_TAG_EMBEDDING,
+            input={"count": len(new_labels)},
+            metadata={"user_id": user_id},
+        ):
+            result = llm_client.embed(new_labels, user_id=user_id)
 
         for label, embedding in zip(new_labels, result.embeddings):
             row = TagEmbedding(label=label, embedding=embedding)
@@ -158,7 +184,19 @@ def upsert_tag_embeddings(labels: list[str], db: Session | None = None) -> None:
 
 @celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
 def generate_tags_task(self, content_item_id: str):
-    return generate_tags(content_item_id, db=self.db)
+    try:
+        return generate_tags(content_item_id, db=self.db)
+    except TRANSIENT_CHAT_ERRORS as e:
+        logger.warning(
+            f"Transient LLM error tagging {content_item_id}, "
+            f"retry {self.request.retries + 1}/{self.max_retries}: {e}"
+        )
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
+        logger.error(
+            f"Failed to tag {content_item_id} after {self.max_retries} retries: {e}"
+        )
+        return {"content_item_id": content_item_id, "status": "failed", "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +298,7 @@ def generate_tags_with_llm(
     description: str,
     full_text: str,
     existing_tags: list[str] | None = None,
+    user_id: str | None = None,
 ) -> list[str]:
     """
     Extract semantic tags at two levels:
@@ -319,14 +358,32 @@ Article:
 Return JSON: {{"tags": ["domain1", "concept1", "concept2", ...]}} — 4-6 tags total."""
 
     try:
-        tag_response = llm_client.structured_chat(
-            messages=[{"role": "user", "content": prompt}],
-            response_model=TagResponse,
-            task=TASK_TAGGING,
-            max_tokens=200,
-        )
+        with braintrust_span(
+            TASK_TAGGING,
+            input={"title": title},
+            metadata={"user_id": user_id},
+        ):
+            tag_response = llm_client.structured_chat(
+                messages=[{"role": "user", "content": prompt}],
+                response_model=TagResponse,
+                task=TASK_TAGGING,
+                max_tokens=200,
+                user_id=user_id,
+            )
         validated = [_validate_label(str(t)) for t in tag_response.tags[:6]]
         return [t for t in validated if t]
+
+    except BudgetExceededError as e:
+        logger.warning(f"Skipping tag extraction, budget exceeded: {e}")
+        return []
+
+    except TRANSIENT_CHAT_ERRORS:
+        # Propagate — a transient outage must not look like "the model
+        # found zero tags" (generate_tags() treats [] as a completed,
+        # permanent no-op). Let the caller mark this attempt failed and
+        # retry, instead of silently and permanently under-tagging the
+        # article.
+        raise
 
     except Exception as e:
         logger.error(f"LLM tag extraction failed: {e}")

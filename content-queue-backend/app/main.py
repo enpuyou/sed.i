@@ -21,9 +21,12 @@ from app.api import (
     vinyl,
     drafts,
     themes,
+    memory,
+    research,
 )
 from app.api.endpoints import public
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.csrf import CSRFMiddleware
 from app.mcp.oauth import router as mcp_oauth_router
 from app.mcp.http_server import build_mcp_asgi_app, http_mcp  # noqa: E402
 
@@ -139,6 +142,10 @@ app.add_middleware(
 # Rate Limiting Middleware
 app.add_middleware(RateLimitMiddleware)
 
+# CSRF Middleware — only enforces on cookie-authenticated requests (see
+# app/core/auth_cookies.py). Bearer-token clients (extension, MCP) unaffected.
+app.add_middleware(CSRFMiddleware)
+
 
 # Rewrite bare /mcp → /mcp/ so the MCP ASGI sub-app receives the request
 # directly without Starlette issuing a 307 redirect that strips the
@@ -161,6 +168,8 @@ app.include_router(analytics.router)
 app.include_router(vinyl.router)
 app.include_router(drafts.router)
 app.include_router(themes.router)
+app.include_router(memory.router)
+app.include_router(research.router)
 app.include_router(public.router)
 app.include_router(mcp_oauth_router)
 
