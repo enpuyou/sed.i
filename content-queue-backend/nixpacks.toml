@@ -1,8 +1,17 @@
 [phases.setup]
-nixPkgs = ["python311", "poetry"]
+# Poetry is installed via pip in the install phase below, pinned to match
+# poetry.lock's declared generator version — NOT via the nixPkgs "poetry"
+# package, which resolves to whatever version the nixpkgs channel currently
+# has (unpinned) and broke a production deploy on 2026-09-26: an older
+# Poetry from that channel couldn't parse this repo's lock-version 2.1 lock
+# file ("pyproject.toml changed significantly since poetry.lock was last
+# generated" — a version-mismatch symptom, not an actual pyproject/lock
+# drift).
+nixPkgs = ["python311"]
 
 [phases.install]
 cmds = [
+  "pip install poetry==2.4.1",
   "rm -rf .venv",
   "poetry install --no-root --only main",
   # ultralytics (YOLO PDF-layout extraction) transitively requires

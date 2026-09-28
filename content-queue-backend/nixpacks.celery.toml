@@ -1,8 +1,14 @@
 [phases.setup]
-nixPkgs = ["python311", "poetry"]
+# Poetry installed via pip below, pinned to match poetry.lock's declared
+# generator version — see nixpacks.toml for the full explanation (an
+# unpinned nixPkgs "poetry" broke a production deploy on 2026-09-26 when
+# the channel's version couldn't parse this repo's lock-version 2.1 lock
+# file).
+nixPkgs = ["python311"]
 
 [phases.install]
 cmds = [
+  "pip install poetry==2.4.1",
   "rm -rf .venv",
   "poetry install --no-root --only main",
   # See nixpacks.toml for the full explanation — the YOLO PDF-extraction
