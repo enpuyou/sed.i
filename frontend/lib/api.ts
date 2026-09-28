@@ -128,11 +128,16 @@ const fetchWithAuth = async (
   }
 
   // CSRF token required on mutating requests once auth is cookie-based —
-  // GET/HEAD are exempt server-side, but sending it unconditionally is
-  // harmless and simpler than tracking method here too.
-  const csrfToken = getCsrfToken();
-  if (csrfToken) {
-    headers[CSRF_HEADER_NAME] = csrfToken;
+  // GET/HEAD are exempt server-side. Only attached for mutating methods:
+  // sending it unconditionally forces a CORS preflight on every GET too,
+  // which breaks if anything in front of the API (e.g. an edge/CDN rule)
+  // doesn't allow this header — GET should never depend on it.
+  const method = (options.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers[CSRF_HEADER_NAME] = csrfToken;
+    }
   }
 
   const response = await fetch(url, {
