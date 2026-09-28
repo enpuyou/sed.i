@@ -73,16 +73,17 @@ deploy, not once per replica — if `RAILWAY_REPLICAS` is ever set above 1,
 migrations don't re-run per instance and instances don't race each other
 to serve traffic against a not-yet-migrated schema.
 
-Both `nixpacks.toml` (web) and `nixpacks.celery.toml` (worker) force-reinstall
-a pinned `opencv-python-headless==4.11.0.86` after `opencv-python` once at
-build time, not on every boot (previous behavior). Root cause: `ultralytics`
-(YOLO PDF-layout extraction) transitively requires `opencv-python` (the GUI
-variant); Poetry has no mechanism to exclude a transitive dependency, so
-both variants install side by side, pointing at the same `cv2` import
-path — whichever installs last wins. The worker needs the same fix as the
-web build because `app/tasks/_yolo_worker.py` (the isolated PDF-extraction
-subprocess, see §9 memory isolation) imports `cv2` and runs inside the
-worker's venv.
+`nixpacks.toml` force-reinstalls a pinned `opencv-python-headless==4.11.0.86`
+after `opencv-python` once at build time, not on every boot (previous
+behavior). Root cause: `ultralytics` (YOLO PDF-layout extraction)
+transitively requires `opencv-python` (the GUI variant); Poetry has no
+mechanism to exclude a transitive dependency, so both variants install side
+by side, pointing at the same `cv2` import path — whichever installs last
+wins. The worker needs the same fix as the web build because
+`app/tasks/_yolo_worker.py` (the isolated PDF-extraction subprocess, see §9
+memory isolation) imports `cv2` and runs inside the worker's venv — which
+is the SAME venv as the web service's, since both services build from
+`nixpacks.toml` (see the Procfile/`nixpacks.celery.toml` note below for why).
 
 **`content-queue-backend/Procfile` was removed 2026-09-27.** It was
 believed superseded by `nixpacks.toml` + `railway.json`, on the assumption
@@ -98,6 +99,24 @@ involved several other nixpacks.toml/railway.json fixes (venv activation,
 psycopg2→psycopg, a dashboard Start Command override on both services).
 Deleted rather than kept, since "harmless dead code" was the exact false
 belief that let it cause a real outage.
+
+Deleting the Procfile did NOT fix the Celery worker on its own — it
+surfaced a second, more fundamental fact: **Railway has no supported way
+for two services sharing one Root Directory to use two different Nixpacks
+config files.** `nixpacks.celery.toml` and a `NIXPACKS_CONFIG_FILE` env
+var on the celery service were an attempt at this; `NIXPACKS_CONFIG_FILE`
+is not a real Nixpacks setting (the actual mechanism is a CLI-only
+`-c`/`--config` flag Railway never exposes as an env var), confirmed via
+`nixpacks --help` and Railway's own community docs. Both services always
+built/ran using `nixpacks.toml`. The working fix: the celery service's
+Start Command is set directly in the Railway dashboard (Settings →
+Deploy) to `. /opt/venv/bin/activate && poetry run celery -A
+app.core.celery_app worker --loglevel=info --concurrency=2 --pool=solo
+--beat` — the one legitimate use of that field on this project, versus
+the FastAPI service's Start Command, which was an unwanted leftover
+override and was cleared. `nixpacks.celery.toml` is kept only for
+documentation / local `nixpacks build -c nixpacks.celery.toml` testing —
+Railway never reads it.
 
 ---
 

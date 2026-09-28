@@ -1,7 +1,21 @@
-# No [phases.setup] override — see nixpacks.toml for the full explanation.
-# [phases.install] mirrors nixpacks.toml's fully-custom venv install — see
-# that file for why (`pip` isn't on PATH from nixPkgs alone, and Nixpacks'
-# own default `poetry install --no-dev ...` fails on Poetry 2.x).
+# NOT ACTUALLY USED BY RAILWAY. Kept for documentation/local `nixpacks
+# build -c nixpacks.celery.toml` only. Railway has no supported way for
+# two services sharing one Root Directory to use two different Nixpacks
+# config files — a `NIXPACKS_CONFIG_FILE` env var (previously set on the
+# celery service) does not exist as a real Nixpacks setting; the actual
+# flag is a CLI-only `-c`/`--config` argument Railway never exposes.
+# Confirmed 2026-09-28: the celery service builds/runs using nixpacks.toml
+# like every other service on this Root Directory. The celery worker's
+# actual start command is instead set directly as this service's Start
+# Command in the Railway dashboard (Settings → Deploy). If [phases.install]
+# below ever needs to diverge from nixpacks.toml's, that divergence must
+# happen some other way (e.g. a shared script both toml files call) since
+# this file's [phases.install]/[phases.build] are equally unused.
+#
+# See nixpacks.toml for the full explanation of why [phases.install] is
+# fully custom (`pip` isn't on PATH from nixPkgs alone, and Nixpacks' own
+# default `poetry install --no-dev ...` fails on Poetry 2.x) — identical
+# reasoning applies here, it's just not reachable.
 
 [phases.install]
 cmds = [
