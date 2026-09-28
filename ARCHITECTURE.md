@@ -84,12 +84,20 @@ web build because `app/tasks/_yolo_worker.py` (the isolated PDF-extraction
 subprocess, see §9 memory isolation) imports `cv2` and runs inside the
 worker's venv.
 
-**`content-queue-backend/Procfile` is superseded** by `nixpacks.toml` +
-`railway.json` (Railway prefers Nixpacks config when both are present) and
-should not be treated as the source of truth for the deploy sequence —
-kept in place rather than deleted per this repo's dead-code convention,
-but its `alembic upgrade heads`-inline-with-`uvicorn` sequencing and its
-every-boot opencv swap no longer reflect what actually runs in production.
+**`content-queue-backend/Procfile` was removed 2026-09-27.** It was
+believed superseded by `nixpacks.toml` + `railway.json`, on the assumption
+that "Railway prefers Nixpacks config when both are present" — that
+assumption was wrong. Nixpacks' actual precedence is the reverse: a
+Procfile's process definitions override `nixpacks.toml`'s `[start]`
+section. Since the Procfile only defined a `web` process, BOTH the
+FastAPI and Celery services were silently running `web`'s inline
+`uvicorn` command — the Celery worker was never actually running Celery,
+which is why background extraction/tagging/embedding tasks stopped making
+progress. Root-caused during a 2026-09-27 production incident that also
+involved several other nixpacks.toml/railway.json fixes (venv activation,
+psycopg2→psycopg, a dashboard Start Command override on both services).
+Deleted rather than kept, since "harmless dead code" was the exact false
+belief that let it cause a real outage.
 
 ---
 
