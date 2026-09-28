@@ -9,8 +9,8 @@ cmds = [
   # See nixpacks.toml for the full explanation — the YOLO PDF-extraction
   # subprocess (app/tasks/_yolo_worker.py) this worker spawns imports cv2,
   # so the worker's venv needs the same headless-wins fix as the web build.
-  "poetry run pip uninstall -y opencv-python opencv-python-headless",
-  "poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
+  ". /opt/venv/bin/activate && poetry run pip uninstall -y opencv-python opencv-python-headless",
+  ". /opt/venv/bin/activate && poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
 ]
 paths = ["/opt/venv/bin"]
 

@@ -24,9 +24,14 @@
 #     was removed in Poetry 2.x (deprecated since 1.2, gone by 2.0) —
 #     confirmed locally, "The option --no-dev does not exist". Using this
 #     project's own long-standing `--only main` instead.
-# /opt/venv/bin is on PATH for later phases/the start command via
-# NIXPACKS_PATH (set automatically once a venv phase is detected), so
-# `poetry`/`python` resolve correctly there without re-activating.
+# /opt/venv/bin is on PATH for the start command via NIXPACKS_PATH (set
+# automatically once a venv phase is detected) — but NOT for other cmds
+# entries within this same phase; each is its own RUN layer with only the
+# image's baked PATH. Confirmed on Railway: unactivated `poetry run pip
+# uninstall` resolved pip from the Nix-provided system Python instead of
+# the venv, which PEP 668 refuses to let touch ("externally-managed-
+# environment... tries to modify the immutable /nix/store filesystem").
+# Every cmds entry that needs poetry/pip re-activates the venv explicitly.
 
 [phases.install]
 cmds = [
@@ -37,8 +42,8 @@ cmds = [
   # installed side by side, pointing at the same cv2 import path — whichever
   # installs last wins. This forces headless to win, once at build time
   # (not on every boot, which was the previous behavior via the Procfile).
-  "poetry run pip uninstall -y opencv-python opencv-python-headless",
-  "poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
+  ". /opt/venv/bin/activate && poetry run pip uninstall -y opencv-python opencv-python-headless",
+  ". /opt/venv/bin/activate && poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
 ]
 paths = ["/opt/venv/bin"]
 
