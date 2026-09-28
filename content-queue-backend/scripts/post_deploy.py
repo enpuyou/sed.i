@@ -9,7 +9,7 @@ Each statement is idempotent via IF NOT EXISTS.
 import os
 import sys
 
-import psycopg2
+import psycopg
 
 
 def get_dsn() -> str:
@@ -17,7 +17,7 @@ def get_dsn() -> str:
     if not url:
         print("post_deploy: DATABASE_URL not set, skipping", file=sys.stderr)
         sys.exit(0)
-    # psycopg2 needs postgresql://, not postgres://
+    # psycopg needs postgresql://, not postgres://
     return url.replace("postgres://", "postgresql://", 1)
 
 
@@ -63,8 +63,9 @@ CONCURRENT_INDEXES = [
 
 def main() -> None:
     dsn = get_dsn()
-    conn = psycopg2.connect(dsn)
-    conn.autocommit = True  # CONCURRENTLY requires autocommit (no transaction)
+    conn = psycopg.connect(
+        dsn, autocommit=True
+    )  # CONCURRENTLY requires autocommit (no transaction)
     cur = conn.cursor()
     try:
         for name, sql in CONCURRENT_INDEXES:
