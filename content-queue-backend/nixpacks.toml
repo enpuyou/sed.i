@@ -1,33 +1,46 @@
 # No [phases.setup] override — let Nixpacks' native Python/Poetry provider
-# auto-detect this project (pyproject.toml + poetry.lock present) and set up
-# its own venv + pip + Poetry install. A custom nixPkgs override here
-# previously bypassed that provider entirely, installing Poetry from the
-# nixpkgs "poetry" package at Nixpacks' own pinned nixpkgs archive commit
-# (bc8f8d1be5..., baked into the Nixpacks binary, not this project) — an
-# older Poetry that couldn't parse this repo's lock-version 2.1 lock file
-# ("pyproject.toml changed significantly since poetry.lock was last
-# generated" — a version-mismatch symptom, not an actual pyproject/lock
-# drift). Fixed 2026-09-27: removed the override; poetry version is now
-# pinned via .tool-versions (poetry 2.4.1, matching the lock file's
-# declared generator), which Nixpacks' own provider reads directly —
-# see https://github.com/railwayapp/nixpacks/blob/main/src/providers/python.rs
+# auto-detect this project (pyproject.toml + poetry.lock present) and pick
+# nixPkgs/nixpkgsArchive itself. A custom nixPkgs here previously bypassed
+# that provider, installing Poetry from the nixpkgs "poetry" package at
+# Nixpacks' own pinned nixpkgs archive commit (baked into the Nixpacks
+# binary, not this project) — which resolves to Poetry 1.3.1, predating
+# lock-version 2.1 support entirely. Hence "pyproject.toml changed
+# significantly since poetry.lock was last generated": a real version
+# incompatibility, misreported as a content-hash mismatch.
+#
+# [phases.install] below is fully custom (verified via local `nixpacks
+# build`, not guessed):
+#   - A bare `pip` is NOT on PATH from nixPkgs=["python311"] alone in this
+#     pinned nixpkgs snapshot (confirmed: exit 127, "pip: command not
+#     found", reproduced locally both with and without a setup override).
+#   - `python -m venv` DOES provide a working pip once activated, in the
+#     SAME shell invocation — each `cmds` entry is its own RUN layer, so
+#     activation from one entry does not carry into the next; the venv
+#     create + activate + pip-install-poetry + poetry-install sequence
+#     must be chained with && inside a single cmds entry, matching
+#     Nixpacks' own provider's approach.
+#   - Nixpacks' own default follow-up command, `poetry install --no-dev
+#     --no-interaction --no-ansi`, fails outright once reached: `--no-dev`
+#     was removed in Poetry 2.x (deprecated since 1.2, gone by 2.0) —
+#     confirmed locally, "The option --no-dev does not exist". Using this
+#     project's own long-standing `--only main` instead.
+# /opt/venv/bin is on PATH for later phases/the start command via
+# NIXPACKS_PATH (set automatically once a venv phase is detected), so
+# `poetry`/`python` resolve correctly there without re-activating.
 
 [phases.install]
-# "..." preserves the auto-detected provider's own install commands
-# (venv creation, `pip install poetry==$NIXPACKS_POETRY_VERSION`,
-# `poetry install`) — omitting it would silently replace Poetry's install
-# entirely with just the two lines below.
 cmds = [
-  "...",
+  "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install poetry==2.4.1 && poetry install --no-root --only main",
   # ultralytics (YOLO PDF-layout extraction) transitively requires
   # opencv-python (the GUI variant, pulls in libGL). Poetry has no clean
   # mechanism to exclude a transitive dependency, so both variants get
   # installed side by side, pointing at the same cv2 import path — whichever
   # installs last wins. This forces headless to win, once at build time
   # (not on every boot, which was the previous behavior via the Procfile).
-  "pip uninstall -y opencv-python opencv-python-headless",
-  "pip install --no-deps opencv-python-headless==4.11.0.86"
+  "poetry run pip uninstall -y opencv-python opencv-python-headless",
+  "poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
 ]
+paths = ["/opt/venv/bin"]
 
 [phases.build]
 cmds = []

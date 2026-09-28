@@ -1,18 +1,21 @@
 # No [phases.setup] override — see nixpacks.toml for the full explanation.
-# Let Nixpacks' native Python/Poetry provider auto-detect and set up its own
-# venv + pip + Poetry install; poetry version pinned via .tool-versions.
+# [phases.install] mirrors nixpacks.toml's fully-custom venv install — see
+# that file for why (`pip` isn't on PATH from nixPkgs alone, and Nixpacks'
+# own default `poetry install --no-dev ...` fails on Poetry 2.x).
 
 [phases.install]
-# "..." preserves the auto-detected provider's own install commands — see
-# nixpacks.toml for the full explanation.
 cmds = [
-  "...",
+  "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install poetry==2.4.1 && poetry install --no-root --only main",
   # See nixpacks.toml for the full explanation — the YOLO PDF-extraction
   # subprocess (app/tasks/_yolo_worker.py) this worker spawns imports cv2,
   # so the worker's venv needs the same headless-wins fix as the web build.
-  "pip uninstall -y opencv-python opencv-python-headless",
-  "pip install --no-deps opencv-python-headless==4.11.0.86"
+  "poetry run pip uninstall -y opencv-python opencv-python-headless",
+  "poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
 ]
+paths = ["/opt/venv/bin"]
+
+[phases.build]
+cmds = []
 
 [start]
 cmd = "poetry run celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --pool=solo --beat"
