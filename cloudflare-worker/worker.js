@@ -8,10 +8,6 @@
  * Deploy to Cloudflare Workers and route api.read-sedi.com to it.
  */
 
-// Set RAILWAY_ORIGIN as a secret in Cloudflare Workers dashboard (Settings → Variables → Secrets)
-// Value: https://<your-railway-service>.up.railway.app
-const RAILWAY_ORIGIN = RAILWAY_ORIGIN_SECRET ?? "";
-
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000",
   "https://read-sedi.com",
@@ -41,7 +37,9 @@ function getCorsHeaders(origin) {
 }
 
 export default {
-  async fetch(request) {
+  // env.RAILWAY_ORIGIN_SECRET is set in the Cloudflare dashboard
+  // (Settings → Variables and Secrets), value: https://<railway-service>.up.railway.app
+  async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const corsHeaders = getCorsHeaders(origin);
 
@@ -55,7 +53,7 @@ export default {
 
     // Build the forwarded request to Railway
     const url = new URL(request.url);
-    url.hostname = new URL(RAILWAY_ORIGIN).hostname;
+    url.hostname = new URL(env.RAILWAY_ORIGIN_SECRET).hostname;
     url.protocol = "https:";
     url.port = "";
 
