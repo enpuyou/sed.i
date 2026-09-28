@@ -1,27 +1,32 @@
-[phases.setup]
-# Poetry is installed via pip in the install phase below, pinned to match
-# poetry.lock's declared generator version — NOT via the nixPkgs "poetry"
-# package, which resolves to whatever version the nixpkgs channel currently
-# has (unpinned) and broke a production deploy on 2026-09-26: an older
-# Poetry from that channel couldn't parse this repo's lock-version 2.1 lock
-# file ("pyproject.toml changed significantly since poetry.lock was last
+# No [phases.setup] override — let Nixpacks' native Python/Poetry provider
+# auto-detect this project (pyproject.toml + poetry.lock present) and set up
+# its own venv + pip + Poetry install. A custom nixPkgs override here
+# previously bypassed that provider entirely, installing Poetry from the
+# nixpkgs "poetry" package at Nixpacks' own pinned nixpkgs archive commit
+# (bc8f8d1be5..., baked into the Nixpacks binary, not this project) — an
+# older Poetry that couldn't parse this repo's lock-version 2.1 lock file
+# ("pyproject.toml changed significantly since poetry.lock was last
 # generated" — a version-mismatch symptom, not an actual pyproject/lock
-# drift).
-nixPkgs = ["python311"]
+# drift). Fixed 2026-09-27: removed the override; poetry version is now
+# pinned via .tool-versions (poetry 2.4.1, matching the lock file's
+# declared generator), which Nixpacks' own provider reads directly —
+# see https://github.com/railwayapp/nixpacks/blob/main/src/providers/python.rs
 
 [phases.install]
+# "..." preserves the auto-detected provider's own install commands
+# (venv creation, `pip install poetry==$NIXPACKS_POETRY_VERSION`,
+# `poetry install`) — omitting it would silently replace Poetry's install
+# entirely with just the two lines below.
 cmds = [
-  "pip install poetry==2.4.1",
-  "rm -rf .venv",
-  "poetry install --no-root --only main",
+  "...",
   # ultralytics (YOLO PDF-layout extraction) transitively requires
   # opencv-python (the GUI variant, pulls in libGL). Poetry has no clean
   # mechanism to exclude a transitive dependency, so both variants get
   # installed side by side, pointing at the same cv2 import path — whichever
   # installs last wins. This forces headless to win, once at build time
   # (not on every boot, which was the previous behavior via the Procfile).
-  "poetry run pip uninstall -y opencv-python opencv-python-headless",
-  "poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
+  "pip uninstall -y opencv-python opencv-python-headless",
+  "pip install --no-deps opencv-python-headless==4.11.0.86"
 ]
 
 [phases.build]

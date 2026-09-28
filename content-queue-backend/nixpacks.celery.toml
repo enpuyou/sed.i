@@ -1,21 +1,17 @@
-[phases.setup]
-# Poetry installed via pip below, pinned to match poetry.lock's declared
-# generator version — see nixpacks.toml for the full explanation (an
-# unpinned nixPkgs "poetry" broke a production deploy on 2026-09-26 when
-# the channel's version couldn't parse this repo's lock-version 2.1 lock
-# file).
-nixPkgs = ["python311"]
+# No [phases.setup] override — see nixpacks.toml for the full explanation.
+# Let Nixpacks' native Python/Poetry provider auto-detect and set up its own
+# venv + pip + Poetry install; poetry version pinned via .tool-versions.
 
 [phases.install]
+# "..." preserves the auto-detected provider's own install commands — see
+# nixpacks.toml for the full explanation.
 cmds = [
-  "pip install poetry==2.4.1",
-  "rm -rf .venv",
-  "poetry install --no-root --only main",
+  "...",
   # See nixpacks.toml for the full explanation — the YOLO PDF-extraction
   # subprocess (app/tasks/_yolo_worker.py) this worker spawns imports cv2,
   # so the worker's venv needs the same headless-wins fix as the web build.
-  "poetry run pip uninstall -y opencv-python opencv-python-headless",
-  "poetry run pip install --no-deps opencv-python-headless==4.11.0.86"
+  "pip uninstall -y opencv-python opencv-python-headless",
+  "pip install --no-deps opencv-python-headless==4.11.0.86"
 ]
 
 [start]
