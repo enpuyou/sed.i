@@ -58,4 +58,10 @@ cmds = []
 # inline in this start command, coupling migration time to every instance's
 # boot and re-running "CREATE INDEX CONCURRENTLY IF NOT EXISTS" redundantly
 # per replica.
-cmd = "poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+#
+# Explicitly activates the venv rather than relying on NIXPACKS_PATH alone —
+# preDeployCommand runs `poetry run python scripts/post_deploy.py` (also
+# unactivated) and failed to find venv-installed packages on Railway
+# (ModuleNotFoundError for a package confirmed installed in the build venv),
+# so the same explicit activation is applied here as a precaution.
+cmd = ". /opt/venv/bin/activate && poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT"

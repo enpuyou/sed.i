@@ -18,4 +18,6 @@ paths = ["/opt/venv/bin"]
 cmds = []
 
 [start]
-cmd = "poetry run celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --pool=solo --beat"
+# Explicitly activates the venv — see nixpacks.toml's [start] for why
+# (NIXPACKS_PATH alone wasn't reliable for an unactivated `poetry run`).
+cmd = ". /opt/venv/bin/activate && poetry run celery -A app.core.celery_app worker --loglevel=info --concurrency=2 --pool=solo --beat"

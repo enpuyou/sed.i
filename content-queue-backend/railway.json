@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "preDeployCommand": "poetry run alembic upgrade heads && poetry run python scripts/post_deploy.py",
+    "preDeployCommand": ". /opt/venv/bin/activate && poetry run alembic upgrade heads && poetry run python scripts/post_deploy.py",
     "restartPolicyType": "ON_FAILURE"
   }
 }
