@@ -33,7 +33,7 @@ function getCorsHeaders(origin) {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version, Accept",
+      "Authorization, Content-Type, X-CSRF-Token, Mcp-Session-Id, Mcp-Protocol-Version, Accept",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "600",
     "Vary": "Origin",
