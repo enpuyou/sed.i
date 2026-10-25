@@ -3,7 +3,7 @@
   "commit": "working-tree (HEAD b5f2e10 + uncommitted changes)",
   "source_hash": "d154f5bc14c58e36",
   "source_files_hashed": 152,
-  "backend_dir": "/Users/enpuyou/cmpsc/projects/content-queue/content-queue-backend",
+  "backend_dir": "<repo>/content-queue-backend",
   "timestamp": "2026-10-25T21:13:30.067499+00:00",
   "host": {
     "platform": "macOS-26.4.1-arm64-arm-64bit",
@@ -13,7 +13,7 @@
     "ncpu": 10,
     "ram_gb": 24.0,
     "python": "3.11.12",
-    "python_executable": "/Users/enpuyou/cmpsc/projects/content-queue/content-queue-backend/.venv/bin/python",
+    "python_executable": "<repo>/content-queue-backend/.venv/bin/python",
     "postgres": "PostgreSQL 16.11 (Debian 16.11-1.pgdg12+1) on x86_64-pc-linux-gnu",
     "redis": "7.4.11"
   },
@@ -2319,7 +2319,7 @@
       }
     }
   },
-  "app_file": "/Users/enpuyou/cmpsc/projects/content-queue/content-queue-backend/app/__init__.py",
+  "app_file": "<repo>/content-queue-backend/app/__init__.py",
   "seed": {
     "u100": {
       "user_id": "49524987-d63f-470d-a3d2-99e3c4b0a6a2",

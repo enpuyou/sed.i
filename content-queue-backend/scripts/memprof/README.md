@@ -10,7 +10,7 @@ Use the backend `.venv` interpreter (it has psycopg2, redis, psutil, numpy, fast
 `content_queue_postgres` (localhost:5433, postgres/postgres) and `content_queue_redis` (localhost:6379) must be running.
 
 ```bash
-cd /Users/enpuyou/cmpsc/projects/content-queue/content-queue-backend
+cd <repo>/content-queue-backend
 .venv/bin/python scripts/memprof/run_benchmark.py --backend-dir <backend dir> --label before|after \
     --out <results.json> [--scenarios S1,S4_worker_article_1MB] [--commit <str>]
 .venv/bin/python scripts/memprof/compare.py before.json after.json > table.md

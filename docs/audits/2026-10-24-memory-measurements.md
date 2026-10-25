@@ -1,6 +1,6 @@
 # Backend memory measurements, 2026-10-24
 
-All measurements are local (macOS, Python 3.11.12, backend `.venv`). No production, Railway, Redis or OpenAI access. `OPENAI_API_KEY=dummy` was set for all runs. Scratch scripts are in `/private/tmp/claude-501/-Users-enpuyou-cmpsc-projects-content-queue/0f23005f-e565-49e6-8903-da77693d3d82/scratchpad/` (h1.py, h2.py, h3.py, h4.py, h6.py, gen.py).
+All measurements are local (macOS, Python 3.11.12, backend `.venv`). No production, Railway, Redis or OpenAI access. `OPENAI_API_KEY=dummy` was set for all runs. Scratch scripts are in `<scratch>/` (h1.py, h2.py, h3.py, h4.py, h6.py, gen.py).
 
 ## Summary
 

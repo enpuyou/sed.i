@@ -4,7 +4,7 @@ Second pass. The first pass (`2026-10-24-memory-measurements.md`) used SQLite an
 
 Isolation: every env var was overridden on the command line (`DATABASE_URL` -> memprof, `REDIS_URL` -> db 15, `SECRET_KEY` test string, `OPENAI_API_KEY=dummy`, `OPENAI_BASE_URL` -> local fake server, all third-party keys blank, `PREFECT_ENABLED=false`, `S3_STORAGE_ENABLED=false`). `settings` was printed redacted before the first run to confirm the env overrides `.env`. `.env` was never read. A local fake OpenAI server (embeddings + chat/tool-call responses generated from the request's JSON schema) and a local static page/PDF server stood in for all external services. No traffic left the machine except `pip install` and the `python:3.11-slim` image pull for the Linux check. Everything started was stopped; `memprof` dropped; Redis db 15 flushed; the two docker containers left running.
 
-Scratch scripts and raw CSV/log output: `/private/tmp/claude-501/-Users-enpuyou-cmpsc-projects-content-queue/0f23005f-e565-49e6-8903-da77693d3d82/scratchpad/live/`.
+Scratch scripts and raw CSV/log output: `<scratch>/live/`.
 
 ## 1. Executive summary
 

@@ -176,4 +176,4 @@ Golden set: the repo PDFs (`pdf/TabPFN_copy.pdf`, `pdf/3d-printed-protein.pdf`) 
 - Parent numbers are `ru_maxrss` growth in a separate process with the child's output replayed from disk, not a live Celery worker; they exclude Postgres write, chunking, and embedding of the stored `full_text`.
 - Component attribution inside the child (join, wrap, pickle, fitz cache) comes from RSS markers in a mirror script, not from the production worker; the production worker's peak (963 MB) was higher than the mirror's (804 MB) at 200 pages, so the mirror understates by about 160 MB.
 
-Scratch files: `/private/tmp/claude-501/-Users-enpuyou-cmpsc-projects-content-queue/0f23005f-e565-49e6-8903-da77693d3d82/scratchpad/scale/` (`build.py`, `run.py`, `trace.py`, `parent.py`, `pre.py`, `results.jsonl`, `*.err`, `*.html`).
+Scratch files: `<scratch>/scale/` (`build.py`, `run.py`, `trace.py`, `parent.py`, `pre.py`, `results.jsonl`, `*.err`, `*.html`).
