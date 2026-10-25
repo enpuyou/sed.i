@@ -73,7 +73,9 @@ def _make_items(db, user, n, **extra):
 
 
 class TestDeferredHeavyColumns:
-    def test_duplicate_check_fallback_skips_heavy_columns(self, db_session, test_user):
+    def test_duplicate_check_is_one_query_without_heavy_columns(
+        self, db_session, test_user
+    ):
         _make_items(db_session, test_user, 3)
         db_session.expire_all()
 
@@ -86,6 +88,7 @@ class TestDeferredHeavyColumns:
 
         assert found is None
         _assert_no_heavy_columns(statements)
+        assert len(_item_selects(statements)) == 1, "no library scan"
 
     def test_duplicate_check_still_finds_existing_item(self, db_session, test_user):
         items = _make_items(db_session, test_user, 2)

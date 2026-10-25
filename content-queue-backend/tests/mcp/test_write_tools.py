@@ -111,8 +111,23 @@ class TestAddContent:
         mock_task.delay.assert_called_once()
         assert result["status"] == "queued"
 
-    def test_returns_exists_for_legacy_unnormalized_duplicate(self, db, user):
+    def test_returns_exists_for_legacy_unnormalized_duplicate_after_migration(
+        self, db, user
+    ):
+        """Rows saved before normalization are rewritten by migration
+        a7d3e9c15b42; after it, the exact-match lookup finds them."""
+        import importlib.util
+        from pathlib import Path
+
         from app.models.content import ContentItem
+
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "alembic/versions/a7d3e9c15b42_normalize_stored_content_urls.py"
+        )
+        spec = importlib.util.spec_from_file_location("normalize_urls_migration", path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
 
         existing = ContentItem(
             user_id=user.id,
@@ -123,6 +138,8 @@ class TestAddContent:
         db.add(existing)
         db.commit()
         db.refresh(existing)
+        migration.normalize_active_urls(db.connection())
+        db.commit()
 
         result = add_content(url="https://example.com/article", user=user, db=db)
 

@@ -127,11 +127,11 @@ def find_existing_active_item(
 ) -> ContentItem | None:
     """Find an active duplicate by normalized URL.
 
-    Primary lookup uses the indexed exact match on `original_url`.
-    Fallback scans active items and normalizes each stored URL to catch legacy
-    rows created before URL normalization was consistently applied.
+    Stored URLs are normalized (ingest_url, the MCP save, and migration
+    a7d3e9c15b42 for rows saved before normalization was consistent), so this
+    is one indexed exact lookup; nothing scans the user's library.
     """
-    existing = (
+    return (
         db.query(ContentItem)
         .options(*defer_heavy_columns())
         .filter(
@@ -141,22 +141,6 @@ def find_existing_active_item(
         )
         .first()
     )
-    if existing:
-        return existing
-
-    active_items = (
-        db.query(ContentItem)
-        .options(*defer_heavy_columns())
-        .filter(
-            ContentItem.user_id == user_id,
-            ContentItem.deleted_at.is_(None),
-        )
-        .all()
-    )
-    for item in active_items:
-        if normalize_url(item.original_url) == normalized_url:
-            return item
-    return None
 
 
 def ingest_url(
