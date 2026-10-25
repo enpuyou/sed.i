@@ -570,6 +570,15 @@ POST /content (201, processing_status='completed' immediately)
 
 **Known gap, not yet fixed**: `time_limit`/`soft_time_limit` (task-level and the global 30-min default) are dead configuration under `--pool=solo` (production's actual pool) — confirmed via live-fire chaos testing, `solo.py`'s `apply_target()` has no timer mechanism to enforce either. A hung task blocks the single worker process (and beat, which shares the process under solo) indefinitely. Fix requires an infra/deploy change (switch pool type or add an external watchdog), not an app code change — deliberately out of scope for the code-level fixes above. See `docs/retros/2026-07-28-failure-injection-plan.md` and `docs/changelog/2026-07-28-failure-injection-fixes.md`.
 
+### Memory bounds (2026-10-24)
+
+Measured in `docs/audits/2026-10-24-memory-profiling-live.md`; before/after in `docs/audits/2026-10-24-memory-fix-results.md`. Four bounds keep per-request and per-task memory proportional to a fixed budget instead of to library size or page size:
+
+- **Deferred heavy columns.** `app/services/content.py::defer_heavy_columns()` skips `full_text`, `embedding` and `search_vector` (~280 KB per row) in queries that load a whole library: the duplicate-check fallback `find_existing_active_item`, `GET /content/recommended`, and `GET /lists/{id}/content`. Deferred columns still lazy-load if touched.
+- **Bounded fetch.** `app/core/fetch.py::fetch_bounded()` is the only place extraction downloads a user URL. It streams the body: HTML is truncated at `FETCH_HTML_MAX_BYTES` (10 MB, the item still ingests; `processing_error` says the page was truncated, shown as a partial extraction), PDFs are rejected above `FETCH_PDF_MAX_BYTES` (100 MB), clearly binary content types (video, audio, image, font, archives) are not downloaded (the caller gets an empty body plus headers, so the item ends exactly as before: completed with "Could not extract article text"), and `FETCH_MAX_SECONDS` (60) bounds the download. `FetchRejectedError` (oversized PDF only) subclasses `requests.RequestException` so existing handlers catch it.
+- **Batched chunk embedding.** `generate_chunk_embeddings` embeds and stages `_EMBED_BATCH_SIZE` (100) chunks at a time with `bulk_insert_mappings`; the delete-and-replace is still one transaction (a failure or budget stop mid-article rolls back and keeps the old chunks).
+- **Optional list pagination.** `GET /lists/{id}/content` accepts `skip` and `limit` (1–500); with no parameters it returns every item as before, so existing clients are unchanged.
+
 ### Memory profile system
 
 `user_profiles` stores a hybrid memory record per user:
