@@ -494,9 +494,16 @@ export const listsAPI = {
     });
   },
 
-  // Get content in a list (GET /lists/{list_id}/content)
-  getContent: async (id: string) => {
-    return fetchWithAuth(`${API_BASE_URL}/lists/${id}/content`);
+  // Get content in a list (GET /lists/{list_id}/content). With no options the
+  // backend returns every item; skip/limit page through large lists.
+  getContent: async (id: string, opts?: { skip?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (opts?.skip) query.set("skip", String(opts.skip));
+    if (opts?.limit) query.set("limit", String(opts.limit));
+    const qs = query.toString();
+    return fetchWithAuth(
+      `${API_BASE_URL}/lists/${id}/content${qs ? `?${qs}` : ""}`,
+    );
   },
 
   // Add content to a list (POST /lists/{list_id}/content)

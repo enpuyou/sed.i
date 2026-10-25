@@ -98,14 +98,14 @@ def get_user_lists(
     return result
 
 
-@router.get("/{list_id}", response_model=ListResponse)
+@router.get("/{list_id}", response_model=ListWithContentCount)
 def get_list(
     list_id: UUID,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get a specific list.
+    Get a specific list, with the total count of (non-deleted) items in it.
     """
     list_obj = (
         db.query(List)
@@ -118,7 +118,29 @@ def get_list(
             status_code=status.HTTP_404_NOT_FOUND, detail="List not found"
         )
 
-    return list_obj
+    content_count = (
+        db.query(func.count(ContentItem.id))
+        .join(
+            content_list_membership,
+            ContentItem.id == content_list_membership.c.content_item_id,
+        )
+        .filter(
+            content_list_membership.c.list_id == list_id,
+            ContentItem.deleted_at.is_(None),
+        )
+        .scalar()
+    )
+
+    return {
+        "id": list_obj.id,
+        "name": list_obj.name,
+        "description": list_obj.description,
+        "owner_id": list_obj.owner_id,
+        "is_shared": list_obj.is_shared,
+        "created_at": list_obj.created_at,
+        "updated_at": list_obj.updated_at,
+        "content_count": content_count,
+    }
 
 
 @router.get("/{list_id}/content", response_model=list[ContentItemResponse])

@@ -17,7 +17,13 @@ import NowPlaying from "@/components/NowPlaying";
 import InlineError from "@/components/InlineError";
 import EmptyState from "@/components/EmptyState";
 import RelevantReadsPanel from "@/components/RelevantReadsPanel";
+import ListLoadMore from "@/components/ListLoadMore";
 import { SHOW_DRAFT_READS } from "@/lib/flags";
+import { useInfiniteSentinel } from "@/hooks/useInfiniteSentinel";
+import {
+  usePagedListContent,
+  LIST_PAGE_SIZE,
+} from "@/hooks/usePagedListContent";
 
 interface ListDetail {
   id: string;
@@ -27,6 +33,7 @@ interface ListDetail {
   is_shared: boolean;
   created_at: string;
   updated_at: string;
+  content_count?: number;
 }
 
 function InlineArticleView({
@@ -94,7 +101,17 @@ export default function ListDetailPage() {
   const listId = params.id as string;
 
   const [list, setList] = useState<ListDetail | null>(null);
-  const [contents, setContents] = useState<ContentItemType[]>([]);
+  const {
+    contents,
+    setContents,
+    reset: resetContents,
+    loadMore,
+    adjustTotal,
+    hasMore,
+    displayTotal,
+    loadingMore,
+    loadMoreError,
+  } = usePagedListContent(listId);
   const [isAddContentModalOpen, setIsAddContentModalOpen] = useState(false);
   const [isEditListModalOpen, setIsEditListModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -137,6 +154,18 @@ export default function ListDetailPage() {
   const dragUpHandlerRef = useRef<(() => void) | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  // Infinite scroll: load the next page when the footer scrolls into view. In
+  // the writing split-pane the list scrolls inside its own container.
+  const [writingScrollEl, setWritingScrollEl] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const sentinel = useInfiniteSentinel({
+    onVisible: loadMore,
+    enabled: hasMore && !loadingMore && !loadMoreError,
+    root: writingOpen ? writingScrollEl : null,
+    rearmKey: contents.length,
+  });
+
   // Export handler ref — set by MarkdownEditor
   const exportHandlerRef = useRef<
     ((format?: "md" | "pdf" | "docx") => void | Promise<void>) | null
@@ -150,11 +179,14 @@ export default function ListDetailPage() {
 
         const [listData, contentData] = await Promise.all([
           listsAPI.getById(listId),
-          listsAPI.getContent(listId),
+          listsAPI.getContent(listId, { limit: LIST_PAGE_SIZE }),
         ]);
 
         setList(listData);
-        setContents(contentData);
+        resetContents(
+          contentData,
+          listData.content_count ?? contentData.length,
+        );
 
         draftsAPI
           .get(listId)
@@ -169,7 +201,7 @@ export default function ListDetailPage() {
         if (!silent) setLoading(false);
       }
     },
-    [listId],
+    [listId, resetContents],
   );
 
   useEffect(() => {
@@ -277,12 +309,14 @@ export default function ListDetailPage() {
       setRemovingId(contentId);
       await new Promise((resolve) => setTimeout(resolve, 800));
       setContents(contents.filter((c) => c.id !== contentId));
+      adjustTotal(-1);
       setRemovingId(null);
       decrementListCount(listId);
       await listsAPI.removeContent(listId, [contentId]);
     } catch (err) {
       console.error("Failed to remove from list:", err);
       setContents(previousContents);
+      adjustTotal(1);
       setRemovingId(null);
       incrementListCount(listId);
       setActionError("Couldn't remove item. Try again.");
@@ -316,10 +350,12 @@ export default function ListDetailPage() {
     const previousContents = [...contents];
     try {
       setContents(contents.filter((content) => content.id !== id));
+      adjustTotal(-1);
       await contentAPI.delete(id);
     } catch (err) {
       console.error("Failed to delete content:", err);
       setContents(previousContents);
+      adjustTotal(1);
       setActionError("Couldn't delete item. Try again.");
     }
   };
@@ -398,7 +434,7 @@ export default function ListDetailPage() {
                   onStatusChange={handleStatusChange}
                 />
               ) : (
-                <div className="writing-left-scroll">
+                <div className="writing-left-scroll" ref={setWritingScrollEl}>
                   <div className="w-full max-w-2xl px-4 sm:px-6">
                     {contents.length === 0 ? (
                       <EmptyState
@@ -439,6 +475,17 @@ export default function ListDetailPage() {
                           </div>
                         ))}
                       </div>
+                    )}
+                    {hasMore && (
+                      <ListLoadMore
+                        loaded={contents.length}
+                        total={displayTotal}
+                        loading={loadingMore}
+                        error={loadMoreError}
+                        sentinelRef={sentinel.ref}
+                        observerSupported={sentinel.supported}
+                        onLoadMore={loadMore}
+                      />
                     )}
                   </div>
                 </div>
@@ -530,8 +577,7 @@ export default function ListDetailPage() {
             {/* Action strip */}
             <div className="flex items-center py-3 gap-3">
               <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--color-text-muted)] flex-shrink-0">
-                {contents.length} {contents.length === 1 ? "item" : "items"}{" "}
-                inside
+                {displayTotal} {displayTotal === 1 ? "item" : "items"} inside
               </span>
               <span className="flex-1 font-mono text-[10px] text-[var(--color-border)] select-none overflow-hidden whitespace-nowrap">
                 {"·".repeat(40)}
@@ -605,6 +651,17 @@ export default function ListDetailPage() {
                     />
                   ))}
                 </div>
+                {hasMore && (
+                  <ListLoadMore
+                    loaded={contents.length}
+                    total={displayTotal}
+                    loading={loadingMore}
+                    error={loadMoreError}
+                    sentinelRef={sentinel.ref}
+                    observerSupported={sentinel.supported}
+                    onLoadMore={loadMore}
+                  />
+                )}
               </>
             )}
           </div>

@@ -407,10 +407,10 @@ runs) so the item is flagged as limited without waiting for the Celery task.
 |--------|------|-------------|
 | POST | `/lists` | Create list. |
 | GET | `/lists` | All lists with content counts. |
-| GET | `/lists/{id}` | List details. |
+| GET | `/lists/{id}` | List details, including `content_count` (non-deleted items; the lists page uses it as the total while it pages the items). |
 | PATCH | `/lists/{id}` | Update name/description/share. |
 | DELETE | `/lists/{id}` | Soft delete list. |
-| GET | `/lists/{id}/content` | Items in list (excludes soft-deleted items). |
+| GET | `/lists/{id}/content` | Items in list, newest first (excludes soft-deleted items). Optional `skip` and `limit` (1–500); with neither it returns every item, so older clients are unchanged. The lists page requests 50 at a time. |
 | POST | `/lists/{id}/content` | Add content item to list. |
 | DELETE | `/lists/{id}/content` | Remove content item from list. |
 
@@ -574,7 +574,8 @@ POST /content (201, processing_status='completed' immediately)
 
 Measured in `docs/audits/2026-10-24-memory-profiling-live.md`; before/after in `docs/audits/2026-10-24-memory-fix-results.md`. Four bounds keep per-request and per-task memory proportional to a fixed budget instead of to library size or page size:
 
-- **Deferred heavy columns.** `app/services/content.py::defer_heavy_columns()` skips `full_text`, `embedding` and `search_vector` (~280 KB per row) in queries that load a whole library: the duplicate-check fallback `find_existing_active_item`, `GET /content/recommended`, and `GET /lists/{id}/content`. Deferred columns still lazy-load if touched.
+- **Deferred heavy columns.** `app/services/content.py::defer_heavy_columns()` skips `full_text`, `embedding` and `search_vector` (~280 KB per row) in queries that load a whole library: `GET /content/recommended` and `GET /lists/{id}/content`, and the duplicate lookup. Deferred columns still lazy-load if touched.
+- **One-query duplicate check.** `find_existing_active_item` is a single indexed exact match on the normalized URL; the previous fallback that normalized every stored URL in Python (an O(library) scan) is gone. That is only correct because stored URLs are normalized: `ingest_url`, the MCP save and the onboarding seed write normalized URLs, no endpoint updates `original_url`, and migration `a7d3e9c15b42` rewrote older rows (a collision keeps the already-normalized row, else the newest, and soft-deletes the others). `scripts/check_url_normalization.py` is a read-only report of how many rows the migration will rewrite or collapse; run it against production before deploying.
 - **Bounded fetch.** `app/core/fetch.py::fetch_bounded()` is the only place extraction downloads a user URL. It streams the body: HTML is truncated at `FETCH_HTML_MAX_BYTES` (10 MB, the item still ingests; `processing_error` says the page was truncated, shown as a partial extraction), PDFs are rejected above `FETCH_PDF_MAX_BYTES` (100 MB), clearly binary content types (video, audio, image, font, archives) are not downloaded (the caller gets an empty body plus headers, so the item ends exactly as before: completed with "Could not extract article text"), and `FETCH_MAX_SECONDS` (60) bounds the download. `FetchRejectedError` (oversized PDF only) subclasses `requests.RequestException` so existing handlers catch it.
 - **Batched chunk embedding.** `generate_chunk_embeddings` embeds and stages `_EMBED_BATCH_SIZE` (100) chunks at a time with `bulk_insert_mappings`; the delete-and-replace is still one transaction (a failure or budget stop mid-article rolls back and keeps the old chunks).
 - **Optional list pagination.** `GET /lists/{id}/content` accepts `skip` and `limit` (1–500); with no parameters it returns every item as before, so existing clients are unchanged.
@@ -981,6 +982,8 @@ Environment variable driven — all default to `true` unless explicitly disabled
 | Hook | Purpose |
 |------|---------|
 | `useTagEditor` | Encapsulates tag state, available-tag loading, add/remove with optimistic updates, and inline error for `ContentItem` and `ContentCard`. Accepts `explicitTag` param on `handleAddTag` so suggestion dropdowns bypass state-sync issues. |
+| `usePagedListContent` | Items of one list loaded a page at a time (`LIST_PAGE_SIZE` 50). The caller supplies the first page via `reset(items, total)`; `loadMore()` appends the next with `skip` = rows loaded, de-duplicates rows that shifted between pages, collapses concurrent calls into one request, drops a response that arrives after `reset()`, and ends paging on a short page. Failed pages keep loaded rows and expose a retryable error. `adjustTotal(delta)` follows local removals. Used by `lists/[id]/page.tsx`. |
+| `useInfiniteSentinel` | Calls a callback when a sentinel element scrolls into view (IntersectionObserver, 400px margin). Takes a scroll-container `root` (the writing split-pane list scrolls inside its own container) and a `rearmKey` so a sentinel still on screen after new rows fires again. Reports `supported: false` where IntersectionObserver is missing; `ListLoadMore` then renders a Load more button. |
 | `useConfirmAction` | Generic arm-then-trigger delete confirmation. Returns `{ armed, arm, cancel, trigger, toggle }`. All methods are stable (`useCallback`). `toggle()` arms on first call, triggers on second. |
 
 ---
