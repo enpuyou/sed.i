@@ -14,6 +14,7 @@ import trafilatura
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from app.core.celery_app import celery_app
+from app.core.fetch import fetch_bounded
 from app.tasks.base import DatabaseTask
 from app.models.content import ContentItem
 from app.tasks.embedding import generate_embedding
@@ -284,6 +285,11 @@ def _detect_limited_extension_content_reason(
     return None
 
 
+_TRUNCATED_ERROR = (
+    "Partial extraction: the page exceeded the size limit and was truncated"
+)
+
+
 def _is_pdf_url(url: str) -> bool:
     """Heuristic: URL path ends in .pdf or contains /pdf/."""
     url_lower = url.lower().split("?")[0]
@@ -345,7 +351,7 @@ def extract_metadata(self, item_id: str):
                 request_headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
                 }
-                resp = requests.get(
+                resp = fetch_bounded(
                     item.original_url, timeout=15, headers=request_headers
                 )
                 resp.raise_for_status()
@@ -400,7 +406,7 @@ def extract_metadata(self, item_id: str):
                     request_headers = {
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
                     }
-                    resp = requests.get(
+                    resp = fetch_bounded(
                         item.original_url, timeout=15, headers=request_headers
                     )
                     resp.raise_for_status()
@@ -447,7 +453,7 @@ def extract_metadata(self, item_id: str):
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
-        resp = requests.get(url, timeout=30, headers=request_headers)
+        resp = fetch_bounded(url, timeout=30, headers=request_headers)
         resp.raise_for_status()
 
         content_type = _detect_content_type(url, dict(resp.headers))
@@ -596,7 +602,7 @@ def extract_full_content(self, item_id: str):
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
-        resp = requests.get(item.original_url, timeout=30, headers=request_headers)
+        resp = fetch_bounded(item.original_url, timeout=30, headers=request_headers)
         resp.raise_for_status()
     except requests.Timeout:
         logger.warning(f"Timeout fetching full content for {item.original_url}")
@@ -652,6 +658,8 @@ def extract_full_content(self, item_id: str):
             )
         else:
             item.processing_error = None
+        if resp.truncated and not item.processing_error:
+            item.processing_error = _TRUNCATED_ERROR
         item.processing_status = "completed"
         self.db.commit()
         logger.info(
@@ -1687,7 +1695,7 @@ def extract_full_content_for_item(item_id: str, db) -> None:
         "Accept-Language": "en-US,en;q=0.5",
         "Connection": "keep-alive",
     }
-    resp = requests.get(item.original_url, timeout=30, headers=request_headers)
+    resp = fetch_bounded(item.original_url, timeout=30, headers=request_headers)
     resp.raise_for_status()
 
     downloaded = resp.content
@@ -1718,7 +1726,7 @@ def extract_full_content_for_item(item_id: str, db) -> None:
         words = plain.split()
         item.word_count = len(words)
         item.reading_time_minutes = max(1, round(len(words) / 200))
-        item.processing_error = None
+        item.processing_error = _TRUNCATED_ERROR if resp.truncated else None
 
     item.processing_status = "completed"
     db.commit()

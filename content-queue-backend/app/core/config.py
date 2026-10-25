@@ -133,6 +133,13 @@ class Settings(BaseSettings):
     # Presigned URL expiry in seconds (default 1 hour)
     AWS_S3_PRESIGN_EXPIRY: int = 3600
 
+    # URL fetch limits (app/core/fetch.py). HTML is truncated at the cap (the
+    # item still ingests); PDFs above their cap are rejected. Extraction peaks
+    # at ~37x page size in memory, so these bound worker memory per task.
+    FETCH_HTML_MAX_BYTES: int = 10 * 1024 * 1024
+    FETCH_PDF_MAX_BYTES: int = 100 * 1024 * 1024
+    FETCH_MAX_SECONDS: int = 60
+
     # Prefect pipeline observability (Layer 8)
     # When true, Phase 2+ of ingestion runs as a Prefect flow instead of
     # the Celery fire-and-forget chain. False by default — existing behavior unchanged.
