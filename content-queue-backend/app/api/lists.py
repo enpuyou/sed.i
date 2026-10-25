@@ -6,7 +6,7 @@ read, update, delete, and content membership management (add/remove items).
 Public list access is in app/api/endpoints/public.py.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from uuid import UUID
@@ -25,6 +25,7 @@ from app.schemas.list import (
     RemoveContentFromList,
 )
 from app.schemas.content import ContentItemResponse
+from app.services.content import defer_heavy_columns
 from app.schemas.highlight import HighlightResponse
 
 router = APIRouter(prefix="/lists", tags=["lists"])
@@ -123,11 +124,16 @@ def get_list(
 @router.get("/{list_id}/content", response_model=list[ContentItemResponse])
 def get_list_content(
     list_id: UUID,
+    skip: int = Query(0, ge=0),
+    limit: int | None = Query(None, ge=1, le=500),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get all content items in a list.
+    Get content items in a list, newest first.
+
+    Returns every item unless `limit` is given (existing clients pass no
+    parameters); `skip`/`limit` page through large lists.
     """
     # Verify list exists and belongs to user
     list_obj = (
@@ -142,8 +148,9 @@ def get_list_content(
         )
 
     # Get content items in this list (not deleted)
-    content_items = (
+    query = (
         db.query(ContentItem)
+        .options(*defer_heavy_columns())
         .join(
             content_list_membership,
             ContentItem.id == content_list_membership.c.content_item_id,
@@ -152,11 +159,13 @@ def get_list_content(
             content_list_membership.c.list_id == list_id,
             ContentItem.deleted_at.is_(None),
         )
-        .order_by(ContentItem.created_at.desc())
-        .all()
+        .order_by(ContentItem.created_at.desc(), ContentItem.id)
+        .offset(skip)
     )
+    if limit is not None:
+        query = query.limit(limit)
 
-    return content_items
+    return query.all()
 
 
 @router.post("/{list_id}/content", status_code=status.HTTP_200_OK)

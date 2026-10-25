@@ -15,7 +15,7 @@ from __future__ import annotations
 from urllib.parse import urlparse, parse_qs, urlencode
 from uuid import UUID
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models.content import ContentItem
 from app.models.user import User
@@ -104,6 +104,21 @@ def normalize_url(url: str) -> str:
     return normalized.geturl()
 
 
+def defer_heavy_columns():
+    """Query options that skip the three large per-row columns.
+
+    full_text, embedding and search_vector are ~280 KB of a typical row; an
+    ORM query that materializes every row of a library with them costs
+    hundreds of MB. Deferred columns still load on access, one query per row,
+    so a caller that unexpectedly touches one stays correct.
+    """
+    return (
+        defer(ContentItem.full_text),
+        defer(ContentItem.embedding),
+        defer(ContentItem.search_vector),
+    )
+
+
 def find_existing_active_item(
     *,
     db: Session,
@@ -118,6 +133,7 @@ def find_existing_active_item(
     """
     existing = (
         db.query(ContentItem)
+        .options(*defer_heavy_columns())
         .filter(
             ContentItem.user_id == user_id,
             ContentItem.original_url == normalized_url,
@@ -130,6 +146,7 @@ def find_existing_active_item(
 
     active_items = (
         db.query(ContentItem)
+        .options(*defer_heavy_columns())
         .filter(
             ContentItem.user_id == user_id,
             ContentItem.deleted_at.is_(None),

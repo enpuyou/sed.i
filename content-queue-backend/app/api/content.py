@@ -24,7 +24,11 @@ from app.schemas.content import (
     ContentItemList,
     ContentItemDetail,
 )
-from app.services.content import ingest_url, DuplicateContentError
+from app.services.content import (
+    ingest_url,
+    DuplicateContentError,
+    defer_heavy_columns,
+)
 from app.tasks.summarization import generate_summary
 
 
@@ -396,6 +400,7 @@ def get_recommended_content(
     # Get unread content
     unread = (
         db.query(ContentItem)
+        .options(*defer_heavy_columns())
         .filter(
             ContentItem.user_id == current_user.id,
             ContentItem.is_read.is_(False),
