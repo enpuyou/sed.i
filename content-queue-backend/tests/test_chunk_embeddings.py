@@ -422,3 +422,32 @@ class TestBatchedChunkEmbedding:
         )
         assert result["status"] == "budget_exceeded"
         assert before > 0 and after == before
+
+
+class TestEmbeddingCountMismatch:
+    def test_short_embedding_response_fails_and_keeps_previous_chunks(
+        self, db_session, test_user
+    ):
+        item = _make_article(db_session, test_user)
+        with patch("app.core.llm_client.llm_client.embed", side_effect=_fake_embed([])):
+            generate_chunk_embeddings(str(item.id), db=db_session)
+        before = (
+            db_session.query(ContentChunk).filter_by(content_item_id=item.id).count()
+        )
+
+        def short(texts, **kwargs):
+            return EmbedResult(
+                embeddings=[[0.1] * 1536 for _ in texts[:-1]],
+                model="text-embedding-3-small",
+                prompt_tokens=10,
+            )
+
+        with patch("app.core.llm_client.llm_client.embed", side_effect=short):
+            result = generate_chunk_embeddings(str(item.id), db=db_session)
+
+        after = (
+            db_session.query(ContentChunk).filter_by(content_item_id=item.id).count()
+        )
+        assert result["status"] == "failed"
+        assert "mismatch" in result["error"]
+        assert before > 0 and after == before

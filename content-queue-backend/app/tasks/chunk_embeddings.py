@@ -198,6 +198,11 @@ def generate_chunk_embeddings(content_item_id: str, db: Session | None = None) -
                     for offset, chunk in enumerate(batch)
                 ]
                 result = llm_client.embed(texts_to_embed, user_id=str(item.user_id))
+                if len(result.embeddings) != len(batch):
+                    raise ValueError(
+                        f"Embedding count mismatch: got {len(result.embeddings)} "
+                        f"for {len(batch)} chunks"
+                    )
                 db.bulk_insert_mappings(
                     ContentChunk,
                     [

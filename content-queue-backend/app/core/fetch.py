@@ -121,7 +121,7 @@ def fetch_bounded(
                 )
             pieces.append(piece)
             total += len(piece)
-            if total >= limit:
+            if total > limit:
                 if is_pdf:
                     raise FetchRejectedError(
                         f"PDF too large (over {limit // (1024 * 1024)} MB)"

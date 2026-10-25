@@ -142,7 +142,13 @@ def normalize_active_urls(conn) -> dict:
 
 
 def upgrade() -> None:
-    normalize_active_urls(op.get_bind())
+    conn = op.get_bind()
+    # Block concurrent writes for the few seconds this takes: a row inserted
+    # between the snapshot SELECT and the UPDATEs could otherwise collide with a
+    # rewrite on uq_content_items_user_url_active and abort the deploy. Reads are
+    # unaffected (SHARE ROW EXCLUSIVE does not block SELECT).
+    conn.execute(sa.text("LOCK TABLE content_items IN SHARE ROW EXCLUSIVE MODE"))
+    normalize_active_urls(conn)
 
 
 def downgrade() -> None:

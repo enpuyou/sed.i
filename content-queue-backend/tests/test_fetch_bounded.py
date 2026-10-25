@@ -203,3 +203,23 @@ def test_total_time_cap_raises_timeout(monkeypatch, small_caps):
 def test_rejection_is_a_request_exception():
     """Existing `except requests.RequestException` handlers must catch it."""
     assert issubclass(FetchRejectedError, requests.RequestException)
+
+
+def test_pdf_exactly_at_the_cap_is_accepted(monkeypatch, small_caps):
+    resp = FakeResponse(b"p" * 300_000, {"content-type": "application/pdf"})
+    _patch_get(monkeypatch, resp)
+
+    page = fetch_bounded("https://example.test/p.pdf", timeout=5, headers={})
+
+    assert len(page.content) == 300_000
+    assert page.truncated is False
+
+
+def test_html_exactly_at_the_cap_is_not_flagged_truncated(monkeypatch, small_caps):
+    resp = FakeResponse(b"h" * 100_000, {"content-type": "text/html"})
+    _patch_get(monkeypatch, resp)
+
+    page = fetch_bounded("https://example.test/a", timeout=5, headers={})
+
+    assert len(page.content) == 100_000
+    assert page.truncated is False
