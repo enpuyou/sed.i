@@ -8,11 +8,11 @@ Four changes cut API memory per request by 95-98% and worker memory on large pag
 
 | What a user does | Memory added, before | Memory added, after | Reduction |
 |---|---|---|---|
-| Saves a URL, library of 100 items | 79 MB | 3 MB | 96% |
-| Saves a URL, library of 500 items | 457 MB | 9 MB | 98% |
-| Saves a URL, library of 2,000 items | 1,233 MB | 24 MB | 98% |
+| Saves a URL, library of 100 items | 79 MB | 2 MB | 98% |
+| Saves a URL, library of 500 items | 457 MB | 0 MB (noise) | ~100% |
+| Saves a URL, library of 2,000 items | 1,233 MB | 2 MB | ~100% |
 | Opens "For You" (recommended), 2,000 items | 558 MB | 14 MB | 98% |
-| Opens a list of 2,000 items | 641 MB | 34 MB | 95% |
+| Opens a list of 2,000 items (UI now loads 50 at a time) | 641 MB | 1 MB per page; 34 MB if all 2,000 are requested | 95-99% |
 | Saves a 1 MB article (worker) | 177 MB | 74 MB | 58% |
 | Saves a 5 MB article (worker) | 486 MB | 288 MB | 41% |
 | Saves a 20 MB page (worker) | 847 MB | 593 MB | 30% |
@@ -21,13 +21,13 @@ Four changes cut API memory per request by 95-98% and worker memory on large pag
 | Saves a normal 100 KB article (worker) | 7 MB | 6 MB | within noise |
 | 20 normal articles back to back (worker) | 30 MB | 17 MB | within noise (after-run range 5-29 MB) |
 
-"Memory added" is the peak process memory above its settled level before the action. Median of 2-3 repetitions per scenario (1 for the 50 MB and 100 MB cases). The "after" column is from a second full run on the final code; the first full run gave the same picture (within a few percent on the API scenarios). Per-scenario ranges are in `memprof-data/table.md`.
+"Memory added" is the peak process memory above its settled level before the action. Save-a-URL and list-paging rows come from the final code (after the URL migration and the paged list); the other "after" rows are from the earlier full run on the same fixes. Median of 2-3 repetitions per scenario (1 for the 50 MB and 100 MB cases). The "after" column is from a second full run on the final code; the first full run gave the same picture (within a few percent on the API scenarios). Per-scenario ranges are in `memprof-data/table.md`.
 
 Speed improved as a side effect, because the API no longer loads whole libraries:
 
 | Action | Time before | Time after |
 |---|---|---|
-| Save a URL, 2,000 items | 10.9 s | 0.6 s |
+| Save a URL, 2,000 items | 10.9 s | 0.2 s |
 | Open a 2,000-item list | 2.2 s | 0.2 s |
 | Open recommended, 2,000 items | 2.1 s | 0.1 s |
 
@@ -45,6 +45,8 @@ Speed improved as a side effect, because the API no longer loads whole libraries
 | Stream downloads through one bounded fetch: HTML truncated at 10 MB (the item still saves), PDFs rejected above 100 MB, non-document types rejected before download, 60 s limit | `app/core/fetch.py`, `app/tasks/extraction.py`, `app/core/config.py` |
 | Embed and store chunks 100 at a time, still all-or-nothing | `app/tasks/chunk_embeddings.py` |
 | Optional `skip` and `limit` on the list endpoint; no parameters still returns everything | `app/api/lists.py` |
+| Migration `a7d3e9c15b42` rewrites stored URLs to normalized form (duplicates soft-deleted), then the duplicate check becomes one indexed lookup with no library scan | `alembic/versions/`, `app/services/content.py` |
+| Lists page loads 50 items at a time and pages on scroll, total shown from the new `content_count` on `GET /lists/{id}` | `frontend/app/lists/[id]/page.tsx`, `frontend/hooks/`, `frontend/components/ListLoadMore.tsx` |
 
 ## Correctness: same results on normal content
 
@@ -69,7 +71,7 @@ Tests: 31 new tests; the full backend suite passes (ruff clean). The three colum
 - **PDFs.** Unchanged. Extraction costs a fixed ~635 MB for the layout model plus ~1.7 MB per page (measured to 200 pages, ~960 MB), so page-range processing would save little for typical documents. See `2026-10-24-pdf-memory-scaling.md`.
 - **Remaining worker cost on large pages.** A 5 MB page still adds about 288 MB, and a 20 MB page about 593 MB. The parsing libraries use roughly 37 times the page size; the cap bounds this at about 10 MB of page.
 - **Spread between runs.** Worker numbers varied up to about 25% between repetitions in the baseline; the API results were stable (ranges within a few percent).
-- **Not done:** the stored-URL normalization migration (the duplicate-check fallback still scans a user's rows, but now without the three heavy columns, so it costs 3-24 MB instead of 79-1,233 MB; removing it needs the migration), and frontend pagination of lists (the endpoint supports it, the UI still requests everything).
+- **Production data not checked.** The URL migration was verified on the local dev database (71 active rows, 7 to rewrite, 0 collisions) and by tests. `scripts/check_url_normalization.py` reports the same counts read-only; run it against production before deploying.
 
 ## Reproduce
 
@@ -86,3 +88,23 @@ cd content-queue-backend
 - `2026-10-24-memory-profiling-live.md`: where memory went, before any fix.
 - `2026-10-24-memory-measurements.md`: first-pass measurements (superseded where they disagree).
 - `2026-10-24-pdf-memory-scaling.md`: PDF memory against page count.
+
+## Follow-up: URL migration and list paging
+
+Measured after the first round, with the same harness (save-a-URL from `memprof-data/after_s1_no_scan.json`; the 50-item list page is scenario S3b in `memprof-data/after.json`):
+
+| Scenario | Before any fix | First round | With migration and paging |
+|---|---|---|---|
+| Save a URL, 100 items | 79 MB | 3 MB | 2 MB |
+| Save a URL, 500 items | 457 MB | 9 MB | 0 MB (within noise) |
+| Save a URL, 2,000 items | 1,233 MB | 24 MB | 2 MB |
+| List page of 50 items (2,000-item list) | n/a (all 2,000 loaded) | n/a | 1 MB |
+
+Save-a-URL memory no longer depends on library size. Negative deltas in the raw data are the process shrinking during the run, i.e. noise.
+
+Verification beyond the benchmark:
+- Migration: 8 tests (legacy rows rewritten, collisions keep the already-normalized row else the newest and soft-delete the rest, different users never collide, soft-deleted rows untouched, re-run is a no-op, the frozen normalizer equals the runtime one, a legacy URL is still a duplicate after migrating).
+- Paging: hook tests (skip equals rows loaded, no duplicates across shifted pages, retry after failure, stale response dropped, concurrent calls collapse), footer tests, API query-string tests, and a test through the real lists page (first request asks for 50, header shows the total, scrolling requests skip 50 then 100, footer disappears at the end, deleting lowers the total without a refetch, a failed page shows Retry and keeps rows).
+- Backend 786 tests and frontend 163 tests pass; ruff, tsc and eslint are clean.
+
+Behaviour notes: the "+ Add" dialog marks only the loaded rows as already in the list; adding an item that is already present is a server-side no-op, so this is cosmetic. Adding items reloads the list from the first page.
