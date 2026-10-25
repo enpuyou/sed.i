@@ -36,6 +36,18 @@ interface ListDetail {
   content_count?: number;
 }
 
+// Put a rolled-back item back where it was without touching rows loaded since.
+function reinsertItem(
+  list: ContentItemType[],
+  item: ContentItemType | undefined,
+  index: number,
+): ContentItemType[] {
+  if (!item || list.some((c) => c.id === item.id)) return list;
+  const next = [...list];
+  next.splice(Math.min(Math.max(index, 0), next.length), 0, item);
+  return next;
+}
+
 function InlineArticleView({
   article,
   onBack,
@@ -304,18 +316,20 @@ export default function ListDetailPage() {
   }, [cleanupDrag]);
 
   const handleRemoveFromList = async (contentId: string) => {
-    const previousContents = [...contents];
+    const removedIndex = contents.findIndex((c) => c.id === contentId);
+    const removedItem = contents[removedIndex];
     try {
       setRemovingId(contentId);
       await new Promise((resolve) => setTimeout(resolve, 800));
-      setContents(contents.filter((c) => c.id !== contentId));
+      // Functional updates throughout: a page may load while this awaits.
+      setContents((prev) => prev.filter((c) => c.id !== contentId));
       adjustTotal(-1);
       setRemovingId(null);
       decrementListCount(listId);
       await listsAPI.removeContent(listId, [contentId]);
     } catch (err) {
       console.error("Failed to remove from list:", err);
-      setContents(previousContents);
+      setContents((prev) => reinsertItem(prev, removedItem, removedIndex));
       adjustTotal(1);
       setRemovingId(null);
       incrementListCount(listId);
@@ -331,30 +345,35 @@ export default function ListDetailPage() {
       read_position?: number;
     },
   ) => {
-    const previousContents = [...contents];
+    const previousItem = contents.find((c) => c.id === id);
     try {
-      setContents(
-        contents.map((content) =>
+      setContents((prev) =>
+        prev.map((content) =>
           content.id === id ? { ...content, ...updates } : content,
         ),
       );
       await contentAPI.update(id, updates);
     } catch (err) {
       console.error("Failed to update content:", err);
-      setContents(previousContents);
+      setContents((prev) =>
+        prev.map((content) =>
+          content.id === id && previousItem ? previousItem : content,
+        ),
+      );
       setActionError("Couldn't update item. Try again.");
     }
   };
 
   const handleDelete = async (id: string) => {
-    const previousContents = [...contents];
+    const deletedIndex = contents.findIndex((c) => c.id === id);
+    const deletedItem = contents[deletedIndex];
     try {
-      setContents(contents.filter((content) => content.id !== id));
+      setContents((prev) => prev.filter((content) => content.id !== id));
       adjustTotal(-1);
       await contentAPI.delete(id);
     } catch (err) {
       console.error("Failed to delete content:", err);
-      setContents(previousContents);
+      setContents((prev) => reinsertItem(prev, deletedItem, deletedIndex));
       adjustTotal(1);
       setActionError("Couldn't delete item. Try again.");
     }

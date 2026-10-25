@@ -78,13 +78,16 @@ jest.mock("../../components/ContentItem", () => ({
   default: ({
     content,
     onDelete,
+    onRemoveFromList,
   }: {
     content: { id: string; title: string };
     onDelete: (id: string) => void;
+    onRemoveFromList: () => void;
   }) => (
     <div data-testid="row">
       {content.title}
       <button onClick={() => onDelete(content.id)}>del-{content.id}</button>
+      <button onClick={() => onRemoveFromList()}>rm-{content.id}</button>
     </div>
   ),
 }));
@@ -237,5 +240,53 @@ describe("lists page infinite scroll", () => {
     expect(screen.getByText(/3 items inside/)).toBeInTheDocument();
     expect(screen.queryByText(/of 3$/)).not.toBeInTheDocument();
     expect(FakeObserver.instances).toHaveLength(0);
+  });
+
+  it("a failed delete restores the row without discarding pages loaded meanwhile", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    let rejectDelete!: (e: Error) => void;
+    (contentAPI.delete as jest.Mock).mockReturnValue(
+      new Promise((_, reject) => (rejectDelete = reject)),
+    );
+    render(<ListPage />);
+    await waitFor(() => expect(screen.getAllByTestId("row")).toHaveLength(50));
+
+    fireEvent.click(screen.getByText("del-c3")); // optimistic removal, delete pending
+    await waitFor(() => expect(screen.getAllByTestId("row")).toHaveLength(49));
+    await scrollToFooter(); // next page (skip 49) lands while the delete is in flight; its first row
+    // overlaps the first page and is de-duplicated
+    await waitFor(() => expect(screen.getAllByTestId("row")).toHaveLength(98));
+
+    await act(async () => rejectDelete(new Error("nope")));
+
+    await waitFor(() => expect(screen.getAllByTestId("row")).toHaveLength(99));
+    expect(screen.getByText("Article 3")).toBeInTheDocument();
+    expect(screen.getByText("Article 98")).toBeInTheDocument();
+    expect(screen.getByText(/120 items inside/)).toBeInTheDocument();
+  });
+
+  it("removing from the list keeps pages that load during the removal delay", async () => {
+    jest.useFakeTimers();
+    try {
+      render(<ListPage />);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getAllByTestId("row")).toHaveLength(50);
+
+      fireEvent.click(screen.getByText("rm-c3")); // 800 ms delay starts
+      await scrollToFooter(); // a page loads during the delay
+      expect(screen.getAllByTestId("row")).toHaveLength(100);
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(800);
+      });
+
+      expect(screen.getAllByTestId("row")).toHaveLength(99);
+      expect(screen.queryByText("Article 3")).not.toBeInTheDocument();
+      expect(screen.getByText("Article 99")).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
