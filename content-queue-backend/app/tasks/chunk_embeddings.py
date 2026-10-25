@@ -37,6 +37,12 @@ _TARGET_TOKENS = 350
 _TARGET_WORDS = int(_TARGET_TOKENS / 0.75)  # ~467 words
 _OVERLAP_WORDS = 40
 _MIN_CHUNK_WORDS = 20  # discard tiny leftover chunks
+# Hard cap: word counts miss text with no spaces/punctuation (CJK, minified code,
+# base64), which can otherwise yield one chunk over OpenAI's 8192-token input limit.
+_MAX_CHUNK_CHARS = 4000
+# Chunks embedded and inserted per API call. Bounds peak memory; well under
+# OpenAI's 2048-inputs-per-request limit.
+_EMBED_BATCH_SIZE = 100
 
 
 def split_article_into_chunks(html: str) -> list[str]:
@@ -111,7 +117,12 @@ def split_article_into_chunks(html: str) -> list[str]:
                 else:
                     chunks.append(remainder)
 
-    return [c.strip() for c in chunks if c.strip()]
+    return [
+        c[i : i + _MAX_CHUNK_CHARS].strip()
+        for c in chunks
+        for i in range(0, len(c), _MAX_CHUNK_CHARS)
+        if c[i : i + _MAX_CHUNK_CHARS].strip()
+    ]
 
 
 def contextual_prefix(
@@ -166,33 +177,42 @@ def generate_chunk_embeddings(content_item_id: str, db: Session | None = None) -
 
         title = item.title or ""
         total = len(chunks)
-        texts_to_embed = [
-            contextual_prefix(chunk, title, i, total) for i, chunk in enumerate(chunks)
-        ]
 
-        # Batch embed all chunks in one API call
+        # Embed and stage rows in batches so only one batch of vectors is held
+        # at a time (a Python list of 1536 floats is ~49 KB, so a whole large
+        # article at once cost ~1.9 GB; OpenAI also caps inputs per request).
+        # Rows are flushed, not committed, until the last batch: the delete +
+        # replace stays atomic, so a failure mid-article leaves the old chunks.
         with braintrust_span(
             TASK_CHUNK_EMBEDDING,
             input={"content_item_id": content_item_id, "count": total},
             metadata={"user_id": str(item.user_id)},
         ):
-            result = llm_client.embed(texts_to_embed, user_id=str(item.user_id))
-        embeddings = result.embeddings
-
-        # Delete existing chunks first (idempotent)
-        db.query(ContentChunk).filter(ContentChunk.content_item_id == item.id).delete()
-
-        # Insert new chunks
-        for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
-            db.add(
-                ContentChunk(
-                    content_item_id=item.id,
-                    user_id=item.user_id,
-                    chunk_index=i,
-                    text=chunk_text,
-                    embedding=embedding,
+            db.query(ContentChunk).filter(
+                ContentChunk.content_item_id == item.id
+            ).delete()
+            for start in range(0, total, _EMBED_BATCH_SIZE):
+                batch = chunks[start : start + _EMBED_BATCH_SIZE]
+                texts_to_embed = [
+                    contextual_prefix(chunk, title, start + offset, total)
+                    for offset, chunk in enumerate(batch)
+                ]
+                result = llm_client.embed(texts_to_embed, user_id=str(item.user_id))
+                db.bulk_insert_mappings(
+                    ContentChunk,
+                    [
+                        {
+                            "content_item_id": item.id,
+                            "user_id": item.user_id,
+                            "chunk_index": start + offset,
+                            "text": chunk_text,
+                            "embedding": embedding,
+                        }
+                        for offset, (chunk_text, embedding) in enumerate(
+                            zip(batch, result.embeddings)
+                        )
+                    ],
                 )
-            )
 
         db.commit()
         logger.info(f"Generated {len(chunks)} chunks for {item.original_url}")
@@ -200,6 +220,7 @@ def generate_chunk_embeddings(content_item_id: str, db: Session | None = None) -
 
     except BudgetExceededError as e:
         logger.warning(f"Skipping chunk embeddings for {content_item_id}: {e}")
+        db.rollback()  # discard the staged delete; keep existing chunks
         return {"status": "budget_exceeded"}
 
     except Exception as e:
