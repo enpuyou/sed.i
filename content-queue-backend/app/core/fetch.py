@@ -11,7 +11,9 @@ rejected for size, so the article still ingests. PDFs are capped separately
 (FETCH_PDF_MAX_BYTES) and rejected above it. Clearly binary types (video,
 audio, image, font, archives) are not downloaded: the caller gets an empty
 body and the response headers, which is what extraction already did with their
-bytes (nothing extractable). A wall-clock cap stops slow-drip servers.
+bytes (nothing extractable). A wall-clock cap (checked every 16 KB) bounds the
+total download time while data keeps arriving; a server that stalls entirely is
+still bounded only by the per-read timeout the caller passes.
 
 Does NOT: validate the target address (SSRF), retry, or parse content.
 """
@@ -30,7 +32,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_CHUNK_BYTES = 64 * 1024
+_CHUNK_BYTES = 16 * 1024
 _SKIPPED_PREFIXES = ("video/", "audio/", "image/", "font/")
 _SKIPPED_TYPES = {
     "application/zip",
@@ -119,17 +121,21 @@ def fetch_bounded(
                 raise requests.Timeout(
                     f"Download exceeded {settings.FETCH_MAX_SECONDS}s"
                 )
-            pieces.append(piece)
-            total += len(piece)
-            if total > limit:
+            if total + len(piece) > limit:
                 if is_pdf:
                     raise FetchRejectedError(
                         f"PDF too large (over {limit // (1024 * 1024)} MB)"
                     )
+                # Keep only what fits so the cap is never exceeded in memory.
+                piece = piece[: limit - total]
                 truncated = True
+            pieces.append(piece)
+            total += len(piece)
+            if truncated:
                 break
 
-        body = b"".join(pieces)[:limit]
+        body = b"".join(pieces)
+        pieces.clear()
         if truncated:
             logger.warning(f"Truncated {url} at {limit} bytes")
         return FetchedPage(

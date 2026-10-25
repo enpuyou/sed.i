@@ -6,10 +6,13 @@ the O(library) fallback scan in find_existing_active_item can be removed.
 
 Rows saved before normalization was consistent (trailing slash, #fragment,
 tracking params, mixed-case host) are rewritten in place. If two active rows of
-one user normalize to the same URL, the already-normalized row wins (else the
-most recently created, matching 5534fbac2811) and the others are soft-deleted
+one user normalize to the same URL, one wins and the others are soft-deleted
 (deleted_at set, recoverable) before the rewrite so the partial unique index
-uq_content_items_user_url_active is never violated.
+uq_content_items_user_url_active is never violated. The winner is the row that
+has highlights, then the already-normalized one, then the most recently created
+(5534fbac2811 also kept the newest). The winner inherits the losers' list
+memberships; a loser's highlights stay attached to its soft-deleted row and are
+logged by id (rows are never hard-deleted).
 
 The normalization below is a frozen copy of app.services.content.normalize_url
 as of this revision: a migration must not change behaviour when that function
@@ -110,17 +113,58 @@ def normalize_active_urls(conn) -> dict:
     for row in rows:
         groups[(row.user_id, _normalize_url(row.original_url))].append(row)
 
+    colliding_ids = [
+        m.id for members in groups.values() if len(members) > 1 for m in members
+    ]
+    highlight_counts: dict = {}
+    if colliding_ids:
+        highlight_counts = dict(
+            conn.execute(
+                sa.text(
+                    "SELECT content_item_id, count(*) FROM highlights "
+                    "WHERE content_item_id = ANY(:ids) GROUP BY content_item_id"
+                ),
+                {"ids": colliding_ids},
+            ).fetchall()
+        )
+
     rewrites: list[dict] = []
     losers: list = []
+    carry_memberships: list[dict] = []
     for (_, normalized), members in groups.items():
-        winner = next(
-            (m for m in members if m.original_url == normalized),
-            max(members, key=lambda m: m.created_at),
+        winner = max(
+            members,
+            key=lambda m: (
+                highlight_counts.get(m.id, 0) > 0,
+                m.original_url == normalized,
+                m.created_at,
+            ),
         )
-        losers.extend(m.id for m in members if m.id != winner.id)
+        for member in members:
+            if member.id == winner.id:
+                continue
+            losers.append(member.id)
+            carry_memberships.append({"loser": member.id, "winner": winner.id})
+            if highlight_counts.get(member.id):
+                logger.warning(
+                    f"normalize_stored_content_urls: soft-deleted item {member.id} "
+                    f"has {highlight_counts[member.id]} highlight(s); kept item is "
+                    f"{winner.id}"
+                )
         if winner.original_url != normalized:
             rewrites.append({"id": winner.id, "url": normalized})
 
+    for i in range(0, len(carry_memberships), _BATCH):
+        conn.execute(
+            sa.text(
+                "INSERT INTO content_list_membership "
+                "(content_item_id, list_id, added_at, added_by) "
+                "SELECT :winner, list_id, added_at, added_by "
+                "FROM content_list_membership WHERE content_item_id = :loser "
+                "ON CONFLICT DO NOTHING"
+            ),
+            carry_memberships[i : i + _BATCH],
+        )
     for i in range(0, len(losers), _BATCH):
         conn.execute(
             sa.text("UPDATE content_items SET deleted_at = now() WHERE id = ANY(:ids)"),

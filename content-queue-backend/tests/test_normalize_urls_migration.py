@@ -190,3 +190,101 @@ def test_legacy_url_is_still_a_duplicate_after_migrating(
     detail = json.loads(response.json()["detail"])
     assert detail["existing_id"] == str(legacy.id)
     mock_extract.delay.assert_not_called()
+
+
+def _highlight(db, user, item, text="a highlighted passage"):
+    from app.models.highlight import Highlight
+
+    row = Highlight(
+        user_id=user.id,
+        content_item_id=item.id,
+        text=text,
+        start_offset=0,
+        end_offset=len(text),
+    )
+    db.add(row)
+    db.commit()
+    return row
+
+
+def test_collision_keeps_the_row_that_has_highlights(migration, db_session, test_user):
+    now = datetime.now(timezone.utc)
+    highlighted = _item(
+        db_session,
+        test_user,
+        "https://example.com/g/",
+        created_at=now - timedelta(days=5),
+    )
+    _highlight(db_session, test_user, highlighted)
+    clean_newer = _item(db_session, test_user, "https://example.com/g", created_at=now)
+
+    _run(migration, db_session)
+
+    assert db_session.get(ContentItem, clean_newer.id).deleted_at is not None
+    survivor = db_session.get(ContentItem, highlighted.id)
+    assert survivor.deleted_at is None
+    assert survivor.original_url == "https://example.com/g"
+
+
+def test_winner_inherits_list_memberships_of_the_loser(
+    migration, db_session, test_user
+):
+    from app.models.list import List, content_list_membership
+
+    now = datetime.now(timezone.utc)
+    winner = _item(db_session, test_user, "https://example.com/h", created_at=now)
+    loser = _item(
+        db_session,
+        test_user,
+        "https://example.com/h/",
+        created_at=now - timedelta(days=1),
+    )
+    reading = List(name="Reading", owner_id=test_user.id)
+    db_session.add(reading)
+    db_session.commit()
+    db_session.refresh(reading)
+    db_session.execute(
+        content_list_membership.insert().values(
+            content_item_id=loser.id, list_id=reading.id, added_by=test_user.id
+        )
+    )
+    db_session.commit()
+
+    _run(migration, db_session)
+
+    members = db_session.execute(
+        content_list_membership.select().where(
+            content_list_membership.c.list_id == reading.id
+        )
+    ).fetchall()
+    assert winner.id in {m.content_item_id for m in members}
+    assert db_session.get(ContentItem, loser.id).deleted_at is not None
+
+
+def test_losing_row_with_highlights_is_logged_not_lost(
+    migration, db_session, test_user, caplog
+):
+    import logging
+
+    now = datetime.now(timezone.utc)
+    first = _item(db_session, test_user, "https://example.com/i", created_at=now)
+    second = _item(
+        db_session,
+        test_user,
+        "https://example.com/i/",
+        created_at=now - timedelta(days=1),
+    )
+    _highlight(db_session, test_user, first)
+    _highlight(db_session, test_user, second, text="another passage")
+
+    with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+        _run(migration, db_session)
+
+    loser = next(
+        i for i in (first, second) if db_session.get(ContentItem, i.id).deleted_at
+    )
+    assert str(loser.id) in caplog.text
+    # The loser's highlight row still exists (soft delete only).
+    from app.models.highlight import Highlight
+
+    assert db_session.query(Highlight).filter_by(content_item_id=loser.id).count() == 1
