@@ -1,0 +1,773 @@
+{
+  "label": "after",
+  "commit": "working-tree (HEAD 8ffca01 + uncommitted changes)",
+  "source_hash": "6ce58e3c9d37c9cd",
+  "source_files_hashed": 153,
+  "backend_dir": "<repo>/content-queue-backend",
+  "timestamp": "2026-10-25T22:52:24.976707+00:00",
+  "host": {
+    "platform": "macOS-26.4.1-arm64-arm-64bit",
+    "macos": "26.4.1",
+    "machine": "arm64",
+    "cpu": "Apple M5",
+    "ncpu": 10,
+    "ram_gb": 24.0,
+    "python": "3.11.12",
+    "python_executable": "<repo>/content-queue-backend/.venv/bin/python",
+    "postgres": "PostgreSQL 16.11 (Debian 16.11-1.pgdg12+1) on x86_64-pc-linux-gnu",
+    "redis": "7.4.11"
+  },
+  "metric_definitions": {
+    "baseline_rss_mb": "psutil RSS of the target process (parent only), median of the 2 s before the scenario starts (after settle).",
+    "peak_rss_mb": "max psutil RSS of the target process over the scenario plus the 30 s settle window, sampled at 20 Hz.",
+    "peak_delta_mb": "peak_rss_mb - baseline_rss_mb (headline metric).",
+    "peak_children_rss_mb": "max summed RSS of child processes (e.g. YOLO subprocess, celery beat child).",
+    "peak_total_rss_mb": "max of parent RSS + children RSS at one instant (the value the 6 GB watchdog compares).",
+    "baseline_footprint_mb / peak_footprint_mb / settled_footprint_mb": "macOS phys_footprint from /usr/bin/footprint <pid> at ~1 Hz (includes compressed pages; RSS under-reports idle processes on macOS). settled = last sample 30 s after the scenario finished (API: after the last request; worker: after the pipeline drained).",
+    "settled_footprint_delta_mb": "settled_footprint_mb - baseline_footprint_mb (memory retained after the work).",
+    "settled_rss_mb": "median RSS over the last 3 s of the settle window (affected by the macOS memory compressor).",
+    "wall_s": "API scenarios: duration of the HTTP calls. Worker scenarios: first POST /content to the moment the pipeline is drained (items terminal, broker queue + unacked empty, worker CPU < 5 %), excluding the 10 s quiet-confirmation window.",
+    "killed_at_mb": "set if the 6 GB watchdog killed the process (a result, not a failure).",
+    "worker baseline": "worker scenarios first process one unmeasured 100KB article (warm-up: first-use imports), wait for drain + 10 s, then take the baseline."
+  },
+  "settings": {
+    "settle_s": 30,
+    "sample_hz": 20,
+    "watchdog_mb": 6000,
+    "api_port": 8010,
+    "database": "memprof_after",
+    "redis": "redis://localhost:6379/15",
+    "scenarios_selected": [
+      "S1"
+    ]
+  },
+  "scenarios": {
+    "S1_ingest_n100": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.063
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.017
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.018
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.019
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.072
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 178.3,
+          "baseline_footprint_mb": 144.0,
+          "peak_rss_mb": 180.1,
+          "peak_delta_mb": 1.8,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 180.1,
+          "peak_footprint_mb": 146.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 2.0,
+          "settled_rss_mb": 171.0,
+          "work_s": 0.21,
+          "killed_at_mb": null,
+          "wall_s": 0.21,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n100_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.087
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.025
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.019
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.017
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.08
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 178.1,
+          "baseline_footprint_mb": 144.0,
+          "peak_rss_mb": 179.8,
+          "peak_delta_mb": 1.8,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 179.8,
+          "peak_footprint_mb": 146.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 2.0,
+          "settled_rss_mb": 91.8,
+          "work_s": 0.26,
+          "killed_at_mb": null,
+          "wall_s": 0.26,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n100_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.097
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.022
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.021
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.02
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.093
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 176.3,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 173.3,
+          "peak_delta_mb": -3.0,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 173.3,
+          "peak_footprint_mb": 146.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 1.0,
+          "settled_rss_mb": 31.7,
+          "work_s": 0.27,
+          "killed_at_mb": null,
+          "wall_s": 0.27,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n100_rep2.csv"
+        }
+      ],
+      "notes": "5 sequential POST /content (new local URLs); API process memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 1.8,
+          "min": -3.0,
+          "max": 1.8,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 179.8,
+          "min": 173.3,
+          "max": 180.1,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 146.0,
+          "min": 146.0,
+          "max": 146.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 146.0,
+          "min": 146.0,
+          "max": 146.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 2.0,
+          "min": 1.0,
+          "max": 2.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 91.8,
+          "min": 31.7,
+          "max": 171.0,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 178.1,
+          "min": 176.3,
+          "max": 178.3,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 144.0,
+          "min": 144.0,
+          "max": 145.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 0.26,
+          "min": 0.21,
+          "max": 0.27,
+          "n": 3
+        }
+      }
+    },
+    "S1_ingest_n500": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.099
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.024
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.025
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.027
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.091
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.4,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 173.0,
+          "peak_delta_mb": -6.4,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 173.0,
+          "peak_footprint_mb": 147.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 1.0,
+          "settled_rss_mb": 32.0,
+          "work_s": 0.29,
+          "killed_at_mb": null,
+          "wall_s": 0.29,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n500_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.097
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.02
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.018
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.026
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.091
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.4,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 176.8,
+          "peak_delta_mb": -2.6,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 176.8,
+          "peak_footprint_mb": 147.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 1.0,
+          "settled_rss_mb": 172.2,
+          "work_s": 0.28,
+          "killed_at_mb": null,
+          "wall_s": 0.28,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n500_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.091
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.019
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.021
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.02
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.083
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.3,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 181.1,
+          "peak_delta_mb": 1.8,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 181.1,
+          "peak_footprint_mb": 147.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 1.0,
+          "settled_rss_mb": 168.5,
+          "work_s": 0.25,
+          "killed_at_mb": null,
+          "wall_s": 0.25,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n500_rep2.csv"
+        }
+      ],
+      "notes": "5 sequential POST /content (new local URLs); API process memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": -2.6,
+          "min": -6.4,
+          "max": 1.8,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 176.8,
+          "min": 173.0,
+          "max": 181.1,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 147.0,
+          "min": 147.0,
+          "max": 147.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 146.0,
+          "min": 146.0,
+          "max": 146.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 168.5,
+          "min": 32.0,
+          "max": 172.2,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 179.4,
+          "min": 179.3,
+          "max": 179.4,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 145.0,
+          "min": 145.0,
+          "max": 145.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 0.28,
+          "min": 0.25,
+          "max": 0.29,
+          "n": 3
+        }
+      }
+    },
+    "S1_ingest_n2000": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.081
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.02
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.02
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.021
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.078
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.5,
+          "baseline_footprint_mb": 144.0,
+          "peak_rss_mb": 181.2,
+          "peak_delta_mb": 1.7,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 181.2,
+          "peak_footprint_mb": 146.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 2.0,
+          "settled_rss_mb": 168.9,
+          "work_s": 0.24,
+          "killed_at_mb": null,
+          "wall_s": 0.24,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n2000_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.077
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.017
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.023
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.019
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.066
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 178.2,
+          "baseline_footprint_mb": 144.0,
+          "peak_rss_mb": 179.9,
+          "peak_delta_mb": 1.7,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 179.9,
+          "peak_footprint_mb": 146.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 2.0,
+          "settled_rss_mb": 120.7,
+          "work_s": 0.22,
+          "killed_at_mb": null,
+          "wall_s": 0.22,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n2000_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.089
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.02
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.02
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.024
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 0.098
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.4,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 181.2,
+          "peak_delta_mb": 1.8,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 181.2,
+          "peak_footprint_mb": 147.0,
+          "settled_footprint_mb": 146.0,
+          "settled_footprint_delta_mb": 1.0,
+          "settled_rss_mb": 168.1,
+          "work_s": 0.27,
+          "killed_at_mb": null,
+          "wall_s": 0.27,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "after_s1_no_scan/S1_ingest_n2000_rep2.csv"
+        }
+      ],
+      "notes": "5 sequential POST /content (new local URLs); API process memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 1.7,
+          "min": 1.7,
+          "max": 1.8,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 181.2,
+          "min": 179.9,
+          "max": 181.2,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 146.0,
+          "min": 146.0,
+          "max": 147.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 146.0,
+          "min": 146.0,
+          "max": 146.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 2.0,
+          "min": 1.0,
+          "max": 2.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 168.1,
+          "min": 120.7,
+          "max": 168.9,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 179.4,
+          "min": 178.2,
+          "max": 179.5,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 144.0,
+          "min": 144.0,
+          "max": 145.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 0.24,
+          "min": 0.22,
+          "max": 0.27,
+          "n": 3
+        }
+      }
+    }
+  },
+  "app_file": "<repo>/content-queue-backend/app/__init__.py",
+  "seed": {
+    "u100": {
+      "user_id": "49524987-d63f-470d-a3d2-99e3c4b0a6a2",
+      "items": 100,
+      "rows": 100,
+      "with_embedding": 100,
+      "with_search_vector": 100,
+      "full_text_mb": 4.042935,
+      "avg_search_vector_bytes": 51866.4
+    },
+    "u500": {
+      "user_id": "eb7875ba-fe27-4eaf-b4a5-03c5617bdc98",
+      "items": 500,
+      "rows": 500,
+      "with_embedding": 500,
+      "with_search_vector": 500,
+      "full_text_mb": 20.222347,
+      "avg_search_vector_bytes": 52036.644
+    },
+    "u2000": {
+      "user_id": "a387ed8a-fca4-4fda-acdc-ba1915e7502c",
+      "items": 2000,
+      "list_id": "e7bae1df-aade-4838-94b7-9a41c9606d47",
+      "rows": 2000,
+      "with_embedding": 2000,
+      "with_search_vector": 2000,
+      "full_text_mb": 80.91424,
+      "avg_search_vector_bytes": 52043.491
+    },
+    "uw": {
+      "user_id": "4ad2c649-0a4d-4a2d-87d6-a442bbb2c35a",
+      "items": 0
+    }
+  },
+  "total_runtime_s": 389.0,
+  "cleanup": "scratch db dropped, redis db15 flushed, processes stopped"
+}

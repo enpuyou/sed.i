@@ -62,6 +62,10 @@ Browser / Extension
 - Backend enforces auth and data ownership.
 - Workers handle slow/failable work (URL fetching, LLM calls).
 
+### Production flags (2026-10-25)
+
+`PREFECT_ENABLED=false` on the worker and API, and the `prefect` service is stopped (its definition is kept; `railway redeploy --service prefect` restores it). Ingestion runs the Celery chain in §9. The worker also sets `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0` so the old container stops as the new one starts (the previous overlap showed up as an 840 MB peak and let two embedded beat schedulers run at once); the API keeps the default overlap for zero-downtime deploys. Details and production memory baseline: `docs/audits/2026-10-24-memory-fix-results.md`.
+
 ### Deploy sequencing
 
 Config: `content-queue-backend/nixpacks.toml` (build + start), `railway.json`
@@ -407,10 +411,10 @@ runs) so the item is flagged as limited without waiting for the Celery task.
 |--------|------|-------------|
 | POST | `/lists` | Create list. |
 | GET | `/lists` | All lists with content counts. |
-| GET | `/lists/{id}` | List details. |
+| GET | `/lists/{id}` | List details, including `content_count` (non-deleted items; the lists page uses it as the total while it pages the items). |
 | PATCH | `/lists/{id}` | Update name/description/share. |
 | DELETE | `/lists/{id}` | Soft delete list. |
-| GET | `/lists/{id}/content` | Items in list (excludes soft-deleted items). |
+| GET | `/lists/{id}/content` | Items in list, newest first (excludes soft-deleted items). Optional `skip` and `limit` (1–500); with neither it returns every item, so older clients are unchanged. The lists page requests 50 at a time. |
 | POST | `/lists/{id}/content` | Add content item to list. |
 | DELETE | `/lists/{id}/content` | Remove content item from list. |
 
@@ -569,6 +573,16 @@ POST /content (201, processing_status='completed' immediately)
 | `consolidate_all_users_task` | `tasks/memory.py` | Nightly beat fan-out — queries users with at least `_MIN_ACTIVITY_ITEMS` (3) qualifying items (saved + read + highlights) since their last consolidation, and dispatches `consolidate_memory_task` for each. Fixed 2026-09-25: previously dispatched on any existence of new activity (even 1 item), relying on `consolidate_memory`'s own threshold check inside the dispatched task to skip low-activity users — every user with a trickle of activity got a Celery task and DB round-trip nightly regardless. Counting here instead avoids that dispatch overhead for the common case; the two thresholds share the same constant so they can't drift apart. Guarded by a Redis lock (`app/core/task_locks.py`, TTL 20h) so a still-draining previous night's run can't overlap with the next nightly firing. |
 
 **Known gap, not yet fixed**: `time_limit`/`soft_time_limit` (task-level and the global 30-min default) are dead configuration under `--pool=solo` (production's actual pool) — confirmed via live-fire chaos testing, `solo.py`'s `apply_target()` has no timer mechanism to enforce either. A hung task blocks the single worker process (and beat, which shares the process under solo) indefinitely. Fix requires an infra/deploy change (switch pool type or add an external watchdog), not an app code change — deliberately out of scope for the code-level fixes above. See `docs/retros/2026-07-28-failure-injection-plan.md` and `docs/changelog/2026-07-28-failure-injection-fixes.md`.
+
+### Memory bounds (2026-10-24)
+
+Measured in `docs/audits/2026-10-24-memory-profiling-live.md`; before/after in `docs/audits/2026-10-24-memory-fix-results.md`. Four bounds keep per-request and per-task memory proportional to a fixed budget instead of to library size or page size:
+
+- **Deferred heavy columns.** `app/services/content.py::defer_heavy_columns()` skips `full_text`, `embedding` and `search_vector` (~280 KB per row) in queries that load a whole library: `GET /content/recommended` and `GET /lists/{id}/content`, and the duplicate lookup. Deferred columns still lazy-load if touched.
+- **One-query duplicate check.** `find_existing_active_item` is a single indexed exact match on the normalized URL; the previous fallback that normalized every stored URL in Python (an O(library) scan) is gone. That is only correct because stored URLs are normalized: `ingest_url`, the MCP save and the onboarding seed write normalized URLs, no endpoint updates `original_url`, and migration `a7d3e9c15b42` rewrote older rows (a collision keeps the row with highlights, then the already-normalized one, then the newest; the winner inherits the losers' list memberships and the others are soft-deleted, with any highlighted loser logged by id). `scripts/check_url_normalization.py` is a read-only report of how many rows the migration will rewrite or collapse; run it against production before deploying.
+- **Bounded fetch.** `app/core/fetch.py::fetch_bounded()` is the only place extraction downloads a user URL. It streams the body: HTML is truncated at `FETCH_HTML_MAX_BYTES` (10 MB, the item still ingests; `processing_error` says the page was truncated, shown as a partial extraction), PDFs are rejected above `FETCH_PDF_MAX_BYTES` (100 MB), clearly binary content types (video, audio, image, font, archives) are not downloaded (the caller gets an empty body plus headers, so the item ends exactly as before: completed with "Could not extract article text"), and `FETCH_MAX_SECONDS` (60) bounds total download time (checked every 16 KB, so it applies while data keeps arriving; a server that stalls completely is bounded only by the per-read timeout). `FetchRejectedError` (oversized PDF only) subclasses `requests.RequestException` so existing handlers catch it.
+- **Batched chunk embedding.** `generate_chunk_embeddings` embeds and stages `_EMBED_BATCH_SIZE` (100) chunks at a time with `bulk_insert_mappings`; the delete-and-replace is still one transaction (a failure or budget stop mid-article rolls back and keeps the old chunks).
+- **Optional list pagination.** `GET /lists/{id}/content` accepts `skip` and `limit` (1–500); with no parameters it returns every item as before, so existing clients are unchanged.
 
 ### Memory profile system
 
@@ -972,6 +986,8 @@ Environment variable driven — all default to `true` unless explicitly disabled
 | Hook | Purpose |
 |------|---------|
 | `useTagEditor` | Encapsulates tag state, available-tag loading, add/remove with optimistic updates, and inline error for `ContentItem` and `ContentCard`. Accepts `explicitTag` param on `handleAddTag` so suggestion dropdowns bypass state-sync issues. |
+| `usePagedListContent` | Items of one list loaded a page at a time (`LIST_PAGE_SIZE` 50). The caller supplies the first page via `reset(items, total)`; `loadMore()` appends the next with `skip` = rows loaded, de-duplicates rows that shifted between pages, collapses concurrent calls into one request, drops a response that arrives after `reset()`, and ends paging on a short page. Failed pages keep loaded rows and expose a retryable error. `adjustTotal(delta)` follows local removals. Used by `lists/[id]/page.tsx`. |
+| `useInfiniteSentinel` | Calls a callback when a sentinel element scrolls into view (IntersectionObserver, 400px margin). Takes a scroll-container `root` (the writing split-pane list scrolls inside its own container) and a `rearmKey` so a sentinel still on screen after new rows fires again. Reports `supported: false` where IntersectionObserver is missing; `ListLoadMore` then renders a Load more button. |
 | `useConfirmAction` | Generic arm-then-trigger delete confirmation. Returns `{ armed, arm, cancel, trigger, toggle }`. All methods are stable (`useCallback`). `toggle()` arms on first call, triggers on second. |
 
 ---

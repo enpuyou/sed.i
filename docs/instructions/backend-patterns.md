@@ -64,6 +64,21 @@ fetches inside a loop.
 
 ---
 
+## Memory bounds — queries and downloads
+
+- A query that loads many `ContentItem` rows (a whole library or list) adds
+  `.options(*defer_heavy_columns())` from `app/services/content.py`: `full_text`,
+  `embedding` and `search_vector` are ~280 KB per row and cost hundreds of MB at 2,000 items.
+  Use `load_only(...)` when only a few columns are read. Endpoints that return every row
+  of something growing take optional `skip`/`limit`.
+- Duplicate detection is one exact lookup on the normalized URL. New code that writes
+  `ContentItem.original_url` must store `normalize_url(url)` (use `ingest_url`).
+- Every download of a user-supplied URL goes through `app/core/fetch.py::fetch_bounded`,
+  never a bare `requests.get`: it caps bytes (HTML truncated, PDFs rejected over the limit),
+  skips binary bodies and bounds time. Do not read `resp.content` from an unbounded response.
+- Anything that embeds many texts does it in batches (`_EMBED_BATCH_SIZE`), not one call.
+- Measure before and after with `scripts/memprof` (README there).
+
 ## Celery tasks
 
 - Always use `.delay(item_id)` — pass only serializable primitives (IDs, not ORM objects).

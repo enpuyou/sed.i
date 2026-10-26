@@ -29,6 +29,12 @@ from app.models.content import ContentItem
 class TestSplitArticleIntoChunks:
     """split_article_into_chunks splits HTML at structural boundaries."""
 
+    def test_unbroken_text_is_hard_capped(self):
+        """Text with no spaces/punctuation (e.g. CJK) must not yield an oversized chunk."""
+        chunks = split_article_into_chunks("<p>" + "字" * 20000 + "</p>")
+        assert len(chunks) > 1
+        assert all(len(c) <= 4000 for c in chunks)
+
     def test_single_short_article_produces_one_chunk(self):
         """An article shorter than target size stays as one chunk."""
         html = "<p>Short article about context engineering.</p>"
@@ -269,3 +275,179 @@ class TestProcessAllMissingChunksLock:
         assert result["status"] == "completed"
         assert result["dispatched"] == 1
         mock_delay.assert_called_once_with(fake_id)
+
+
+# ---------------------------------------------------------------------------
+# Batched embedding: bounded memory, atomic replace preserved
+# ---------------------------------------------------------------------------
+
+from app.core.llm_client import EmbedResult  # noqa: E402
+from app.models.chunk import ContentChunk  # noqa: E402
+from app.tasks.chunk_embeddings import generate_chunk_embeddings  # noqa: E402
+
+
+def _long_article(sections: int) -> str:
+    para = "Context engineering structures information for model consumption. " * 40
+    return "".join(f"<h2>Section {i}</h2><p>{para}</p>" for i in range(sections))
+
+
+def _make_article(db, user, sections=6):
+    item = ContentItem(
+        user_id=user.id,
+        title="Batched Article",
+        original_url="https://example.com/batched",
+        full_text=_long_article(sections),
+        processing_status="completed",
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def _fake_embed(calls):
+    def embed(texts, **kwargs):
+        calls.append(list(texts))
+        return EmbedResult(
+            embeddings=[[0.2] * 1536 for _ in texts],
+            model="text-embedding-3-small",
+            prompt_tokens=10,
+        )
+
+    return embed
+
+
+class TestBatchedChunkEmbedding:
+    def test_embeds_in_bounded_batches_and_stores_every_chunk(
+        self, db_session, test_user
+    ):
+        item = _make_article(db_session, test_user)
+        calls: list[list[str]] = []
+
+        with (
+            patch("app.tasks.chunk_embeddings._EMBED_BATCH_SIZE", 2),
+            patch(
+                "app.core.llm_client.llm_client.embed", side_effect=_fake_embed(calls)
+            ),
+        ):
+            result = generate_chunk_embeddings(str(item.id), db=db_session)
+
+        total = result["chunk_count"]
+        assert result["status"] == "completed"
+        assert total > 2, "fixture must produce more chunks than one batch"
+        assert len(calls) == -(-total // 2)
+        assert all(len(c) <= 2 for c in calls)
+        assert sum(len(c) for c in calls) == total
+
+        rows = (
+            db_session.query(ContentChunk)
+            .filter(ContentChunk.content_item_id == item.id)
+            .order_by(ContentChunk.chunk_index)
+            .all()
+        )
+        assert [r.chunk_index for r in rows] == list(range(total))
+        assert all(len(r.embedding) == 1536 for r in rows)
+
+    def test_prefix_uses_global_chunk_position_across_batches(
+        self, db_session, test_user
+    ):
+        item = _make_article(db_session, test_user)
+        calls: list[list[str]] = []
+
+        with (
+            patch("app.tasks.chunk_embeddings._EMBED_BATCH_SIZE", 2),
+            patch(
+                "app.core.llm_client.llm_client.embed", side_effect=_fake_embed(calls)
+            ),
+        ):
+            result = generate_chunk_embeddings(str(item.id), db=db_session)
+
+        total = result["chunk_count"]
+        assert f"(section 3 of {total})" in calls[1][0]
+
+    def test_failure_mid_article_keeps_previous_chunks(self, db_session, test_user):
+        item = _make_article(db_session, test_user)
+        with (
+            patch("app.tasks.chunk_embeddings._EMBED_BATCH_SIZE", 2),
+            patch("app.core.llm_client.llm_client.embed", side_effect=_fake_embed([])),
+        ):
+            generate_chunk_embeddings(str(item.id), db=db_session)
+        before = sorted(
+            (c.chunk_index, c.text)
+            for c in db_session.query(ContentChunk).filter_by(content_item_id=item.id)
+        )
+
+        state = {"n": 0}
+
+        def flaky(texts, **kwargs):
+            state["n"] += 1
+            if state["n"] == 2:
+                raise RuntimeError("provider down")
+            return EmbedResult(
+                embeddings=[[0.3] * 1536 for _ in texts],
+                model="text-embedding-3-small",
+                prompt_tokens=10,
+            )
+
+        with (
+            patch("app.tasks.chunk_embeddings._EMBED_BATCH_SIZE", 2),
+            patch("app.core.llm_client.llm_client.embed", side_effect=flaky),
+        ):
+            result = generate_chunk_embeddings(str(item.id), db=db_session)
+
+        after = sorted(
+            (c.chunk_index, c.text)
+            for c in db_session.query(ContentChunk).filter_by(content_item_id=item.id)
+        )
+        assert result["status"] == "failed"
+        assert after == before
+
+    def test_budget_exceeded_keeps_previous_chunks(self, db_session, test_user):
+        from app.core.llm_client import BudgetExceededError
+
+        item = _make_article(db_session, test_user)
+        with patch("app.core.llm_client.llm_client.embed", side_effect=_fake_embed([])):
+            generate_chunk_embeddings(str(item.id), db=db_session)
+        before = (
+            db_session.query(ContentChunk).filter_by(content_item_id=item.id).count()
+        )
+
+        with patch(
+            "app.core.llm_client.llm_client.embed", side_effect=BudgetExceededError("x")
+        ):
+            result = generate_chunk_embeddings(str(item.id), db=db_session)
+
+        after = (
+            db_session.query(ContentChunk).filter_by(content_item_id=item.id).count()
+        )
+        assert result["status"] == "budget_exceeded"
+        assert before > 0 and after == before
+
+
+class TestEmbeddingCountMismatch:
+    def test_short_embedding_response_fails_and_keeps_previous_chunks(
+        self, db_session, test_user
+    ):
+        item = _make_article(db_session, test_user)
+        with patch("app.core.llm_client.llm_client.embed", side_effect=_fake_embed([])):
+            generate_chunk_embeddings(str(item.id), db=db_session)
+        before = (
+            db_session.query(ContentChunk).filter_by(content_item_id=item.id).count()
+        )
+
+        def short(texts, **kwargs):
+            return EmbedResult(
+                embeddings=[[0.1] * 1536 for _ in texts[:-1]],
+                model="text-embedding-3-small",
+                prompt_tokens=10,
+            )
+
+        with patch("app.core.llm_client.llm_client.embed", side_effect=short):
+            result = generate_chunk_embeddings(str(item.id), db=db_session)
+
+        after = (
+            db_session.query(ContentChunk).filter_by(content_item_id=item.id).count()
+        )
+        assert result["status"] == "failed"
+        assert "mismatch" in result["error"]
+        assert before > 0 and after == before

@@ -176,6 +176,61 @@ class TestGetLists:
 class TestGetList:
     """Tests for GET /lists/{list_id} - Getting specific list"""
 
+    def test_get_list_includes_content_count_excluding_deleted(
+        self, client, auth_headers, test_user, db_session
+    ):
+        """The list detail carries the total item count (the UI pages the
+        items, so it cannot count them itself); soft-deleted items excluded."""
+        from datetime import datetime, timezone
+
+        from app.models.content import ContentItem
+        from app.models.list import List, content_list_membership
+
+        test_list = List(name="Counted", owner_id=test_user.id)
+        db_session.add(test_list)
+        db_session.commit()
+        db_session.refresh(test_list)
+        for i in range(3):
+            item = ContentItem(
+                user_id=test_user.id,
+                original_url=f"https://example.com/count-{i}",
+                deleted_at=datetime.now(timezone.utc) if i == 2 else None,
+            )
+            db_session.add(item)
+            db_session.commit()
+            db_session.refresh(item)
+            db_session.execute(
+                content_list_membership.insert().values(
+                    content_item_id=item.id,
+                    list_id=test_list.id,
+                    added_by=test_user.id,
+                )
+            )
+        db_session.commit()
+
+        response = client.get(f"/lists/{test_list.id}", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["content_count"] == 2
+        # Existing fields unchanged.
+        assert data["name"] == "Counted"
+        assert {"id", "owner_id", "is_shared", "created_at", "updated_at"} <= set(data)
+
+    def test_get_list_content_count_zero_for_empty_list(
+        self, client, auth_headers, test_user, db_session
+    ):
+        from app.models.list import List
+
+        test_list = List(name="Empty", owner_id=test_user.id)
+        db_session.add(test_list)
+        db_session.commit()
+        db_session.refresh(test_list)
+
+        response = client.get(f"/lists/{test_list.id}", headers=auth_headers)
+
+        assert response.json()["content_count"] == 0
+
     def test_get_list_success(self, client, auth_headers, test_user, db_session):
         """
         Test getting a specific list's details.

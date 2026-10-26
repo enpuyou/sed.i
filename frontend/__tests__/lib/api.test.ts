@@ -9,7 +9,7 @@
  * aren't testable from JS by design (that's the point of httpOnly).
  */
 
-import api from "../../lib/api";
+import api, { listsAPI } from "../../lib/api";
 
 const originalFetch = global.fetch;
 
@@ -145,5 +145,40 @@ describe("fetchWithAuth 401 handling", () => {
       (c) => typeof c[0] === "string" && c[0].includes("/content"),
     );
     expect(contentCalls.length).toBe(1);
+  });
+});
+
+describe("listsAPI.getContent paging", () => {
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  const calledUrl = () =>
+    (global.fetch as jest.Mock).mock.calls[0][0] as string;
+
+  it("requests every item (no query string) when called without options", async () => {
+    await listsAPI.getContent("list-1");
+
+    expect(calledUrl()).toMatch(/\/lists\/list-1\/content$/);
+  });
+
+  it("adds skip and limit when given", async () => {
+    await listsAPI.getContent("list-1", { skip: 50, limit: 50 });
+
+    expect(calledUrl()).toMatch(/\/lists\/list-1\/content\?skip=50&limit=50$/);
+  });
+
+  it("omits skip when it is 0", async () => {
+    await listsAPI.getContent("list-1", { skip: 0, limit: 50 });
+
+    expect(calledUrl()).toMatch(/\/lists\/list-1\/content\?limit=50$/);
   });
 });

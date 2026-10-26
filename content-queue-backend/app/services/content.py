@@ -15,7 +15,7 @@ from __future__ import annotations
 from urllib.parse import urlparse, parse_qs, urlencode
 from uuid import UUID
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models.content import ContentItem
 from app.models.user import User
@@ -104,6 +104,21 @@ def normalize_url(url: str) -> str:
     return normalized.geturl()
 
 
+def defer_heavy_columns():
+    """Query options that skip the three large per-row columns.
+
+    full_text, embedding and search_vector are ~280 KB of a typical row; an
+    ORM query that materializes every row of a library with them costs
+    hundreds of MB. Deferred columns still load on access, one query per row,
+    so a caller that unexpectedly touches one stays correct.
+    """
+    return (
+        defer(ContentItem.full_text),
+        defer(ContentItem.embedding),
+        defer(ContentItem.search_vector),
+    )
+
+
 def find_existing_active_item(
     *,
     db: Session,
@@ -112,12 +127,13 @@ def find_existing_active_item(
 ) -> ContentItem | None:
     """Find an active duplicate by normalized URL.
 
-    Primary lookup uses the indexed exact match on `original_url`.
-    Fallback scans active items and normalizes each stored URL to catch legacy
-    rows created before URL normalization was consistently applied.
+    Stored URLs are normalized (ingest_url, the MCP save, and migration
+    a7d3e9c15b42 for rows saved before normalization was consistent), so this
+    is one indexed exact lookup; nothing scans the user's library.
     """
-    existing = (
+    return (
         db.query(ContentItem)
+        .options(*defer_heavy_columns())
         .filter(
             ContentItem.user_id == user_id,
             ContentItem.original_url == normalized_url,
@@ -125,21 +141,6 @@ def find_existing_active_item(
         )
         .first()
     )
-    if existing:
-        return existing
-
-    active_items = (
-        db.query(ContentItem)
-        .filter(
-            ContentItem.user_id == user_id,
-            ContentItem.deleted_at.is_(None),
-        )
-        .all()
-    )
-    for item in active_items:
-        if normalize_url(item.original_url) == normalized_url:
-            return item
-    return None
 
 
 def ingest_url(

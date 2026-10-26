@@ -1,0 +1,2214 @@
+{
+  "label": "before",
+  "commit": "b5f2e10",
+  "source_hash": "674c20c90640cadb",
+  "source_files_hashed": 151,
+  "backend_dir": "<scratch>/before/content-queue-backend",
+  "timestamp": "2026-10-25T06:46:16.941980+00:00",
+  "host": {
+    "platform": "macOS-26.4.1-arm64-arm-64bit",
+    "macos": "26.4.1",
+    "machine": "arm64",
+    "cpu": "Apple M5",
+    "ncpu": 10,
+    "ram_gb": 24.0,
+    "python": "3.11.12",
+    "python_executable": "<repo>/content-queue-backend/.venv/bin/python",
+    "postgres": "PostgreSQL 16.11 (Debian 16.11-1.pgdg12+1) on x86_64-pc-linux-gnu",
+    "redis": "7.4.11"
+  },
+  "metric_definitions": {
+    "baseline_rss_mb": "psutil RSS of the target process (parent only), median of the 2 s before the scenario starts (after settle).",
+    "peak_rss_mb": "max psutil RSS of the target process over the scenario plus the 30 s settle window, sampled at 20 Hz.",
+    "peak_delta_mb": "peak_rss_mb - baseline_rss_mb (headline metric).",
+    "peak_children_rss_mb": "max summed RSS of child processes (e.g. YOLO subprocess, celery beat child).",
+    "peak_total_rss_mb": "max of parent RSS + children RSS at one instant (the value the 6 GB watchdog compares).",
+    "baseline_footprint_mb / peak_footprint_mb / settled_footprint_mb": "macOS phys_footprint from /usr/bin/footprint <pid> at ~1 Hz (includes compressed pages; RSS under-reports idle processes on macOS). settled = last sample 30 s after the scenario finished (API: after the last request; worker: after the pipeline drained).",
+    "settled_footprint_delta_mb": "settled_footprint_mb - baseline_footprint_mb (memory retained after the work).",
+    "settled_rss_mb": "median RSS over the last 3 s of the settle window (affected by the macOS memory compressor).",
+    "wall_s": "API scenarios: duration of the HTTP calls. Worker scenarios: first POST /content to the moment the pipeline is drained (items terminal, broker queue + unacked empty, worker CPU < 5 %), excluding the 10 s quiet-confirmation window.",
+    "killed_at_mb": "set if the 6 GB watchdog killed the process (a result, not a failure).",
+    "worker baseline": "worker scenarios first process one unmeasured 100KB article (warm-up: first-use imports), wait for drain + 10 s, then take the baseline."
+  },
+  "settings": {
+    "settle_s": 30,
+    "sample_hz": 20,
+    "watchdog_mb": 6000,
+    "api_port": 8010,
+    "database": "memprof_before",
+    "redis": "redis://localhost:6379/15",
+    "scenarios_selected": null
+  },
+  "scenarios": {
+    "S1_ingest_n100": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.222
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.197
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.156
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.145
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.136
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.5,
+          "baseline_footprint_mb": 146.0,
+          "peak_rss_mb": 258.8,
+          "peak_delta_mb": 79.2,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 258.8,
+          "peak_footprint_mb": 221.0,
+          "settled_footprint_mb": 205.0,
+          "settled_footprint_delta_mb": 59.0,
+          "settled_rss_mb": 231.1,
+          "work_s": 0.88,
+          "killed_at_mb": null,
+          "wall_s": 0.88,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n100_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.189
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.171
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.121
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.148
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.125
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 180.5,
+          "baseline_footprint_mb": 147.0,
+          "peak_rss_mb": 261.0,
+          "peak_delta_mb": 80.5,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 261.0,
+          "peak_footprint_mb": 223.0,
+          "settled_footprint_mb": 210.0,
+          "settled_footprint_delta_mb": 63.0,
+          "settled_rss_mb": 261.0,
+          "work_s": 0.77,
+          "killed_at_mb": null,
+          "wall_s": 0.77,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n100_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.173
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.163
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.116
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.118
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.118
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.3,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 256.8,
+          "peak_delta_mb": 77.5,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 256.8,
+          "peak_footprint_mb": 219.0,
+          "settled_footprint_mb": 215.0,
+          "settled_footprint_delta_mb": 70.0,
+          "settled_rss_mb": 256.8,
+          "work_s": 0.71,
+          "killed_at_mb": null,
+          "wall_s": 0.71,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n100_rep2.csv"
+        }
+      ],
+      "notes": "5 sequential POST /content (new local URLs); API process memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 79.2,
+          "min": 77.5,
+          "max": 80.5,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 258.8,
+          "min": 256.8,
+          "max": 261.0,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 221.0,
+          "min": 219.0,
+          "max": 223.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 210.0,
+          "min": 205.0,
+          "max": 215.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 63.0,
+          "min": 59.0,
+          "max": 70.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 256.8,
+          "min": 231.1,
+          "max": 261.0,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 179.5,
+          "min": 179.3,
+          "max": 180.5,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 146.0,
+          "min": 145.0,
+          "max": 147.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 0.77,
+          "min": 0.71,
+          "max": 0.88,
+          "n": 3
+        }
+      }
+    },
+    "S1_ingest_n500": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.676
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.534
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.528
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.515
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.539
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 180.3,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 625.6,
+          "peak_delta_mb": 445.2,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 625.6,
+          "peak_footprint_mb": 581.0,
+          "settled_footprint_mb": 513.0,
+          "settled_footprint_delta_mb": 368.0,
+          "settled_rss_mb": 410.3,
+          "work_s": 2.81,
+          "killed_at_mb": null,
+          "wall_s": 2.81,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n500_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.636
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.527
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.538
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.529
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.521
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.7,
+          "baseline_footprint_mb": 146.0,
+          "peak_rss_mb": 636.5,
+          "peak_delta_mb": 456.8,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 636.5,
+          "peak_footprint_mb": 582.0,
+          "settled_footprint_mb": 513.0,
+          "settled_footprint_delta_mb": 367.0,
+          "settled_rss_mb": 345.4,
+          "work_s": 2.78,
+          "killed_at_mb": null,
+          "wall_s": 2.78,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n500_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.636
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.538
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.514
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.53
+              },
+              {
+                "status": 201,
+                "bytes": 655,
+                "s": 0.533
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.3,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 636.6,
+          "peak_delta_mb": 457.2,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 636.6,
+          "peak_footprint_mb": 582.0,
+          "settled_footprint_mb": 509.0,
+          "settled_footprint_delta_mb": 364.0,
+          "settled_rss_mb": 526.6,
+          "work_s": 2.77,
+          "killed_at_mb": null,
+          "wall_s": 2.77,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n500_rep2.csv"
+        }
+      ],
+      "notes": "5 sequential POST /content (new local URLs); API process memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 456.8,
+          "min": 445.2,
+          "max": 457.2,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 636.5,
+          "min": 625.6,
+          "max": 636.6,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 582.0,
+          "min": 581.0,
+          "max": 582.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 513.0,
+          "min": 509.0,
+          "max": 513.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 367.0,
+          "min": 364.0,
+          "max": 368.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 410.3,
+          "min": 345.4,
+          "max": 526.6,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 179.7,
+          "min": 179.3,
+          "max": 180.3,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 145.0,
+          "min": 145.0,
+          "max": 146.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 2.78,
+          "min": 2.77,
+          "max": 2.81,
+          "n": 3
+        }
+      }
+    },
+    "S1_ingest_n2000": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.388
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.182
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.216
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.026
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.05
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.6,
+          "baseline_footprint_mb": 146.0,
+          "peak_rss_mb": 1412.2,
+          "peak_delta_mb": 1232.6,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 1412.2,
+          "peak_footprint_mb": 1312.0,
+          "settled_footprint_mb": 1017.0,
+          "settled_footprint_delta_mb": 871.0,
+          "settled_rss_mb": 31.9,
+          "work_s": 10.89,
+          "killed_at_mb": null,
+          "wall_s": 10.89,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n2000_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.471
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.147
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.449
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.111
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.057
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.4,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 1404.9,
+          "peak_delta_mb": 1225.5,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 1404.9,
+          "peak_footprint_mb": 1283.0,
+          "settled_footprint_mb": 1018.0,
+          "settled_footprint_delta_mb": 873.0,
+          "settled_rss_mb": 264.0,
+          "work_s": 11.26,
+          "killed_at_mb": null,
+          "wall_s": 11.26,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n2000_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "requests": [
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.383
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.088
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.212
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.031
+              },
+              {
+                "status": 201,
+                "bytes": 656,
+                "s": 2.047
+              }
+            ],
+            "statuses": [
+              201
+            ]
+          },
+          "baseline_rss_mb": 179.5,
+          "baseline_footprint_mb": 146.0,
+          "peak_rss_mb": 1433.9,
+          "peak_delta_mb": 1254.4,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 1433.9,
+          "peak_footprint_mb": 1312.0,
+          "settled_footprint_mb": 1017.0,
+          "settled_footprint_delta_mb": 871.0,
+          "settled_rss_mb": 1218.8,
+          "work_s": 10.78,
+          "killed_at_mb": null,
+          "wall_s": 10.78,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S1_ingest_n2000_rep2.csv"
+        }
+      ],
+      "notes": "5 sequential POST /content (new local URLs); API process memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 1232.6,
+          "min": 1225.5,
+          "max": 1254.4,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 1412.2,
+          "min": 1404.9,
+          "max": 1433.9,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 1312.0,
+          "min": 1283.0,
+          "max": 1312.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 1017.0,
+          "min": 1017.0,
+          "max": 1018.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 871.0,
+          "min": 871.0,
+          "max": 873.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 264.0,
+          "min": 31.9,
+          "max": 1218.8,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 179.5,
+          "min": 179.4,
+          "max": 179.6,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 146.0,
+          "min": 145.0,
+          "max": 146.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 10.89,
+          "min": 10.78,
+          "max": 11.26,
+          "n": 3
+        }
+      }
+    },
+    "S2_recommended_n2000": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "status": 200,
+            "bytes": 29739,
+            "items": 20,
+            "total": 1803,
+            "shape": "object:items,limit,skip,total"
+          },
+          "baseline_rss_mb": 180.4,
+          "baseline_footprint_mb": 146.0,
+          "peak_rss_mb": 738.5,
+          "peak_delta_mb": 558.1,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 738.5,
+          "peak_footprint_mb": 679.0,
+          "settled_footprint_mb": 413.0,
+          "settled_footprint_delta_mb": 267.0,
+          "settled_rss_mb": 520.1,
+          "work_s": 2.33,
+          "killed_at_mb": null,
+          "wall_s": 2.33,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S2_recommended_n2000_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "status": 200,
+            "bytes": 29739,
+            "items": 20,
+            "total": 1803,
+            "shape": "object:items,limit,skip,total"
+          },
+          "baseline_rss_mb": 179.5,
+          "baseline_footprint_mb": 146.0,
+          "peak_rss_mb": 728.8,
+          "peak_delta_mb": 549.3,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 728.8,
+          "peak_footprint_mb": 679.0,
+          "settled_footprint_mb": 509.0,
+          "settled_footprint_delta_mb": 363.0,
+          "settled_rss_mb": 728.1,
+          "work_s": 2.14,
+          "killed_at_mb": null,
+          "wall_s": 2.14,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S2_recommended_n2000_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "status": 200,
+            "bytes": 29739,
+            "items": 20,
+            "total": 1803,
+            "shape": "object:items,limit,skip,total"
+          },
+          "baseline_rss_mb": 179.5,
+          "baseline_footprint_mb": 146.0,
+          "peak_rss_mb": 738.7,
+          "peak_delta_mb": 559.2,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 738.7,
+          "peak_footprint_mb": 679.0,
+          "settled_footprint_mb": 413.0,
+          "settled_footprint_delta_mb": 267.0,
+          "settled_rss_mb": 738.6,
+          "work_s": 1.98,
+          "killed_at_mb": null,
+          "wall_s": 1.98,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S2_recommended_n2000_rep2.csv"
+        }
+      ],
+      "notes": "GET /content/recommended?limit=20, 2000-item library.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 558.1,
+          "min": 549.3,
+          "max": 559.2,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 738.5,
+          "min": 728.8,
+          "max": 738.7,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 679.0,
+          "min": 679.0,
+          "max": 679.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 413.0,
+          "min": 413.0,
+          "max": 509.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 267.0,
+          "min": 267.0,
+          "max": 363.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 728.1,
+          "min": 520.1,
+          "max": 738.6,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 179.5,
+          "min": 179.5,
+          "max": 180.4,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 146.0,
+          "min": 146.0,
+          "max": 146.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 2.14,
+          "min": 1.98,
+          "max": 2.33,
+          "n": 3
+        }
+      }
+    },
+    "S3_list_content_n2000": {
+      "kind": "api",
+      "reps": [
+        {
+          "rep": 0,
+          "http": {
+            "status": 200,
+            "bytes": 2984959,
+            "items": 2000
+          },
+          "baseline_rss_mb": 179.5,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 819.3,
+          "peak_delta_mb": 639.9,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 819.3,
+          "peak_footprint_mb": 756.0,
+          "settled_footprint_mb": 556.0,
+          "settled_footprint_delta_mb": 411.0,
+          "settled_rss_mb": 601.3,
+          "work_s": 2.23,
+          "killed_at_mb": null,
+          "wall_s": 2.23,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S3_list_content_n2000_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "http": {
+            "status": 200,
+            "bytes": 2984959,
+            "items": 2000
+          },
+          "baseline_rss_mb": 179.3,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 820.7,
+          "peak_delta_mb": 641.4,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 820.7,
+          "peak_footprint_mb": 756.0,
+          "settled_footprint_mb": 561.0,
+          "settled_footprint_delta_mb": 416.0,
+          "settled_rss_mb": 813.7,
+          "work_s": 2.19,
+          "killed_at_mb": null,
+          "wall_s": 2.19,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S3_list_content_n2000_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "http": {
+            "status": 200,
+            "bytes": 2984959,
+            "items": 2000
+          },
+          "baseline_rss_mb": 64.1,
+          "baseline_footprint_mb": 145.0,
+          "peak_rss_mb": 806.6,
+          "peak_delta_mb": 742.6,
+          "peak_children_rss_mb": 0.0,
+          "peak_total_rss_mb": 806.6,
+          "peak_footprint_mb": 756.0,
+          "settled_footprint_mb": 446.0,
+          "settled_footprint_delta_mb": 301.0,
+          "settled_rss_mb": 571.2,
+          "work_s": 2.87,
+          "killed_at_mb": null,
+          "wall_s": 2.87,
+          "api_log": {
+            "errors": 0,
+            "retries": 0,
+            "first_errors": []
+          },
+          "samples_csv": "before/S3_list_content_n2000_rep2.csv"
+        }
+      ],
+      "notes": "GET /lists/{id}/content with no query params (current frontend call); list holds all 2000 items.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 641.4,
+          "min": 639.9,
+          "max": 742.6,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 819.3,
+          "min": 806.6,
+          "max": 820.7,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 756.0,
+          "min": 756.0,
+          "max": 756.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 556.0,
+          "min": 446.0,
+          "max": 561.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 411.0,
+          "min": 301.0,
+          "max": 416.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 601.3,
+          "min": 571.2,
+          "max": 813.7,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 179.3,
+          "min": 64.1,
+          "max": 179.5,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 145.0,
+          "min": 145.0,
+          "max": 145.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 2.23,
+          "min": 2.19,
+          "max": 2.87,
+          "n": 3
+        }
+      }
+    },
+    "S3b_list_content_n2000_limit50": {
+      "kind": "api",
+      "skipped": "endpoint has no limit parameter at this commit",
+      "query_params_found": []
+    },
+    "S4_worker_article_100KB": {
+      "kind": "worker",
+      "reps": [
+        {
+          "rep": 0,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 229.2,
+          "baseline_footprint_mb": 194.0,
+          "peak_rss_mb": 235.8,
+          "peak_delta_mb": 6.6,
+          "peak_children_rss_mb": 24.7,
+          "peak_total_rss_mb": 260.5,
+          "peak_footprint_mb": 202.0,
+          "settled_footprint_mb": 202.0,
+          "settled_footprint_delta_mb": 8.0,
+          "settled_rss_mb": 170.3,
+          "work_s": 2.25,
+          "killed_at_mb": null,
+          "wall_s": 2.25,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 12564,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 90414,
+            "content_chunks": 35
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 41,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 35,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-24 23:57:50,983: ERROR/MainProcess] Failed to analyze article 8cb9e618-67ec-4581-b7f4-34679f3e672c: Instance <Entity at 0x1126f28d0> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_100KB_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 229.6,
+          "baseline_footprint_mb": 196.0,
+          "peak_rss_mb": 236.5,
+          "peak_delta_mb": 6.9,
+          "peak_children_rss_mb": 24.6,
+          "peak_total_rss_mb": 261.1,
+          "peak_footprint_mb": 203.0,
+          "settled_footprint_mb": 203.0,
+          "settled_footprint_delta_mb": 7.0,
+          "settled_rss_mb": 236.5,
+          "work_s": 2.26,
+          "killed_at_mb": null,
+          "wall_s": 2.26,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 12544,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 90445,
+            "content_chunks": 36
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 42,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 36,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-24 23:59:03,201: ERROR/MainProcess] Failed to analyze article 22b5bfb9-3933-4dd4-938e-c7a8479e1b3c: Instance <Entity at 0x10fc09010> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_100KB_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 228.5,
+          "baseline_footprint_mb": 193.0,
+          "peak_rss_mb": 236.1,
+          "peak_delta_mb": 7.6,
+          "peak_children_rss_mb": 24.5,
+          "peak_total_rss_mb": 260.7,
+          "peak_footprint_mb": 200.0,
+          "settled_footprint_mb": 200.0,
+          "settled_footprint_delta_mb": 7.0,
+          "settled_rss_mb": 236.1,
+          "work_s": 2.25,
+          "killed_at_mb": null,
+          "wall_s": 2.25,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 12527,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 90267,
+            "content_chunks": 38
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 44,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 38,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:00:15,502: ERROR/MainProcess] Failed to analyze article 4dccbb3e-b338-49ca-b75f-24a839c2f141: Instance <Entity at 0x10ee3ff10> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_100KB_rep2.csv"
+        }
+      ],
+      "notes": "1 synthetic 100KB article via POST /content; worker (parent) memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 6.9,
+          "min": 6.6,
+          "max": 7.6,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 236.1,
+          "min": 235.8,
+          "max": 236.5,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 202.0,
+          "min": 200.0,
+          "max": 203.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 202.0,
+          "min": 200.0,
+          "max": 203.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 7.0,
+          "min": 7.0,
+          "max": 8.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 236.1,
+          "min": 170.3,
+          "max": 236.5,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 229.2,
+          "min": 228.5,
+          "max": 229.6,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 194.0,
+          "min": 193.0,
+          "max": 196.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 24.6,
+          "min": 24.5,
+          "max": 24.7,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 2.25,
+          "min": 2.25,
+          "max": 2.26,
+          "n": 3
+        }
+      }
+    },
+    "S4_worker_article_1MB": {
+      "kind": "worker",
+      "reps": [
+        {
+          "rep": 0,
+          "warmup": "drained",
+          "submit_s": 0.11,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 228.4,
+          "baseline_footprint_mb": 192.0,
+          "peak_rss_mb": 377.6,
+          "peak_delta_mb": 149.2,
+          "peak_children_rss_mb": 24.5,
+          "peak_total_rss_mb": 402.1,
+          "peak_footprint_mb": 313.0,
+          "settled_footprint_mb": 236.0,
+          "settled_footprint_delta_mb": 44.0,
+          "settled_rss_mb": 70.6,
+          "work_s": 7.68,
+          "killed_at_mb": null,
+          "wall_s": 7.68,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 132820,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 963240,
+            "content_chunks": 379
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 385,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 379,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:01:29,897: ERROR/MainProcess] Failed to analyze article 84ca6e80-e853-44b3-9c82-59bc2a725119: Instance <Entity at 0x10fdb5110> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_1MB_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 176.1,
+          "baseline_footprint_mb": 193.0,
+          "peak_rss_mb": 353.0,
+          "peak_delta_mb": 177.0,
+          "peak_children_rss_mb": 15.3,
+          "peak_total_rss_mb": 368.3,
+          "peak_footprint_mb": 315.0,
+          "settled_footprint_mb": 249.0,
+          "settled_footprint_delta_mb": 56.0,
+          "settled_rss_mb": 318.9,
+          "work_s": 7.62,
+          "killed_at_mb": null,
+          "wall_s": 7.62,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 132951,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 963046,
+            "content_chunks": 384
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 390,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 384,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:02:47,774: ERROR/MainProcess] Failed to analyze article 61495664-17a9-4032-8ba8-6c9e711d7a43: Instance <Entity at 0x10cdfced0> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_1MB_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "warmup": "drained",
+          "submit_s": 0.05,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 131.4,
+          "baseline_footprint_mb": 193.0,
+          "peak_rss_mb": 347.1,
+          "peak_delta_mb": 215.7,
+          "peak_children_rss_mb": 13.5,
+          "peak_total_rss_mb": 360.6,
+          "peak_footprint_mb": 315.0,
+          "settled_footprint_mb": 243.0,
+          "settled_footprint_delta_mb": 50.0,
+          "settled_rss_mb": 168.2,
+          "work_s": 7.61,
+          "killed_at_mb": null,
+          "wall_s": 7.61,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 132970,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 963446,
+            "content_chunks": 382
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 388,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 382,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:04:05,534: ERROR/MainProcess] Failed to analyze article 61062166-1fcd-46ad-920c-b541d53020bc: Instance <Entity at 0x10cf20750> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_1MB_rep2.csv"
+        }
+      ],
+      "notes": "1 synthetic 1MB article via POST /content; worker (parent) memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 177.0,
+          "min": 149.2,
+          "max": 215.7,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 353.0,
+          "min": 347.1,
+          "max": 377.6,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 315.0,
+          "min": 313.0,
+          "max": 315.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 243.0,
+          "min": 236.0,
+          "max": 249.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 50.0,
+          "min": 44.0,
+          "max": 56.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 168.2,
+          "min": 70.6,
+          "max": 318.9,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 176.1,
+          "min": 131.4,
+          "max": 228.4,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 193.0,
+          "min": 192.0,
+          "max": 193.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 15.3,
+          "min": 13.5,
+          "max": 24.5,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 7.62,
+          "min": 7.61,
+          "max": 7.68,
+          "n": 3
+        }
+      }
+    },
+    "S4_worker_article_5MB": {
+      "kind": "worker",
+      "reps": [
+        {
+          "rep": 0,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 184.8,
+          "baseline_footprint_mb": 193.0,
+          "peak_rss_mb": 671.2,
+          "peak_delta_mb": 486.4,
+          "peak_children_rss_mb": 14.8,
+          "peak_total_rss_mb": 685.8,
+          "peak_footprint_mb": 640.0,
+          "settled_footprint_mb": 306.0,
+          "settled_footprint_delta_mb": 113.0,
+          "settled_rss_mb": 49.0,
+          "work_s": 29.02,
+          "killed_at_mb": null,
+          "wall_s": 29.02,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 667402,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 4842623,
+            "content_chunks": 1916
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 1922,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 1916,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:05:36,043: ERROR/MainProcess] Failed to analyze article 535229d9-b2e5-47dd-b673-97a2f78fe2e8: Instance <Entity at 0x10e9e3550> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_5MB_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "warmup": "drained",
+          "submit_s": 0.07,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 39.5,
+          "baseline_footprint_mb": 194.0,
+          "peak_rss_mb": 650.8,
+          "peak_delta_mb": 611.4,
+          "peak_children_rss_mb": 2.7,
+          "peak_total_rss_mb": 653.5,
+          "peak_footprint_mb": 611.0,
+          "settled_footprint_mb": 322.0,
+          "settled_footprint_delta_mb": 128.0,
+          "settled_rss_mb": 38.7,
+          "work_s": 29.12,
+          "killed_at_mb": null,
+          "wall_s": 29.12,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 667402,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 4842623,
+            "content_chunks": 1916
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 1922,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 1916,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:07:15,940: ERROR/MainProcess] Failed to analyze article 5fe803e0-fee2-4f0d-b6d1-43a86e277cb2: Instance <Entity at 0x10e36d810> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_5MB_rep1.csv"
+        },
+        {
+          "rep": 2,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 129.8,
+          "baseline_footprint_mb": 196.0,
+          "peak_rss_mb": 608.1,
+          "peak_delta_mb": 478.3,
+          "peak_children_rss_mb": 7.9,
+          "peak_total_rss_mb": 611.1,
+          "peak_footprint_mb": 613.0,
+          "settled_footprint_mb": 327.0,
+          "settled_footprint_delta_mb": 131.0,
+          "settled_rss_mb": 66.8,
+          "work_s": 29.09,
+          "killed_at_mb": null,
+          "wall_s": 29.09,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 667402,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 4842623,
+            "content_chunks": 1916
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 1922,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 1916,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 1,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:08:54,679: ERROR/MainProcess] Failed to analyze article e1dfb700-3bc0-4d47-b476-a527fe7f2b61: Instance <Entity at 0x11160f410> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_5MB_rep2.csv"
+        }
+      ],
+      "notes": "1 synthetic 5MB article via POST /content; worker (parent) memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 486.4,
+          "min": 478.3,
+          "max": 611.4,
+          "n": 3
+        },
+        "peak_rss_mb": {
+          "median": 650.8,
+          "min": 608.1,
+          "max": 671.2,
+          "n": 3
+        },
+        "peak_footprint_mb": {
+          "median": 613.0,
+          "min": 611.0,
+          "max": 640.0,
+          "n": 3
+        },
+        "settled_footprint_mb": {
+          "median": 322.0,
+          "min": 306.0,
+          "max": 327.0,
+          "n": 3
+        },
+        "settled_footprint_delta_mb": {
+          "median": 128.0,
+          "min": 113.0,
+          "max": 131.0,
+          "n": 3
+        },
+        "settled_rss_mb": {
+          "median": 49.0,
+          "min": 38.7,
+          "max": 66.8,
+          "n": 3
+        },
+        "baseline_rss_mb": {
+          "median": 129.8,
+          "min": 39.5,
+          "max": 184.8,
+          "n": 3
+        },
+        "baseline_footprint_mb": {
+          "median": 194.0,
+          "min": 193.0,
+          "max": 196.0,
+          "n": 3
+        },
+        "peak_children_rss_mb": {
+          "median": 7.9,
+          "min": 2.7,
+          "max": 14.8,
+          "n": 3
+        },
+        "wall_s": {
+          "median": 29.09,
+          "min": 29.02,
+          "max": 29.12,
+          "n": 3
+        }
+      }
+    },
+    "S4_worker_article_20MB": {
+      "kind": "worker",
+      "reps": [
+        {
+          "rep": 0,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 178.0,
+          "baseline_footprint_mb": 192.0,
+          "peak_rss_mb": 980.2,
+          "peak_delta_mb": 802.1,
+          "peak_children_rss_mb": 6.4,
+          "peak_total_rss_mb": 983.6,
+          "peak_footprint_mb": 1007.0,
+          "settled_footprint_mb": 707.0,
+          "settled_footprint_delta_mb": 515.0,
+          "settled_rss_mb": 40.5,
+          "work_s": 117.74,
+          "killed_at_mb": null,
+          "wall_s": 117.74,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 2663292,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 19378444,
+            "content_chunks": 0
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 6,
+            "embed_rejected_400": 1,
+            "max_inputs_in_call": 7634,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 2,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:12:11,276: ERROR/MainProcess] Failed to analyze article 1e9a9cfa-205a-43ab-a2b6-acabde87389c: Instance <Entity at 0x1162cbdd0> is not present in this Session",
+              "[2026-10-25 00:12:13,946: ERROR/MainProcess] Failed to generate chunks for 1e9a9cfa-205a-43ab-a2b6-acabde87389c: Error code: 400 - {'error': {'message': \"'$.input' is invalid. Please check the API reference: https://platform.openai.com/docs/api-reference.\", 'type': 'invalid_request_error', 'param': "
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_20MB_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 108.4,
+          "baseline_footprint_mb": 194.0,
+          "peak_rss_mb": 1001.1,
+          "peak_delta_mb": 892.7,
+          "peak_children_rss_mb": 3.2,
+          "peak_total_rss_mb": 1003.8,
+          "peak_footprint_mb": 924.0,
+          "settled_footprint_mb": 640.0,
+          "settled_footprint_delta_mb": 446.0,
+          "settled_rss_mb": 182.2,
+          "work_s": 116.01,
+          "killed_at_mb": null,
+          "wall_s": 116.01,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 2663292,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 19378444,
+            "content_chunks": 0
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 6,
+            "embed_rejected_400": 1,
+            "max_inputs_in_call": 7634,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 2,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:15:17,501: ERROR/MainProcess] Failed to analyze article a72b4e0b-7b79-4ff2-8694-2e433a4d9d57: Instance <Entity at 0x11740ad10> is not present in this Session",
+              "[2026-10-25 00:15:20,183: ERROR/MainProcess] Failed to generate chunks for a72b4e0b-7b79-4ff2-8694-2e433a4d9d57: Error code: 400 - {'error': {'message': \"'$.input' is invalid. Please check the API reference: https://platform.openai.com/docs/api-reference.\", 'type': 'invalid_request_error', 'param': "
+            ]
+          },
+          "samples_csv": "before/S4_worker_article_20MB_rep1.csv"
+        }
+      ],
+      "notes": "1 synthetic 20MB article via POST /content; worker (parent) memory.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 847.4,
+          "min": 802.1,
+          "max": 892.7,
+          "n": 2
+        },
+        "peak_rss_mb": {
+          "median": 990.65,
+          "min": 980.2,
+          "max": 1001.1,
+          "n": 2
+        },
+        "peak_footprint_mb": {
+          "median": 965.5,
+          "min": 924.0,
+          "max": 1007.0,
+          "n": 2
+        },
+        "settled_footprint_mb": {
+          "median": 673.5,
+          "min": 640.0,
+          "max": 707.0,
+          "n": 2
+        },
+        "settled_footprint_delta_mb": {
+          "median": 480.5,
+          "min": 446.0,
+          "max": 515.0,
+          "n": 2
+        },
+        "settled_rss_mb": {
+          "median": 111.35,
+          "min": 40.5,
+          "max": 182.2,
+          "n": 2
+        },
+        "baseline_rss_mb": {
+          "median": 143.2,
+          "min": 108.4,
+          "max": 178.0,
+          "n": 2
+        },
+        "baseline_footprint_mb": {
+          "median": 193.0,
+          "min": 192.0,
+          "max": 194.0,
+          "n": 2
+        },
+        "peak_children_rss_mb": {
+          "median": 4.8,
+          "min": 3.2,
+          "max": 6.4,
+          "n": 2
+        },
+        "wall_s": {
+          "median": 116.88,
+          "min": 116.01,
+          "max": 117.74,
+          "n": 2
+        }
+      }
+    },
+    "S5_worker_article_50MB": {
+      "kind": "worker",
+      "reps": [
+        {
+          "rep": 0,
+          "warmup": "drained",
+          "submit_s": 0.04,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 188.3,
+          "baseline_footprint_mb": 193.0,
+          "peak_rss_mb": 2184.9,
+          "peak_delta_mb": 1996.6,
+          "peak_children_rss_mb": 32.0,
+          "peak_total_rss_mb": 2189.3,
+          "peak_footprint_mb": 2017.0,
+          "settled_footprint_mb": 1171.0,
+          "settled_footprint_delta_mb": 978.0,
+          "settled_rss_mb": 384.8,
+          "work_s": 554.03,
+          "killed_at_mb": null,
+          "wall_s": 554.03,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": null,
+            "word_count": 6654829,
+            "content_type": "article",
+            "embedding_present": true,
+            "full_text_chars": 48450284,
+            "content_chunks": 0
+          },
+          "fake_openai": {
+            "embed_calls": 4,
+            "embed_inputs": 6,
+            "embed_rejected_400": 1,
+            "max_inputs_in_call": 19056,
+            "chat_calls": 1
+          },
+          "worker_log": {
+            "errors": 2,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:25:39,540: ERROR/MainProcess] Failed to analyze article 050a7553-e2aa-48e7-b857-a281a347e908: Instance <Entity at 0x1355f53d0> is not present in this Session",
+              "[2026-10-25 00:25:46,477: ERROR/MainProcess] Failed to generate chunks for 050a7553-e2aa-48e7-b857-a281a347e908: Error code: 400 - {'error': {'message': \"'$.input' is invalid. Please check the API reference: https://platform.openai.com/docs/api-reference.\", 'type': 'invalid_request_error', 'param': "
+            ]
+          },
+          "samples_csv": "before/S5_worker_article_50MB_rep0.csv"
+        }
+      ],
+      "notes": "1 synthetic 50 MB article; 6 GB watchdog.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 1996.6,
+          "min": 1996.6,
+          "max": 1996.6,
+          "n": 1
+        },
+        "peak_rss_mb": {
+          "median": 2184.9,
+          "min": 2184.9,
+          "max": 2184.9,
+          "n": 1
+        },
+        "peak_footprint_mb": {
+          "median": 2017.0,
+          "min": 2017.0,
+          "max": 2017.0,
+          "n": 1
+        },
+        "settled_footprint_mb": {
+          "median": 1171.0,
+          "min": 1171.0,
+          "max": 1171.0,
+          "n": 1
+        },
+        "settled_footprint_delta_mb": {
+          "median": 978.0,
+          "min": 978.0,
+          "max": 978.0,
+          "n": 1
+        },
+        "settled_rss_mb": {
+          "median": 384.8,
+          "min": 384.8,
+          "max": 384.8,
+          "n": 1
+        },
+        "baseline_rss_mb": {
+          "median": 188.3,
+          "min": 188.3,
+          "max": 188.3,
+          "n": 1
+        },
+        "baseline_footprint_mb": {
+          "median": 193.0,
+          "min": 193.0,
+          "max": 193.0,
+          "n": 1
+        },
+        "peak_children_rss_mb": {
+          "median": 32.0,
+          "min": 32.0,
+          "max": 32.0,
+          "n": 1
+        },
+        "wall_s": {
+          "median": 554.03,
+          "min": 554.03,
+          "max": 554.03,
+          "n": 1
+        }
+      }
+    },
+    "S6_worker_nonhtml": {
+      "kind": "worker",
+      "reps": [
+        {
+          "rep": 0,
+          "warmup": "drained",
+          "submit_s": 0.12,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 39.1,
+          "baseline_footprint_mb": 193.0,
+          "peak_rss_mb": 1286.7,
+          "peak_delta_mb": 1247.6,
+          "peak_children_rss_mb": 2.7,
+          "peak_total_rss_mb": 1289.4,
+          "peak_footprint_mb": 1350.0,
+          "settled_footprint_mb": 394.0,
+          "settled_footprint_delta_mb": 201.0,
+          "settled_rss_mb": 180.7,
+          "work_s": 13.09,
+          "killed_at_mb": null,
+          "wall_s": 13.09,
+          "outcome": {
+            "processing_status": "completed",
+            "processing_error": "Could not extract article text",
+            "word_count": null,
+            "content_type": "article",
+            "embedding_present": false,
+            "full_text_chars": 0,
+            "content_chunks": 0
+          },
+          "fake_openai": {
+            "embed_calls": 0,
+            "embed_inputs": 0,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 0,
+            "chat_calls": 0
+          },
+          "worker_log": {
+            "errors": 4,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:27:10,864: ERROR/MainProcess] parsed tree length: 0, wrong data type or not valid HTML",
+              "[2026-10-25 00:27:10,864: ERROR/MainProcess] empty HTML tree: None",
+              "[2026-10-25 00:27:13,299: ERROR/MainProcess] parsed tree length: 0, wrong data type or not valid HTML"
+            ]
+          },
+          "samples_csv": "before/S6_worker_nonhtml_rep0.csv"
+        }
+      ],
+      "notes": "100 MB application/zip served streamed (Content-Length set); worker memory + outcome.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 1247.6,
+          "min": 1247.6,
+          "max": 1247.6,
+          "n": 1
+        },
+        "peak_rss_mb": {
+          "median": 1286.7,
+          "min": 1286.7,
+          "max": 1286.7,
+          "n": 1
+        },
+        "peak_footprint_mb": {
+          "median": 1350.0,
+          "min": 1350.0,
+          "max": 1350.0,
+          "n": 1
+        },
+        "settled_footprint_mb": {
+          "median": 394.0,
+          "min": 394.0,
+          "max": 394.0,
+          "n": 1
+        },
+        "settled_footprint_delta_mb": {
+          "median": 201.0,
+          "min": 201.0,
+          "max": 201.0,
+          "n": 1
+        },
+        "settled_rss_mb": {
+          "median": 180.7,
+          "min": 180.7,
+          "max": 180.7,
+          "n": 1
+        },
+        "baseline_rss_mb": {
+          "median": 39.1,
+          "min": 39.1,
+          "max": 39.1,
+          "n": 1
+        },
+        "baseline_footprint_mb": {
+          "median": 193.0,
+          "min": 193.0,
+          "max": 193.0,
+          "n": 1
+        },
+        "peak_children_rss_mb": {
+          "median": 2.7,
+          "min": 2.7,
+          "max": 2.7,
+          "n": 1
+        },
+        "wall_s": {
+          "median": 13.09,
+          "min": 13.09,
+          "max": 13.09,
+          "n": 1
+        }
+      }
+    },
+    "S7_regression_small": {
+      "kind": "worker",
+      "reps": [
+        {
+          "rep": 0,
+          "warmup": "drained",
+          "submit_s": 0.59,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 227.7,
+          "baseline_footprint_mb": 191.0,
+          "peak_rss_mb": 257.2,
+          "peak_delta_mb": 29.5,
+          "peak_children_rss_mb": 24.8,
+          "peak_total_rss_mb": 281.8,
+          "peak_footprint_mb": 224.0,
+          "settled_footprint_mb": 215.0,
+          "settled_footprint_delta_mb": 24.0,
+          "settled_rss_mb": 211.6,
+          "work_s": 15.64,
+          "killed_at_mb": null,
+          "wall_s": 15.64,
+          "outcome": {
+            "n_items": 20,
+            "n_completed": 20,
+            "n_failed": 0,
+            "n_with_error": 0,
+            "n_with_embedding": 20,
+            "n_with_chunks": 20,
+            "total_chunks": 728,
+            "word_count_median": 12569,
+            "processing_errors": []
+          },
+          "fake_openai": {
+            "embed_calls": 80,
+            "embed_inputs": 848,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 38,
+            "chat_calls": 20
+          },
+          "worker_log": {
+            "errors": 20,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:28:28,024: ERROR/MainProcess] Failed to analyze article fddba34d-3c69-4f93-9284-82028302dd06: Instance <Entity at 0x112c8bb50> is not present in this Session",
+              "[2026-10-25 00:28:29,781: ERROR/MainProcess] Failed to analyze article 8773e680-066d-4d4e-9b14-79efa92bb484: Instance <Entity at 0x110cc2ad0> is not present in this Session",
+              "[2026-10-25 00:28:30,957: ERROR/MainProcess] Failed to analyze article 39dd3cea-3589-4da4-b6e5-ca193c27b213: Instance <Entity at 0x112bfd450> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S7_regression_small_rep0.csv"
+        },
+        {
+          "rep": 1,
+          "warmup": "drained",
+          "submit_s": 0.59,
+          "pipeline_state": "drained",
+          "baseline_rss_mb": 229.4,
+          "baseline_footprint_mb": 196.0,
+          "peak_rss_mb": 260.0,
+          "peak_delta_mb": 30.6,
+          "peak_children_rss_mb": 24.7,
+          "peak_total_rss_mb": 284.8,
+          "peak_footprint_mb": 225.0,
+          "settled_footprint_mb": 225.0,
+          "settled_footprint_delta_mb": 29.0,
+          "settled_rss_mb": 217.8,
+          "work_s": 14.57,
+          "killed_at_mb": null,
+          "wall_s": 14.57,
+          "outcome": {
+            "n_items": 20,
+            "n_completed": 20,
+            "n_failed": 0,
+            "n_with_error": 0,
+            "n_with_embedding": 20,
+            "n_with_chunks": 20,
+            "total_chunks": 722,
+            "word_count_median": 12569,
+            "processing_errors": []
+          },
+          "fake_openai": {
+            "embed_calls": 80,
+            "embed_inputs": 842,
+            "embed_rejected_400": 0,
+            "max_inputs_in_call": 38,
+            "chat_calls": 20
+          },
+          "worker_log": {
+            "errors": 20,
+            "retries": 0,
+            "first_errors": [
+              "[2026-10-25 00:29:53,379: ERROR/MainProcess] Failed to analyze article 6e2da125-ef1b-456f-b6a6-b216e0d6d6de: Instance <Entity at 0x10ead33d0> is not present in this Session",
+              "[2026-10-25 00:29:55,260: ERROR/MainProcess] Failed to analyze article 6b1aad30-a0dd-427d-a58a-749981b7cdab: Instance <Entity at 0x110c9b390> is not present in this Session",
+              "[2026-10-25 00:29:56,417: ERROR/MainProcess] Failed to analyze article 8036a3d9-c391-46bd-98cb-a01ee0fb8eb6: Instance <Entity at 0x1106aa110> is not present in this Session"
+            ]
+          },
+          "samples_csv": "before/S7_regression_small_rep1.csv"
+        }
+      ],
+      "notes": "20 distinct 100KB articles saved back to back; wall = first POST to drained.",
+      "summary": {
+        "peak_delta_mb": {
+          "median": 30.05,
+          "min": 29.5,
+          "max": 30.6,
+          "n": 2
+        },
+        "peak_rss_mb": {
+          "median": 258.6,
+          "min": 257.2,
+          "max": 260.0,
+          "n": 2
+        },
+        "peak_footprint_mb": {
+          "median": 224.5,
+          "min": 224.0,
+          "max": 225.0,
+          "n": 2
+        },
+        "settled_footprint_mb": {
+          "median": 220.0,
+          "min": 215.0,
+          "max": 225.0,
+          "n": 2
+        },
+        "settled_footprint_delta_mb": {
+          "median": 26.5,
+          "min": 24.0,
+          "max": 29.0,
+          "n": 2
+        },
+        "settled_rss_mb": {
+          "median": 214.7,
+          "min": 211.6,
+          "max": 217.8,
+          "n": 2
+        },
+        "baseline_rss_mb": {
+          "median": 228.55,
+          "min": 227.7,
+          "max": 229.4,
+          "n": 2
+        },
+        "baseline_footprint_mb": {
+          "median": 193.5,
+          "min": 191.0,
+          "max": 196.0,
+          "n": 2
+        },
+        "peak_children_rss_mb": {
+          "median": 24.75,
+          "min": 24.7,
+          "max": 24.8,
+          "n": 2
+        },
+        "wall_s": {
+          "median": 15.11,
+          "min": 14.57,
+          "max": 15.64,
+          "n": 2
+        }
+      }
+    }
+  },
+  "app_file": "<scratch>/before/content-queue-backend/app/__init__.py",
+  "seed": {
+    "u100": {
+      "user_id": "49524987-d63f-470d-a3d2-99e3c4b0a6a2",
+      "items": 100,
+      "rows": 100,
+      "with_embedding": 100,
+      "with_search_vector": 100,
+      "full_text_mb": 4.042935,
+      "avg_search_vector_bytes": 51866.4
+    },
+    "u500": {
+      "user_id": "eb7875ba-fe27-4eaf-b4a5-03c5617bdc98",
+      "items": 500,
+      "rows": 500,
+      "with_embedding": 500,
+      "with_search_vector": 500,
+      "full_text_mb": 20.222347,
+      "avg_search_vector_bytes": 52036.644
+    },
+    "u2000": {
+      "user_id": "a387ed8a-fca4-4fda-acdc-ba1915e7502c",
+      "items": 2000,
+      "list_id": "e7bae1df-aade-4838-94b7-9a41c9606d47",
+      "rows": 2000,
+      "with_embedding": 2000,
+      "with_search_vector": 2000,
+      "full_text_mb": 80.91424,
+      "avg_search_vector_bytes": 52043.491
+    },
+    "uw": {
+      "user_id": "4ad2c649-0a4d-4a2d-87d6-a442bbb2c35a",
+      "items": 0
+    }
+  },
+  "total_runtime_s": 2670.3,
+  "cleanup": "scratch db dropped, redis db15 flushed, processes stopped"
+}
