@@ -54,6 +54,32 @@ TRANSIENT_CHAT_ERRORS = (
 )
 _TRANSIENT_RETRY_BACKOFF_SECONDS = 1.0
 
+
+def _transient_cause(exc: BaseException) -> BaseException | None:
+    """
+    instructor wraps any exhausted-retries failure (including a plain 429) in
+    InstructorRetryException, hiding the openai error from TRANSIENT_CHAT_ERRORS
+    checks. Return the underlying transient error if there is one, else None
+    (validation failures stay wrapped).
+    """
+    candidates: list[BaseException | None] = []
+    cause = exc
+    for _ in range(5):  # __cause__ chain: RetryError -> ...
+        cause = cause.__cause__
+        if cause is None:
+            break
+        candidates.append(cause)
+        last = getattr(cause, "last_attempt", None)  # tenacity RetryError
+        if last is not None and last.failed:
+            candidates.append(last.exception())
+    for attempt in reversed(getattr(exc, "failed_attempts", None) or []):
+        candidates.append(getattr(attempt, "exception", None))
+    for c in candidates:
+        if isinstance(c, TRANSIENT_CHAT_ERRORS):
+            return c
+    return None
+
+
 # Task name constants — use these at call sites instead of raw strings
 TASK_TAGGING = "tagging"
 TASK_SUMMARY = "summary"
@@ -419,14 +445,22 @@ class LLMClient:
             check_budget(user_id)
 
         if self._provider == "openai":
-            result = self._openai_structured_chat(
-                messages,
-                response_model=response_model,
-                task=task,
-                max_tokens=max_tokens,
-                max_retries=max_retries,
-                user_id=user_id,
-            )
+            try:
+                result = self._openai_structured_chat(
+                    messages,
+                    response_model=response_model,
+                    task=task,
+                    max_tokens=max_tokens,
+                    max_retries=max_retries,
+                    user_id=user_id,
+                )
+            except TRANSIENT_CHAT_ERRORS:
+                raise
+            except Exception as e:
+                transient = _transient_cause(e)
+                if transient is not None:
+                    raise transient from e
+                raise
         else:
             result = self._bedrock_structured_chat(
                 messages,

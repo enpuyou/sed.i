@@ -653,8 +653,61 @@ class TestCollectSubagentResults:
             collect_subagent_results([], run_id=str(run.id), db=db_session)
 
         db_session.refresh(run)
-        assert run.status == "partial"
+        # Truncation is recorded as a marker; status stays on the pipeline
+        # stages so clients keep polling until verify_synthesis writes the result.
+        assert run.status != "done"
+        assert run.error["code"] == "iteration_limit"
         assert len(synthesize_called) == 1
+
+    def test_stops_iterating_when_timeout_exceeded(self, db_session, test_user):
+        budget = {**DEFAULT_BUDGET, "target_count": 100, "timeout_s": 60}
+        run = _make_run(db_session, test_user, status="searching", budget=budget)
+        run.created_at = datetime.now(timezone.utc) - timedelta(seconds=120)
+        db_session.commit()
+        results = [
+            {
+                "ok": True,
+                "data": {
+                    "sub_question": "Q1",
+                    "item_ids": [str(uuid.uuid4())],
+                    "articles": [],
+                    "coverage_assessment": "none",
+                },
+                "error": None,
+                "meta": {},
+            }
+        ]
+        lead_called = []
+        with patch(
+            "app.tasks.research.run_research_lead",
+            side_effect=lambda *a, **kw: lead_called.append(True),
+        ), patch("app.tasks.research.synthesize_run") as synth:
+            collect_subagent_results(results, run_id=str(run.id), db=db_session)
+
+        db_session.refresh(run)
+        assert lead_called == []
+        synth.assert_called_once()
+        assert run.error["code"] == "timeout"
+
+    def test_partial_status_survives_synthesis_and_verification(
+        self, db_session, test_user
+    ):
+        article = _make_article(db_session, test_user)
+        budget = {**DEFAULT_BUDGET, "target_count": 100, "max_iterations": 1}
+        run = _make_run(
+            db_session,
+            test_user,
+            status="searching",
+            budget=budget,
+            item_ids=[str(article.id)],
+        )
+        with patch("app.tasks.research.llm_client") as mock_llm:
+            mock_llm.structured_chat.return_value = _make_brief(article_id=article.id)
+            collect_subagent_results([], run_id=str(run.id), db=db_session)
+
+        db_session.refresh(run)
+        assert run.status == "partial"
+        assert run.result is not None
 
     def test_deduplicates_merged_ids(self, db_session, test_user):
         shared_id = str(uuid.uuid4())
@@ -1362,3 +1415,23 @@ class TestCeleryTaskRegistry:
             "verify_synthesis must call extract_research_memory_task.apply_async((run_id,), countdown=5) "
             "after setting status=done"
         )
+
+
+class TestMaxSubagentsBudget:
+    def test_planner_fanout_capped_by_budget(self, db_session, test_user):
+        budget = {**DEFAULT_BUDGET, "max_subagents": 2}
+        run = _make_run(db_session, test_user, status="queued", budget=budget)
+
+        class FakePlan:
+            sub_questions = ["Q1", "Q2", "Q3", "Q4", "Q5"]
+
+        with patch("app.tasks.research.llm_client") as mock_llm, patch(
+            "app.tasks.research.hybrid_search", return_value=[]
+        ), patch("app.tasks.research.chord"), patch("app.tasks.research.group"):
+            mock_llm.embed.side_effect = RuntimeError("skip memory")
+            mock_llm.structured_chat.return_value = FakePlan()
+            run_research_lead(str(run.id), db=db_session)
+
+        db_session.refresh(run)
+        assert run.sub_questions == ["Q1", "Q2"]
+        assert len(run.searches_run) == 2

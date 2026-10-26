@@ -1371,7 +1371,7 @@ Single entry point for all LLM calls. Provider-agnostic — call sites use task 
 | --- | --- |
 | `llm_client.embed(texts)` | Always uses `EMBED_PROVIDER` (default `"openai"`). No fallback — fails loudly to prevent vector-space mixing. |
 | `llm_client.chat(messages, task=TASK_*)` | Routes to `LLM_PROVIDER`. Per-task model resolved from `LLM_MODEL_{TASK}_{PROVIDER}` env var, falling back to hardcoded defaults. Primary provider failure retries on the other. |
-| `llm_client.structured_chat(messages, response_model=..., task=...)` | Returns a validated Pydantic model. OpenAI uses `instructor`; Bedrock uses a manual retry loop with validation feedback. |
+| `llm_client.structured_chat(messages, response_model=..., task=...)` | Returns a validated Pydantic model. OpenAI uses `instructor`; Bedrock uses a manual retry loop with validation feedback. On the OpenAI path, instructor's `InstructorRetryException` is unwrapped (`_transient_cause`) so a transient 429/timeout/connection error re-raises as the original openai error and reaches the Celery retry handlers; validation failures stay wrapped. |
 
 Task constants (import from `llm_client`): `TASK_TAGGING`, `TASK_SUMMARY`, `TASK_MCP_SUMMARY`, `TASK_SQL_GEN`, `TASK_INSIGHT`.
 
@@ -1422,6 +1422,8 @@ A user submits a natural-language research question via `POST /research`. The AP
 
 **Status machine**: `queued → planning → searching → synthesizing → verifying → done | partial | failed`
 
+**Budget enforcement**: `max_subagents` caps the planner's sub-questions (fan-out); `max_iterations` and `timeout_s` (wall-clock since `created_at`, checked in `collect_subagent_results` before another iteration) stop iteration. When either truncates a run short of `target_count`, the collector records `run.error = {code: "iteration_limit" | "timeout"}` and synthesis proceeds; `verify_synthesis` then writes the final status `partial` (otherwise `done`). Status previously went `partial` → `synthesizing` → `done`, so truncation was lost. `max_tokens` is not enforced: no per-run token accounting exists (spend is tracked in USD per user per day by `llm_client`).
+
 ### Agent roles
 
 | Agent | Task | Description |
@@ -1462,7 +1464,11 @@ At planning time, the lead agent embeds the new question, performs pgvector cosi
 
 ### Gap propagation to user profile
 
+The planner reads memory via `_fetch_research_memory` (`tasks/research.py`). Its age filter uses `make_interval(days => ...)`: the earlier `interval :param` form is a syntax error under psycopg 3 (server-side binding), so the query failed on every call, was caught, and the planner never received past memory. `tests/test_research_memory_fetch.py` runs it on a psycopg 3 session against seeded rows.
+
 The nightly memory consolidation task (`consolidate_memory`) reads recurring `none`-coverage sub-questions from `research_memory` and writes a `persistent_gaps` text field to `user_profiles`. This feeds back into the MCP synthesis context.
+
+Quick `synthesize_topic` (`mcp/tools/synthesis.py`) adds each source's most recent highlight to the prompt; `_build_context` filters highlights by the calling user's id (hybrid_search rows carry no `user_id`, so the earlier `r.get("user_id")` filter matched nothing and no highlight was ever included).
 
 ### Agentic features reference
 
