@@ -306,3 +306,20 @@ class TestQueryLibraryExecution:
             )
             with pytest.raises(ValueError, match="isolation"):
                 query_library(question="my articles", user=user, db=db)
+
+    def test_query_runs_in_read_only_transaction(self, db, user):
+        sql = "SELECT current_setting('transaction_read_only') AS ro FROM content_items WHERE user_id = :user_id AND deleted_at IS NULL"
+        with patch("app.mcp.tools.query.llm_client") as mock_llm:
+            mock_llm.chat.return_value = _llm_response(sql)
+            mock_llm.chat.side_effect = None
+            # no highlights rows -> assert on the executed statement instead
+            executed = []
+            real_execute = db.execute
+
+            def spy(stmt, *a, **k):
+                executed.append(str(stmt))
+                return real_execute(stmt, *a, **k)
+
+            db.execute = spy
+            query_library(question="x", user=user, db=db)
+        assert any("READ ONLY" in s.upper() for s in executed)

@@ -14,7 +14,7 @@ Security model:
   :user_id` (or owner_id for lists) equality as a top-level AND conjunct of that
   block's WHERE. Filters under OR/NOT/CASE/functions, in another table's filter or
   in another block do not count. content_items also needs `deleted_at IS NULL`.
-- All queries run with a 500ms statement_timeout and are scoped to the
+- All queries run in a READ ONLY transaction with a 500ms statement_timeout and are scoped to the
   authenticated user's rows via a WHERE clause injected by the caller.
 - No raw user input is interpolated into SQL strings — the LLM generates SQL
   from a schema description, and the user's ID is passed as a bound parameter.
@@ -573,6 +573,8 @@ def query_library(*, question: str, user: User, db: Session) -> dict:
     # Step 4: execute with timeout
     try:
         db.execute(text(f"SET LOCAL statement_timeout = '{_QUERY_TIMEOUT_MS}ms'"))
+        # Defense in depth: even if validation were bypassed, writes fail.
+        db.execute(text("SET TRANSACTION READ ONLY"))
         result = db.execute(text(safe_sql), {"user_id": str(user.id)})
         rows = [dict(zip(result.keys(), row)) for row in result.fetchmany(_MAX_ROWS)]
     except Exception as e:
