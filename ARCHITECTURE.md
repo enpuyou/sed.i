@@ -1445,6 +1445,8 @@ At planning time, the lead agent embeds the new question, performs pgvector cosi
 
 ### Gap propagation to user profile
 
+The planner reads memory via `_fetch_research_memory` (`tasks/research.py`). Its age filter uses `make_interval(days => ...)`: the earlier `interval :param` form is a syntax error under psycopg 3 (server-side binding), so the query failed on every call, was caught, and the planner never received past memory. `tests/test_research_memory_fetch.py` runs it on a psycopg 3 session against seeded rows.
+
 The nightly memory consolidation task (`consolidate_memory`) reads recurring `none`-coverage sub-questions from `research_memory` and writes a `persistent_gaps` text field to `user_profiles`. This feeds back into the MCP synthesis context.
 
 ### Agentic features reference

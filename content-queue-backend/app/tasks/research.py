@@ -392,7 +392,7 @@ def _fetch_research_memory(
                        1 - (topic_embedding <=> CAST(:q AS vector)) AS similarity
                 FROM research_memory
                 WHERE user_id = :uid
-                  AND created_at > now() - interval :age_interval
+                  AND created_at > now() - make_interval(days => CAST(:max_age_days AS integer))
                   AND topic_embedding IS NOT NULL
                   AND 1 - (topic_embedding <=> CAST(:q AS vector)) >= 0.75
                 ORDER BY topic_embedding <=> CAST(:q AS vector)
@@ -403,7 +403,7 @@ def _fetch_research_memory(
                 "uid": user_id,
                 "q": embedding_str,
                 "k": k,
-                "age_interval": f"{max_age_days} days",
+                "max_age_days": max_age_days,
             },
         ).fetchall()
         return list(rows)
