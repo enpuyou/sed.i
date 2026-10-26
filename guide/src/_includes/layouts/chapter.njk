@@ -1,0 +1,46 @@
+---
+layout: layouts/base.njk
+---
+{% set nb = collections.chapters | neighbours(page.url) %}
+{% set tocHtml = content | toc %}
+<div class="chapter-grid">
+  <article data-pagefind-body>
+    <header class="chapter-head">
+      <p class="eyebrow">{{ part }} · {{ part | partTitle }}{% if order %} / {{ part }}.{{ order }}{% endif %}</p>
+      <h1>{{ title }}</h1>
+      {% if summary %}<p class="dek">{{ summary }}</p>{% endif %}
+      <p class="meta">{{ content | readMinutes }} min read{% if verified %} · checked against the code on {{ verified | ymd }}{% endif %}</p>
+    </header>
+    <details class="toc-inline" data-pagefind-ignore><summary>On this page</summary>{{ tocHtml | safe }}</details>
+    {{ content | safe }}
+  </article>
+  <aside class="toc" aria-label="On this page" data-pagefind-ignore>
+    <p class="toc-label">On this page</p>
+    {{ tocHtml | safe }}
+  </aside>
+</div>
+<nav class="pager" aria-label="Previous and next chapter">
+  {% if nb.prev %}<a class="prev" href="{{ nb.prev.url }}"><span>Previous</span>{{ nb.prev.data.title }}</a>{% else %}<span></span>{% endif %}
+  {% if nb.next %}<a class="next" href="{{ nb.next.url }}"><span>Next</span>{{ nb.next.data.title }}</a>{% endif %}
+</nav>
+<script>
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".toc a"));
+    if (!links.length || !("IntersectionObserver" in window)) return;
+    var byEl = new Map();
+    links.forEach(function (a) {
+      var el = document.getElementById(decodeURIComponent(a.hash.slice(1)));
+      if (el) byEl.set(el, a);
+    });
+    var active = null;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        if (active) active.classList.remove("active");
+        active = byEl.get(e.target);
+        active.classList.add("active");
+      });
+    }, { rootMargin: "0px 0px -72% 0px" });
+    byEl.forEach(function (a, el) { io.observe(el); });
+  })();
+</script>

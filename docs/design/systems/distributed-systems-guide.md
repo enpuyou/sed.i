@@ -311,13 +311,15 @@ The designed-in degradation (chunks missing → item embedding; semantic missing
 Isolation-level hazards worth knowing here (all Inferred, test before claiming):
 - `READ COMMITTED` + check-then-insert (register, ingest) → races, as the audit found. Cure is constraints, not higher isolation.
 - Delete-and-replace chunks in one transaction: a concurrent search sees either old or new set (fine), but two concurrent chunk tasks for one item can interleave and double-insert unless the delete+insert is serialized. A per-item advisory lock (`pg_advisory_xact_lock(hashtext(item_id))`) closes it.
-- Soft-delete + vector index: soft-deleted rows stay in the HNSW graph and are filtered post-search, which reduces recall for the `LIMIT k` (HNSW returns top-`ef_search` candidates, then the filter drops some). Same effect for the `user_id` filter: with a global HNSW index and a per-user predicate, the index returns nearest neighbours **across all users**, then filters to one user. At scale, a user with 50 articles in a table of 10 M chunks gets almost no results from a top-100 candidate set. This is the most important scaling cliff in the search design (see §4.5).
+- Soft-delete + vector index: soft-deleted rows stay in the HNSW graph and are filtered post-search, which reduces recall for the `LIMIT k` (HNSW returns top-`ef_search` candidates, then the filter drops some). Same effect for the `user_id` filter: with a global HNSW index and a per-user predicate, the index returns nearest neighbours **across all users**, then filters to one user. At scale, a user with 50 articles in a table of 10 M chunks gets almost no results from a top-100 candidate set. This applies to the HNSW-ordered queries (connections, similar, research), not to the main search lane, which scans the user's chunks exactly (see §4.5).
 
 ### 4.5 Vector search at scale (the real scaling cliff)
 
-Current: HNSW (`m=16, ef_construction=64`) on `content_items.embedding`, `highlights.embedding`, `content_chunks.embedding`; queries use `WHERE user_id = :uid` plus cosine order.
+Current (verified against the query planner on the dev database, 2026-10-25): HNSW indexes (`m=16, ef_construction=64`) exist on `content_items.embedding`, `highlights.embedding` and `content_chunks.embedding`, but **the main semantic search lane does not use them**. `_semantic_search` computes `MAX(1 - (embedding <=> q))` per article over every chunk of the user (`WHERE user_id = :uid ... GROUP BY content_item_id`), with no `ORDER BY distance LIMIT k` on the chunk table, so the planner scans the user's chunks (btree on `user_id` or a sequential scan) and computes the exact distance for each. That is exact search with cost linear in the user's chunk count (557 chunks in the dev database), and it has no recall problem. Queries of the form `ORDER BY embedding <=> q LIMIT k` do use HNSW: highlight connections and similar items (`api/search.py`), the research agent's chunk retrieval (`tasks/research.py`), and the MCP similar-items tool.
 
-Problem: pgvector's HNSW does approximate search first, then applies the `WHERE`. Filtered ANN has three outcomes: the planner picks the HNSW index and post-filters (low recall for selective filters), or picks a `user_id` btree and sorts exactly (correct, fast for small users), or iterative scan (pgvector ≥ 0.8 `hnsw.iterative_scan`). Which one runs depends on statistics. At 100 users it doesn't matter; at 100 k users it does.
+Two separate scaling questions follow:
+1. **Exact lane (search):** cost grows with chunks per user. Roughly 10^4 chunks per user is still tens of milliseconds; at 10^5-10^6 chunks per user it needs an ANN path or a pre-filter step.
+2. **HNSW lanes (connections, similar, research):** pgvector's HNSW does approximate search first, then applies the `WHERE`. Filtered ANN has three outcomes: the planner picks the HNSW index and post-filters (low recall for selective filters), or picks a `user_id` btree and sorts exactly (correct, fast for small users), or iterative scan (pgvector 0.8 and later, `hnsw.iterative_scan`). Which one runs depends on statistics. At 100 users it does not matter; at 100 k users it does.
 
 Options, ranked by cost:
 1. Enable `hnsw.iterative_scan = relaxed_order` and raise `hnsw.ef_search` for filtered queries. Config only.
@@ -533,7 +535,7 @@ Priority = (user impact × likelihood) / effort. IDs are referenced above. "Audi
 | G-16 | Check-then-act in rate limiter and budget | Atomicity | Confirmed (limiter excerpt) | 2 h | P2 |
 | G-17 | Redis single instance serving broker + cache + locks + limits | Failure domains | Confirmed | 0.5 d (second instance) | P2 |
 | G-18 | No size caps on fetched or inbound content | Resource limits | Confirmed (audit P2-2) | 0.5 d | P2 |
-| G-19 | Filtered ANN recall cliff; no partitioning | Data scale | Inferred; benchmark | 1 d benchmark | P2 (becomes P0 at scale) |
+| G-19 | Search lane is an exact scan per user (linear in chunks); HNSW lanes have a filtered-ANN recall risk; no partitioning | Data scale | Verified with EXPLAIN (search lane); HNSW risk inferred | 1 d benchmark | P2 (becomes P0 at scale) |
 | G-20 | No RLS; tenant isolation depends on every query | Multi-tenancy | Confirmed | 2 d | P2 |
 | G-21 | Public pages uncached | Caching, hot keys | Confirmed | 0.5 d | P2 |
 | G-22 | Task-level dedup absent (duplicate paid calls) | Dedup | Confirmed | 0.5 d | P3 |
