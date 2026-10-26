@@ -21,6 +21,7 @@ from app.models.content import ContentItem
 from app.models.highlight import Highlight
 from app.tasks.base import DatabaseTask, html_to_plain
 from uuid import UUID
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import logging
 
@@ -306,10 +307,14 @@ def generate_highlight_embeddings_batch(self, user_id: str):
             raise self.retry(exc=e, countdown=60 * (2**self.request.retries))
 
 
+_ITEM_SWEEP_LIMIT = 100
+_ITEM_SWEEP_MIN_AGE_MINUTES = 10
+
+
 @celery_app.task(base=DatabaseTask, bind=True, max_retries=3)
 def process_all_missing_embeddings(self):
     """
-    Scanner task: Finds all users with unembedded highlights and triggers batch processing for them.
+    Scanner task: dispatches embeddings for completed items missing one (bounded batch) and batch processing for users with unembedded highlights.
 
     - Runs periodically (e.g. every 5 mins)
     - Dispatches per-user tasks to distribute load
@@ -333,6 +338,31 @@ def process_all_missing_embeddings(self):
         return {"dispatched_count": 0, "status": "skipped", "reason": "lock_held"}
 
     try:
+        # Completed items with text but no embedding: the item embedding is
+        # otherwise only dispatched from the extraction chain, so a dropped
+        # dispatch was never retried. updated_at guard skips items whose
+        # chain is still in flight; blank text is skipped as unembeddable.
+        from datetime import datetime, timedelta, timezone
+
+        item_cutoff = datetime.now(timezone.utc) - timedelta(
+            minutes=_ITEM_SWEEP_MIN_AGE_MINUTES
+        )
+        missing_items = (
+            self.db.query(ContentItem.id)
+            .filter(
+                ContentItem.processing_status == "completed",
+                ContentItem.embedding.is_(None),
+                ContentItem.deleted_at.is_(None),
+                func.length(func.trim(ContentItem.full_text)) > 0,
+                ContentItem.updated_at < item_cutoff,
+            )
+            .order_by(ContentItem.updated_at)
+            .limit(_ITEM_SWEEP_LIMIT)
+            .all()
+        )
+        for (item_id,) in missing_items:
+            generate_embedding.delay(str(item_id))
+
         # Find distinct user_ids that have highlights with missing embeddings
         # We use distinct() to avoid duplicate user_ids
         users_with_missing = (
@@ -344,7 +374,11 @@ def process_all_missing_embeddings(self):
 
         if not users_with_missing:
             logger.info("No missing highlight embeddings found for any user.")
-            return {"count": 0, "status": "completed"}
+            return {
+                "count": 0,
+                "items_dispatched": len(missing_items),
+                "status": "completed",
+            }
 
         logger.info(
             f"Found {len(users_with_missing)} users with missing highlight embeddings. Dispatching tasks."
@@ -356,7 +390,11 @@ def process_all_missing_embeddings(self):
             generate_highlight_embeddings_batch.delay(str(user_id))
             dispatched_count += 1
 
-        return {"dispatched_count": dispatched_count, "status": "completed"}
+        return {
+            "dispatched_count": dispatched_count,
+            "items_dispatched": len(missing_items),
+            "status": "completed",
+        }
 
     except Exception as e:
         logger.error(f"Failed to scan for missing embeddings: {str(e)}")
