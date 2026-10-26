@@ -139,6 +139,10 @@ class Settings(BaseSettings):
     FETCH_HTML_MAX_BYTES: int = 10 * 1024 * 1024
     FETCH_PDF_MAX_BYTES: int = 100 * 1024 * 1024
     FETCH_MAX_SECONDS: int = 60
+    # SSRF guard (app/core/fetch.py). Leave False in any deployed environment.
+    # True only for local development/benchmarks that serve pages from
+    # 127.0.0.1; it disables the address checks, not the scheme checks.
+    FETCH_ALLOW_PRIVATE_ADDRESSES: bool = False
 
     # Prefect pipeline observability (Layer 8)
     # When true, Phase 2+ of ingestion runs as a Prefect flow instead of

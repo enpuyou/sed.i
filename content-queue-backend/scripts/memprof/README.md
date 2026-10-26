@@ -33,7 +33,7 @@ the JSON is rewritten after every scenario so partial results survive a crash.
 ## Isolation
 
 Environment of every subprocess is built from scratch (only PATH/HOME/TMPDIR/LANG are inherited): `DATABASE_URL` (scratch db),
-`REDIS_URL=redis://localhost:6379/15`, test `SECRET_KEY`, `OPENAI_API_KEY=dummy`, `OPENAI_BASE_URL` (fake server), `DEBUG=true`,
+`REDIS_URL=redis://localhost:6379/15`, test `SECRET_KEY`, `OPENAI_API_KEY=dummy`, `OPENAI_BASE_URL` (fake server), `DEBUG=true`, `FETCH_ALLOW_PRIVATE_ADDRESSES=true` (the page server is on 127.0.0.1; without it the SSRF guard in `app/core/fetch.py` refuses every fetch),
 blank Cohere/Braintrust/Sentry/PostHog/OTEL/Resend/AWS/Discogs/Prefect keys, `PREFECT_ENABLED=false`, `S3_STORAGE_ENABLED=false`.
 `HTTP(S)_PROXY` points at a dead port with `NO_PROXY=127.0.0.1,localhost`, so any accidental outbound call fails fast.
 The test user is inserted directly into the database (hash from `app.core.security.get_password_hash`) and a JWT comes from
