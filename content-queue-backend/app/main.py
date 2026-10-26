@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -6,6 +7,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import redis
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 import posthog
 
@@ -193,3 +196,37 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+READY_TIMEOUT_SECONDS = 1.0
+
+
+def _check_db():
+    from app.core.database import engine
+
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+
+
+def _check_redis():
+    redis.Redis.from_url(
+        settings.REDIS_URL,
+        socket_connect_timeout=READY_TIMEOUT_SECONDS,
+        socket_timeout=READY_TIMEOUT_SECONDS,
+    ).ping()
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness: verifies Postgres and Redis. /health stays liveness-only."""
+    for name, check in (("database", _check_db), ("redis", _check_redis)):
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(check), timeout=READY_TIMEOUT_SECONDS
+            )
+        except Exception as exc:
+            logger.warning("Readiness check failed (%s): %r", name, exc)
+            return JSONResponse(
+                status_code=503, content={"status": "unavailable", "failed": name}
+            )
+    return {"status": "ready"}

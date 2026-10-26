@@ -1074,6 +1074,10 @@ Environment variable driven — all default to `true` unless explicitly disabled
 
 ## 16. Error handling and reliability
 
+### Health endpoints
+
+`GET /health` is liveness only (always `{"status":"healthy"}`). `GET /ready` runs `SELECT 1` and a Redis `PING`, each bounded to 1 second, and returns 503 `{"status":"unavailable","failed":"database"|"redis"}` when one fails (`app/main.py`).
+
 ### Backend error shape
 
 All error responses use `{detail: string}` — a single, consistent shape.
