@@ -108,3 +108,45 @@ Verification beyond the benchmark:
 - Backend 786 tests and frontend 163 tests pass; ruff, tsc and eslint are clean.
 
 Behaviour notes: the "+ Add" dialog marks only the loaded rows as already in the list; adding an item that is already present is a server-side no-op, so this is cosmetic. Adding items reloads the list from the first page.
+
+## Production baseline (Railway, 2026-10-19 to 2026-10-26)
+
+Queried from Railway's metrics API (5-minute samples, 7 days; production environment). This is the "before" for PR #58, since none of the PR's code was deployed when these were taken.
+
+| Service | Memory p50 | p95 | max | Notes |
+|---|---|---|---|---|
+| celery (worker + beat) | 482 MB | 515 MB | 840 MB | 340 MB after a restart, ~500 MB after a few days of use |
+| Fast API | 315 MB | 319 MB | 434 MB | flat |
+| prefect | 222 MB | 224 MB | 228 MB | flat; average CPU 0.018 vCPU; ~3 MB network in the week |
+| pgvector (Postgres) | 158 MB | 159 MB | 160 MB | 242 MB on disk |
+| Redis | 6 MB | 7 MB | 7 MB | 73 MB on disk; no queue backlog |
+
+Every service has an 8 GB memory limit; average CPU is below 0.02 vCPU everywhere; no out-of-memory kills appear in the worker or API logs. Total average memory is about 1.1 GB.
+
+What the data shows:
+- **The 840 MB worker peak was a deploy, not usage.** At 07:15 UTC on Oct 24 the worker read 840 MB, which is 493 MB (old container) plus 339 MB (new container); the next sample, 07:20, read 339 MB.
+- **The climb from 340 to ~500 MB is import warm-up, not a leak.** After the Oct 24 restart the worker stayed flat at 339 MB for two days, and its logs for that window show only beat sweeps, no ingestion. Earlier local measurements put the lazily imported libraries at 35-75 MB each (fitz, prefect, braintrust, instructor, boto3), which accounts for the climb once content is ingested.
+- **Production is nearly idle, so the PR's large-library and large-page savings are not visible yet.** They bound the cost as libraries and pages grow; today's bill is dominated by fixed baselines.
+- The real cost was the always-on `prefect` service (about 20% of total memory) and the worker's baseline.
+
+Billing was not visible from here; at an assumed ~$10 per GB-month, 1.1 GB is roughly $11 a month (check Railway's usage page).
+
+## Production changes made on 2026-10-25 (configuration only, not part of the PR)
+
+| Change | Where | Effect |
+|---|---|---|
+| `PREFECT_ENABLED=false` (was `true`) | celery, Fast API | Ingestion uses the default Celery chain (the tested path); prefect is no longer imported by the worker |
+| `prefect` service stopped (`railway down`; service definition kept) | Railway | Frees ~222 MB around the clock |
+| `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0` | celery only | Deploy peak went from 840 MB to 402 MB and lasted about one minute instead of the old container lingering; also shortens the window in which two beat schedulers could run at once |
+
+The API keeps Railway's default overlap, which gives zero-downtime deploys; its deploy peak (434 MB) is small. Both services redeployed successfully and the API's `/health` returned 200 afterwards.
+
+Rollback: `railway variable set PREFECT_ENABLED=true --service celery` (and for the API), `railway variable delete RAILWAY_DEPLOYMENT_OVERLAP_SECONDS --service celery`, and `railway redeploy --service prefect` to bring the prefect service back.
+
+## Lazy imports: measured, not done
+
+Deferring imports only delays their cost until first use; steady-state memory is the same once the code path has run. The only way to save memory is to never load the module in that process. For the API, the candidate is the task graph (trafilatura, BeautifulSoup, lxml), which the API loads because its routes import task modules. Upper bound, measured by stubbing the task modules out of `import app.main`: 164 MB to 145 MB, about 20 MB (roughly 7% of the API's ~300 MB in production, around $0.2 a month). Realizing it means dispatching tasks by name instead of importing them, which touches most task tests. Not worth it at this size; revisit if the API footprint becomes the cost driver.
+
+## Comparing after PR #58 is deployed
+
+Re-run the same query after a few days of normal use. What to look for: worker steady state near 340-400 MB without the prefect import, no 840 MB deploy peak, API peaks unchanged at today's library sizes, and, as libraries grow, API memory per save staying flat instead of rising.

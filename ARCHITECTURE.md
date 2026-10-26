@@ -62,6 +62,10 @@ Browser / Extension
 - Backend enforces auth and data ownership.
 - Workers handle slow/failable work (URL fetching, LLM calls).
 
+### Production flags (2026-10-25)
+
+`PREFECT_ENABLED=false` on the worker and API, and the `prefect` service is stopped (its definition is kept; `railway redeploy --service prefect` restores it). Ingestion runs the Celery chain in §9. The worker also sets `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0` so the old container stops as the new one starts (the previous overlap showed up as an 840 MB peak and let two embedded beat schedulers run at once); the API keeps the default overlap for zero-downtime deploys. Details and production memory baseline: `docs/audits/2026-10-24-memory-fix-results.md`.
+
 ### Deploy sequencing
 
 Config: `content-queue-backend/nixpacks.toml` (build + start), `railway.json`
