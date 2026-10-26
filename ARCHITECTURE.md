@@ -1354,7 +1354,7 @@ Single entry point for all LLM calls. Provider-agnostic — call sites use task 
 | --- | --- |
 | `llm_client.embed(texts)` | Always uses `EMBED_PROVIDER` (default `"openai"`). No fallback — fails loudly to prevent vector-space mixing. |
 | `llm_client.chat(messages, task=TASK_*)` | Routes to `LLM_PROVIDER`. Per-task model resolved from `LLM_MODEL_{TASK}_{PROVIDER}` env var, falling back to hardcoded defaults. Primary provider failure retries on the other. |
-| `llm_client.structured_chat(messages, response_model=..., task=...)` | Returns a validated Pydantic model. OpenAI uses `instructor`; Bedrock uses a manual retry loop with validation feedback. |
+| `llm_client.structured_chat(messages, response_model=..., task=...)` | Returns a validated Pydantic model. OpenAI uses `instructor`; Bedrock uses a manual retry loop with validation feedback. On the OpenAI path, instructor's `InstructorRetryException` is unwrapped (`_transient_cause`) so a transient 429/timeout/connection error re-raises as the original openai error and reaches the Celery retry handlers; validation failures stay wrapped. |
 
 Task constants (import from `llm_client`): `TASK_TAGGING`, `TASK_SUMMARY`, `TASK_MCP_SUMMARY`, `TASK_SQL_GEN`, `TASK_INSIGHT`.
 
