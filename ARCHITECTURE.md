@@ -997,7 +997,7 @@ Environment variable driven — all default to `true` unless explicitly disabled
 ### Current protections
 
 - Password hashing: bcrypt via passlib.
-- JWT: signed with `SECRET_KEY`, expiry enforced.
+- JWT: signed with `SECRET_KEY`, expiry enforced. `Settings` rejects a `SECRET_KEY` shorter than 32 characters unless `DEBUG` is on; `DEBUG` defaults to False (dev `.env` sets it True).
 - CORS: origin list driven by environment variable.
 - Rate limiting: Redis-backed, covers `POST /content`, `POST /auth/login`,
   `POST /auth/register`, `GET /search/semantic` (see §8).
