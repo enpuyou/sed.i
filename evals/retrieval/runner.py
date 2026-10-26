@@ -14,6 +14,19 @@ Usage:
     PYENV_VERSION=3.11.12 pyenv exec poetry run python ../evals/retrieval/runner.py --size pilot
     PYENV_VERSION=3.11.12 pyenv exec poetry run python ../evals/retrieval/runner.py --size full
 
+CI gate and accepting a new baseline:
+    CI cannot run this eval (private library, paid embeddings). evals/check_regressions.py
+    compares the COMMITTED evals/retrieval/accepted.json against the COMMITTED baselines.json
+    for variant B (production, entity lane off): recall@10 and MRR hard-fail on a drop
+    > 0.02, NDCG@10 warns. It also fails if a PR lowers baselines.json vs the base branch.
+    It protects the committed numbers (reviewable in a PR), not the live system.
+    To accept a new result:
+      1. Run this runner with --size full (writes results/latest.json).
+      2. python evals/check_regressions.py --accept   (rewrites accepted.json)
+      3. Edit baselines.json to the new numbers. Raising is fine; lowering fails CI by
+         design, so a deliberate lowering needs an explicit maintainer override.
+      4. Commit both files with the run's report, and update ARCHITECTURE.md section 20.
+
 Prerequisites:
     - Local postgres on port 5433
     - EVAL_USER_EMAIL env var (default: enpu@example.com) exists in DB

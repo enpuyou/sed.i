@@ -1,0 +1,25 @@
+{
+  "_accepted": "2026-07-06T21:52:31.044891Z",
+  "_source": "evals/retrieval/results/latest.json (45 queries); same numbers as baselines.json",
+  "_dataset_size": 45,
+  "variant_A_item_only": {
+    "recall_at_10": 0.7459,
+    "mrr": 0.8276,
+    "ndcg_at_10": 0.6922
+  },
+  "variant_B_chunks": {
+    "recall_at_10": 0.7652,
+    "mrr": 0.831,
+    "ndcg_at_10": 0.7038
+  },
+  "variant_C_entity_rank_rrf": {
+    "recall_at_10": 0.747,
+    "mrr": 0.8206,
+    "ndcg_at_10": 0.6886
+  },
+  "variant_D_entity_passthrough": {
+    "recall_at_10": 0.7581,
+    "mrr": 0.7934,
+    "ndcg_at_10": 0.6796
+  }
+}
