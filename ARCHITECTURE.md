@@ -1405,6 +1405,8 @@ A user submits a natural-language research question via `POST /research`. The AP
 
 **Status machine**: `queued → planning → searching → synthesizing → verifying → done | partial | failed`
 
+**Budget enforcement**: `max_subagents` caps the planner's sub-questions (fan-out); `max_iterations` and `timeout_s` (wall-clock since `created_at`, checked in `collect_subagent_results` before another iteration) stop iteration. When either truncates a run short of `target_count`, the collector records `run.error = {code: "iteration_limit" | "timeout"}` and synthesis proceeds; `verify_synthesis` then writes the final status `partial` (otherwise `done`). Status previously went `partial` → `synthesizing` → `done`, so truncation was lost. `max_tokens` is not enforced: no per-run token accounting exists (spend is tracked in USD per user per day by `llm_client`).
+
 ### Agent roles
 
 | Agent | Task | Description |
