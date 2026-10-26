@@ -4,10 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 BACKEND_DIR="$ROOT_DIR/content-queue-backend"
 PYTHON_BIN="$BACKEND_DIR/.venv/bin/python"
-# Use --git-dir (not --show-toplevel) so the lock lives in the real git directory.
-# In a worktree, --show-toplevel/.git is a file, not a directory — mkdir would
-# always fail and report "already in progress" even when no run is active.
-LOCK_DIR="$(git rev-parse --git-dir)/.precommit-pytest-lock"
+# Use --absolute-git-dir (not --show-toplevel) so the lock lives in the real git
+# directory. In a worktree, --show-toplevel/.git is a file, not a directory —
+# mkdir would always fail and report "already in progress" even when no run is
+# active. It must be absolute: plain --git-dir prints a relative ".git" in a
+# normal checkout, and the script later cd's to BACKEND_DIR, so the EXIT trap's
+# rm -rf would target a path that does not exist and the lock would leak.
+LOCK_DIR="$(git rev-parse --absolute-git-dir)/.precommit-pytest-lock"
 
 cleanup_db_sessions() {
   "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1 || true
