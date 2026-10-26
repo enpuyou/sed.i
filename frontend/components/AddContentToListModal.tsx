@@ -2,7 +2,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { contentAPI, listsAPI } from "@/lib/api";
+import { listsAPI } from "@/lib/api";
+import { loadAllContent } from "@/lib/loadAllContent";
 import { ContentItem } from "@/types";
 import { useLists } from "@/contexts/ListsContext";
 import InlineError from "./InlineError";
@@ -33,8 +34,8 @@ export default function AddContentToListModal({
   const fetchAllContent = useCallback(async () => {
     try {
       setFetching(true);
-      const data = await contentAPI.getAll();
-      setAllContent(data.items || []);
+      const { items } = await loadAllContent();
+      setAllContent(items);
     } catch (error) {
       console.error("Failed to fetch content:", error);
     } finally {

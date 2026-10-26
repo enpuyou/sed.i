@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   forwardRef,
   useImperativeHandle,
+  useRef,
 } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import ContentItem from "./ContentItem";
@@ -14,6 +15,7 @@ import ContentCard from "./ContentCard";
 import RetroLoader from "./RetroLoader";
 import { contentAPI, listsAPI } from "@/lib/api";
 import { ContentItem as ContentItemType, List } from "@/types";
+import { loadAllContent } from "@/lib/loadAllContent";
 import { useProcessingPolling } from "@/hooks/useProcessingPolling";
 import { useLists } from "@/contexts/ListsContext";
 import { useHotkeys } from "@/hooks/useHotkeys";
@@ -50,6 +52,9 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
 
   // Loading state - true while fetching data
   const [loading, setLoading] = useState(true);
+
+  // Bumped per fetch so a superseded fetch stops writing state
+  const fetchGenerationRef = useRef(0);
 
   // Error state - stores error message if fetch fails
   const [error, setError] = useState<string | null>(null);
@@ -242,19 +247,38 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
    * Pass silent=true for background refreshes (tab regains visibility) so
    * the existing list stays visible while the update comes in.
    */
-  const fetchContents = async (silent = false) => {
+  const fetchContents = async (silent = false, showError = !silent) => {
+    const generation = ++fetchGenerationRef.current;
+    const isStale = () => generation !== fetchGenerationRef.current;
     if (!silent) setLoading(true);
     setError(null);
 
     try {
-      const response = await contentAPI.getAll();
-      setContents(response.items);
-      setTotal(response.total);
+      // Silent refreshes replace the list once, so it never shrinks mid-load.
+      // Otherwise the first page replaces and later pages append as they arrive.
+      let first = true;
+      const { items, total: fullTotal } = await loadAllContent((page, t) => {
+        if (silent || isStale()) return;
+        const isFirst = first;
+        first = false;
+        setTotal(t);
+        setContents((prev) => {
+          if (isFirst) return page;
+          const seen = new Set(prev.map((c) => c.id));
+          return [...prev, ...page.filter((c) => !seen.has(c.id))];
+        });
+        if (isFirst) setLoading(false);
+      });
+      if (silent && !isStale()) {
+        setContents(items);
+        setTotal(fullTotal);
+      }
     } catch (err) {
       console.error("Failed to fetch contents:", err);
-      if (!silent) setError("Couldn't load your content. Try again.");
+      if (showError && !isStale())
+        setError("Couldn't load your content. Try again.");
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && !isStale()) setLoading(false);
     }
   };
 
@@ -455,7 +479,7 @@ const ContentList = forwardRef<ContentListRef>((_, ref) => {
         <InlineError
           message={error}
           onDismiss={() => setError(null)}
-          onRetry={() => fetchContents(true)}
+          onRetry={() => fetchContents(true, true)}
           className="mb-4"
         />
       )}

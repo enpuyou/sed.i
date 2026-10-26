@@ -382,7 +382,12 @@ document.getElementById('btn-read').addEventListener('click', async () => {
 const saveBtn = document.getElementById('btn-save');
 
 // Parse structured API errors into human-readable messages.
-function parseApiError(raw) {
+function parseApiError(raw, resp) {
+  if (resp?.code === 'ALREADY_SAVED') {
+    return resp.isArchived
+      ? 'Already in your library (archived). Restore it from your queue.'
+      : 'Already in your library.';
+  }
   if (!raw) return "Couldn't save. Try again.";
   try {
     // Backend wraps detail as a JSON string on 409
@@ -463,7 +468,7 @@ saveBtn.addEventListener('click', async () => {
           show('view-login');
           return;
         }
-        showError('save-error', parseApiError(resp?.error));
+        showError('save-error', parseApiError(resp?.error, resp));
         return;
       }
       _savePhase = 'idle';
