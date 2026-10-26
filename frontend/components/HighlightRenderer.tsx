@@ -23,6 +23,10 @@ interface HighlightRendererProps {
   onImageClick?: (src: string) => void;
 }
 
+// Text nodes hold decoded characters; escape them before they go through innerHTML.
+const escapeHtml = (text: string): string =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 /**
  * Helper to wrap start of words in strong tags for Bionic Reading
  */
@@ -30,9 +34,9 @@ const applyBionicInfoToText = (text: string): string => {
   return text
     .split(/(\s+)/)
     .map((part) => {
-      if (/^\s+$/.test(part) || part.length <= 1) return part;
+      if (/^\s+$/.test(part) || part.length <= 1) return escapeHtml(part);
       const splitIndex = Math.ceil(part.length * 0.4);
-      return `<strong>${part.slice(0, splitIndex)}</strong>${part.slice(splitIndex)}`;
+      return `<strong>${escapeHtml(part.slice(0, splitIndex))}</strong>${escapeHtml(part.slice(splitIndex))}`;
     })
     .join("");
 };
@@ -239,7 +243,7 @@ const HighlightRenderer = ({
         // Apply Bionic Reading transformation if enabled
         const contentHtml = settings.bionicReading
           ? applyBionicInfoToText(rawText)
-          : rawText;
+          : escapeHtml(rawText);
 
         if (segment.highlight) {
           const span = document.createElement("span");

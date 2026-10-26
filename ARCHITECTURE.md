@@ -1016,7 +1016,7 @@ Environment variable driven — all default to `true` unless explicitly disabled
 - XSS on extracted article HTML: DOMPurify sanitization pass applied to all
   three ingestion/render paths — `frontend/lib/bionicReading.ts::sanitizeArticleHtml()`
   (main app reader, called from `HighlightRenderer.tsx` right before
-  `html-react-parser` renders it), and the browser extension's reader overlay
+  `html-react-parser` renders it; highlight/bionic segment text is HTML-escaped before `innerHTML` so literal `<`, `>`, `&` in a text node keep highlight offsets aligned with the DOM text), and the browser extension's reader overlay
   (`extension/content/reader-overlay.js` + Safari mirror), which vendors
   DOMPurify as a static file (`content/vendor/purify.min.js`, no build step
   in the extension) loaded before the overlay script runs. Fails closed in
