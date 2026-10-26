@@ -18,8 +18,10 @@ from unittest.mock import MagicMock, patch
 from app.mcp.tools.query import (
     _validate_sql,
     _enforce_user_isolation,
+    _build_schema_prompt,
     query_library,
 )
+from tests.mcp.sql_guard_cases import BYPASSES, LEGIT
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +104,7 @@ class TestEnforceUserIsolation:
             _enforce_user_isolation(sql)
 
     def test_present_user_id_passes(self):
-        sql = "SELECT * FROM content_items WHERE user_id = :user_id"
+        sql = "SELECT * FROM content_items WHERE user_id = :user_id AND deleted_at IS NULL"
         _enforce_user_isolation(sql)  # must not raise
 
     def test_user_scoped_table_without_own_filter_rejected(self):
@@ -114,7 +116,7 @@ class TestEnforceUserIsolation:
         SELECT ci.title, h.text
         FROM content_items ci
         JOIN highlights h ON h.content_item_id = ci.id
-        WHERE ci.user_id = :user_id
+        WHERE ci.user_id = :user_id AND ci.deleted_at IS NULL
         """
         with pytest.raises(ValueError, match="user-scoped"):
             _enforce_user_isolation(sql)
@@ -124,7 +126,7 @@ class TestEnforceUserIsolation:
         SELECT ci.title, h.text
         FROM content_items ci
         JOIN highlights h ON h.content_item_id = ci.id
-        WHERE ci.user_id = :user_id AND h.user_id = :user_id
+        WHERE ci.user_id = :user_id AND ci.deleted_at IS NULL AND h.user_id = :user_id
         """
         _enforce_user_isolation(sql)  # must not raise
 
@@ -143,7 +145,7 @@ class TestEnforceUserIsolation:
         SELECT ci.title, h.text
         FROM content_items ci
         JOIN highlights h ON h.content_item_id = ci.id
-        WHERE user_id = :user_id
+        WHERE user_id = :user_id AND ci.deleted_at IS NULL
         """
         with pytest.raises(ValueError, match="user-scoped"):
             _enforce_user_isolation(sql)
@@ -153,8 +155,41 @@ class TestEnforceUserIsolation:
         When only one joined table has a user-scoping column matching the
         unqualified predicate, it's unambiguous and should pass.
         """
-        sql = "SELECT * FROM content_items WHERE user_id = :user_id"
+        sql = "SELECT * FROM content_items WHERE user_id = :user_id AND deleted_at IS NULL"
         _enforce_user_isolation(sql)  # must not raise
+
+    @pytest.mark.parametrize("name", sorted(BYPASSES))
+    def test_bypass_shape_rejected(self, name):
+        with pytest.raises(ValueError):
+            _validate_sql(BYPASSES[name])
+            _enforce_user_isolation(BYPASSES[name])
+
+    @pytest.mark.parametrize("name", sorted(LEGIT))
+    def test_legit_shape_accepted(self, name):
+        _validate_sql(LEGIT[name])
+        _enforce_user_isolation(LEGIT[name])
+
+    def test_union_root_rejected_by_isolation_directly(self):
+        with pytest.raises(ValueError):
+            _enforce_user_isolation(BYPASSES["union_side"])
+
+    def test_cte_named_like_real_table_cannot_hide_forbidden_table(self):
+        sql = (
+            "WITH users AS (SELECT * FROM users) "
+            "SELECT * FROM users u JOIN content_items ci ON ci.user_id = u.id "
+            "WHERE ci.user_id = :user_id AND ci.deleted_at IS NULL"
+        )
+        with pytest.raises(ValueError, match="disallowed"):
+            _validate_sql(sql)
+
+    def test_missing_deleted_at_names_the_requirement(self):
+        with pytest.raises(ValueError, match="deleted_at IS NULL"):
+            _enforce_user_isolation(BYPASSES["trashed_not_excluded"])
+
+    def test_schema_prompt_documents_deleted_at(self):
+        prompt = _build_schema_prompt()
+        assert "deleted_at" in prompt
+        assert "deleted_at IS NULL" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +211,7 @@ class TestQueryLibraryExecution:
     """
 
     def test_returns_results_for_valid_query(self, db, user, article):
-        safe_sql = "SELECT title FROM content_items WHERE user_id = :user_id LIMIT 10"
+        safe_sql = "SELECT title FROM content_items WHERE user_id = :user_id AND deleted_at IS NULL LIMIT 10"
         # chat() is called twice: SQL gen + result summarization
         with patch("app.mcp.tools.query.llm_client") as mock_llm:
             mock_llm.chat.side_effect = [
@@ -203,7 +238,7 @@ class TestQueryLibraryExecution:
         db.add(other_item)
         db.commit()
 
-        safe_sql = "SELECT title FROM content_items WHERE user_id = :user_id"
+        safe_sql = "SELECT title FROM content_items WHERE user_id = :user_id AND deleted_at IS NULL"
         with patch("app.mcp.tools.query.llm_client") as mock_llm:
             mock_llm.chat.return_value = _llm_response(safe_sql)
             result = query_library(question="Show me all articles", user=user, db=db)
@@ -220,7 +255,7 @@ class TestQueryLibraryExecution:
                 query_library(question="Give me all users", user=user, db=db)
 
     def test_strips_markdown_fences_from_llm_output(self, db, user, article):
-        safe_sql = "SELECT title FROM content_items WHERE user_id = :user_id LIMIT 5"
+        safe_sql = "SELECT title FROM content_items WHERE user_id = :user_id AND deleted_at IS NULL LIMIT 5"
         fenced = f"```sql\n{safe_sql}\n```"
         with patch("app.mcp.tools.query.llm_client") as mock_llm:
             mock_llm.chat.side_effect = [
@@ -238,3 +273,36 @@ class TestQueryLibraryExecution:
             mock_llm.chat.return_value = _llm_response(bad_sql)
             with pytest.raises(ValueError, match="isolation"):
                 query_library(question="Show everything", user=user, db=db)
+
+    def test_trashed_article_is_not_returned(self, db, user, article):
+        from datetime import datetime, timezone
+
+        from app.models.content import ContentItem
+
+        trashed = ContentItem(
+            original_url="https://example.com/trashed",
+            title="Trashed Article",
+            user_id=user.id,
+            processing_status="completed",
+            deleted_at=datetime.now(timezone.utc),
+        )
+        db.add(trashed)
+        db.commit()
+
+        sql = (
+            "SELECT title FROM content_items "
+            "WHERE user_id = :user_id AND deleted_at IS NULL"
+        )
+        with patch("app.mcp.tools.query.llm_client") as mock_llm:
+            mock_llm.chat.side_effect = [_llm_response(sql), _llm_response("ok")]
+            result = query_library(question="my articles", user=user, db=db)
+        assert result["row_count"] == 1
+        assert "Trashed Article" not in result["answer"]
+
+        # The same query without the soft-delete filter is refused.
+        with patch("app.mcp.tools.query.llm_client") as mock_llm:
+            mock_llm.chat.return_value = _llm_response(
+                "SELECT title FROM content_items WHERE user_id = :user_id"
+            )
+            with pytest.raises(ValueError, match="isolation"):
+                query_library(question="my articles", user=user, db=db)

@@ -10,9 +10,10 @@ Security model:
 - Generated SQL is parsed with sqlglot and rejected if it contains any DDL,
   DML, or references to tables outside the allow-list — including data-modifying
   CTEs attached to a SELECT (e.g. WITH d AS (DELETE ...) SELECT * FROM d).
-- Every user-scoped table in the query must have a direct WHERE user_id = :user_id
-  (or owner_id = :user_id for lists) predicate. A filter on one table does not
-  satisfy the isolation requirement for other user-scoped tables in the same query.
+- Every user-scoped table in each SELECT block must have its own `user_id =
+  :user_id` (or owner_id for lists) equality as a top-level AND conjunct of that
+  block's WHERE. Filters under OR/NOT/CASE/functions, in another table's filter or
+  in another block do not count. content_items also needs `deleted_at IS NULL`.
 - All queries run with a 500ms statement_timeout and are scoped to the
   authenticated user's rows via a WHERE clause injected by the caller.
 - No raw user input is interpolated into SQL strings — the LLM generates SQL
@@ -67,6 +68,11 @@ _USER_SCOPED_TABLES: dict[str, str] = {
     "lists": "owner_id",
 }
 
+# Tables with a deleted_at soft-delete column; trashed rows must be excluded.
+# Highlights/chunks have no deleted_at of their own — to hide those of a trashed
+# article, join content_items and require its deleted_at IS NULL.
+_SOFT_DELETE_TABLES = frozenset({"content_items"})
+
 # Columns to expose per table (avoids leaking internal fields like embeddings).
 _TABLE_SCHEMA = {
     "content_items": [
@@ -85,6 +91,7 @@ _TABLE_SCHEMA = {
         "published_date (timestamptz)",
         "created_at (timestamptz)",
         "processing_status (text)",
+        "deleted_at (timestamptz) — trashed when not null; always filter WHERE deleted_at IS NULL",
         "user_id (uuid) — always filter WHERE user_id = :user_id",
     ],
     "highlights": [
@@ -160,6 +167,13 @@ def _build_schema_prompt() -> str:
         "- Always filter by user_id = :user_id (or owner_id = :user_id for lists).\n"
         "- Every user-scoped table must have its own direct WHERE filter — do not\n"
         "  rely on a filter on one table to scope another in a JOIN or cross-join.\n"
+        "  The filter must be AND-ed at the top level of that query block's WHERE\n"
+        "  (never under OR, NOT, CASE or a function), and each CTE/subquery needs\n"
+        "  its own filters.\n"
+        "- content_items must also have WHERE deleted_at IS NULL (trashed rows are\n"
+        "  hidden). When reading highlights or content_chunks, join content_items\n"
+        "  and filter it the same way so trashed articles' highlights stay hidden.\n"
+        "- No UNION/INTERSECT/EXCEPT; the query must be a single plain SELECT.\n"
         "- SELECT only — no INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, TRUNCATE.\n"
         "- Do not use subqueries that access tables not in the allow-list.\n"
         f"- Limit results to {_MAX_ROWS} rows maximum.\n"
@@ -186,6 +200,15 @@ def _get_forbidden_node_types():
         exp.Grant,
     )
     return _FORBIDDEN_NODE_TYPES
+
+
+def _ancestors(node, kind):
+    """Yield enclosing nodes of the given type, innermost first."""
+    parent = node.parent
+    while parent is not None:
+        if isinstance(parent, kind):
+            yield parent
+        parent = parent.parent
 
 
 def _validate_sql(sql: str) -> str:
@@ -229,9 +252,20 @@ def _validate_sql(sql: str) -> str:
             )
 
     # Collect all table references and enforce the allow-list
-    tables_referenced = {
-        node.name.lower() for node in stmt.find_all(exp.Table) if node.name
-    }
+    # A reference to a CTE is not a table read, but only outside that CTE's own
+    # body: inside it the name still resolves to the real table, so a CTE named
+    # "users" cannot launder SELECT * FROM users.
+    cte_names = {c.alias.lower() for c in stmt.find_all(exp.CTE) if c.alias}
+    tables_referenced = set()
+    for node in stmt.find_all(exp.Table):
+        if not node.name:
+            continue
+        name = node.name.lower()
+        if name in cte_names and not any(
+            (c.alias or "").lower() == name for c in _ancestors(node, exp.CTE)
+        ):
+            continue
+        tables_referenced.add(name)
     disallowed = tables_referenced - _ALLOWED_TABLES
     if disallowed:
         raise ValueError(
@@ -242,19 +276,56 @@ def _validate_sql(sql: str) -> str:
     return sql.strip()
 
 
+def _conjuncts(expr) -> list:
+    """Flatten a predicate into its top-level AND conjuncts (unwrapping parens)."""
+    import sqlglot.expressions as exp
+
+    if expr is None:
+        return []
+    if isinstance(expr, exp.Paren):
+        return _conjuncts(expr.this)
+    if isinstance(expr, exp.And):
+        return _conjuncts(expr.this) + _conjuncts(expr.expression)
+    return [expr]
+
+
+def _block_conjuncts(select) -> list:
+    """
+    Predicates that unconditionally restrict the rows of one SELECT block:
+    top-level AND conjuncts of its WHERE, plus those of the ON clause of any
+    INNER join (an inner-join ON filter is equivalent to a WHERE filter; an
+    outer-join ON filter is not, so it never counts).
+    """
+    where = select.args.get("where")
+    out = _conjuncts(where.this) if where is not None else []
+    for join in select.args.get("joins") or []:
+        side = (join.args.get("side") or "").upper()
+        kind = (join.args.get("kind") or "").upper()
+        if side or kind not in ("", "INNER"):
+            continue
+        out += _conjuncts(join.args.get("on"))
+    return out
+
+
 def _enforce_user_isolation(sql: str) -> None:
     """
     Reject SQL that does not isolate each user-scoped table to the current user.
 
-    Three-tier check:
-    1. Text scan: :user_id must appear in the SQL string.
-    2. AST check: walk every user-scoped table in the query and verify it has a
-       direct equality predicate (alias.col = :user_id) in the WHERE clause.
-       A filter on one table does NOT satisfy the isolation requirement for
-       another — cross-joins and missing filters are both rejected.
-    3. The regex fallback (no sqlglot) applies a simpler text-level check.
+    Structural check, per SELECT block (the root, each CTE, each subquery):
+    every user-scoped table referenced directly in that block must have an
+    equality `alias.<user col> = :user_id` that is a top-level AND conjunct of
+    the block's WHERE (or of an INNER JOIN ON). Equalities under OR, NOT, CASE,
+    functions, the SELECT list, HAVING or ORDER BY do not count, and a filter in
+    one block never satisfies a table in another block. The root must be a plain
+    SELECT (UNION/INTERSECT/EXCEPT are rejected).
 
-    Raises ValueError with a human-readable reason on failure.
+    Soft-delete tables (_SOFT_DELETE_TABLES: content_items) additionally need a
+    top-level `alias.deleted_at IS NULL` conjunct so trashed rows stay hidden.
+    Highlights and chunks of a trashed article carry no deleted_at of their own;
+    queries over them must join content_items and filter it the same way.
+
+    An unqualified column is credited only when exactly one table in the block
+    could own it. Raises ValueError with a human-readable reason on failure.
     """
     if ":user_id" not in sql:
         raise ValueError(
@@ -273,57 +344,76 @@ def _enforce_user_isolation(sql: str) -> None:
     except Exception:
         return  # parse errors already caught in _validate_sql; don't re-raise
 
-    # Build alias → table_name map.  When no alias is given, the alias equals
-    # the table name so the logic below is uniform.
-    alias_map: dict[str, str] = {}
-    for table_node in stmt.find_all(exp.Table):
-        name = table_node.name.lower()
-        alias = (table_node.alias or name).lower()
-        alias_map[alias] = name
+    if not isinstance(stmt, exp.Select):
+        raise ValueError(
+            f"Only a plain SELECT is allowed (got {type(stmt).__name__}); "
+            "UNION/INTERSECT/EXCEPT are not permitted."
+        )
 
-    # Collect all (alias, col) pairs that are directly equality-filtered against :user_id.
-    # We track by alias (not table name) so that a query joining a table to itself is
-    # handled correctly.
-    filtered_aliases: set[str] = set()
-    for eq in stmt.find_all(exp.EQ):
-        for col_side, val_side in ((eq.this, eq.expression), (eq.expression, eq.this)):
-            if (
-                isinstance(val_side, exp.Placeholder)
-                and val_side.name == "user_id"
-                and isinstance(col_side, exp.Column)
+    for block in stmt.find_all(exp.Select):
+        # alias -> table name for tables that belong directly to this block.
+        alias_map: dict[str, str] = {}
+        for table_node in block.find_all(exp.Table):
+            if table_node.find_ancestor(exp.Select) is not block:
+                continue
+            name = table_node.name.lower()
+            alias_map[(table_node.alias or name).lower()] = name
+
+        scoped = {a: t for a, t in alias_map.items() if t in _USER_SCOPED_TABLES}
+        if not scoped:
+            continue
+
+        def resolve(col, owns) -> str | None:
+            """Alias in this block that `col` refers to, or None if unresolvable."""
+            qualifier = (col.table or "").lower()
+            candidates = [a for a, t in alias_map.items() if owns(t)]
+            if qualifier:
+                return qualifier if qualifier in candidates else None
+            return candidates[0] if len(candidates) == 1 else None
+
+        user_filtered: set[str] = set()
+        not_deleted: set[str] = set()
+        for pred in _block_conjuncts(block):
+            if isinstance(pred, exp.EQ):
+                for col, val in (
+                    (pred.this, pred.expression),
+                    (pred.expression, pred.this),
+                ):
+                    if (
+                        isinstance(col, exp.Column)
+                        and isinstance(val, exp.Placeholder)
+                        and val.name == "user_id"
+                    ):
+                        alias = resolve(
+                            col,
+                            lambda t, c=col.name.lower(): _USER_SCOPED_TABLES.get(t)
+                            == c,
+                        )
+                        if alias:
+                            user_filtered.add(alias)
+            elif (
+                isinstance(pred, exp.Is)
+                and isinstance(pred.this, exp.Column)
+                and pred.this.name.lower() == "deleted_at"
+                and isinstance(pred.expression, exp.Null)
             ):
-                col_name = col_side.name.lower()
-                col_table = (col_side.table or "").lower()
-                # Candidate aliases whose table has a matching user-scoping column.
-                candidates = [
-                    alias
-                    for alias, tbl in alias_map.items()
-                    if _USER_SCOPED_TABLES.get(tbl) == col_name
-                ]
-                if col_table:
-                    # Qualified: isolates exactly the named alias.
-                    if col_table in candidates:
-                        filtered_aliases.add(col_table)
-                elif len(candidates) == 1:
-                    # Unqualified but unambiguous — only one joined table could own
-                    # this column, so Postgres (and this checker) can resolve it.
-                    filtered_aliases.add(candidates[0])
-                # Unqualified with >1 candidate is genuinely ambiguous — Postgres
-                # would only accept this if just one table has the column, so if
-                # multiple do, don't credit any of them with isolation. The
-                # "missing predicate" error below will correctly reject the query.
+                alias = resolve(pred.this, lambda t: t in _SOFT_DELETE_TABLES)
+                if alias:
+                    not_deleted.add(alias)
 
-    # Every alias for a user-scoped table must appear in filtered_aliases.
-    for alias, tbl in alias_map.items():
-        if tbl not in _USER_SCOPED_TABLES:
-            continue  # bridge table — no user column, exempt
-        if alias not in filtered_aliases:
-            user_col = _USER_SCOPED_TABLES[tbl]
-            raise ValueError(
-                f"Table '{tbl}' (alias '{alias}') is user-scoped but has no direct "
-                f"WHERE {user_col} = :user_id predicate. "
-                "A filter on another table in the same query does not provide isolation."
-            )
+        for alias, tbl in scoped.items():
+            if alias not in user_filtered:
+                user_col = _USER_SCOPED_TABLES[tbl]
+                raise ValueError(
+                    f"Table '{tbl}' (alias '{alias}') is user-scoped but has no direct "
+                    f"top-level WHERE {user_col} = :user_id predicate (AND-ed, not under "
+                    "OR/NOT/CASE) in its own query block."
+                )
+            if tbl in _SOFT_DELETE_TABLES and alias not in not_deleted:
+                raise ValueError(
+                    f"Table '{tbl}' (alias '{alias}') needs a top-level "
+                    "WHERE deleted_at IS NULL predicate to exclude trashed rows."
+                )
 
 
 def _validate_sql_regex(sql: str) -> str:
