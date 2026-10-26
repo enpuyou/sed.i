@@ -9,6 +9,9 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from jose import JWTError, jwt
+
+from app.core.auth_cookies import ACCESS_TOKEN_COOKIE
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -65,6 +68,19 @@ def _get_redis_client():
         return None
 
 
+# Atomic check-and-record: evict, count, conditionally add, refresh TTL in one
+# server-side step so concurrent requests cannot all pass the count check.
+_SLIDING_WINDOW_LUA = """
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return 1
+"""
+
+
 class RedisRateLimiter:
     """Sliding-window rate limiter backed by Redis sorted sets, so limits are
     enforced across every backend instance rather than per-process.
@@ -94,19 +110,17 @@ class RedisRateLimiter:
         window_start = now - window_seconds
 
         try:
-            pipe = r.pipeline()
-            pipe.zremrangebyscore(key, 0, window_start)
-            pipe.zcard(key)
-            _, count = pipe.execute()
-
-            if count >= max_requests:
-                return False
-
-            pipe = r.pipeline()
-            pipe.zadd(key, {f"{now}:{os.urandom(4).hex()}": now})
-            pipe.expire(key, window_seconds)
-            pipe.execute()
-            return True
+            allowed = r.register_script(_SLIDING_WINDOW_LUA)(
+                keys=[key],
+                args=[
+                    window_start,
+                    max_requests,
+                    now,
+                    f"{now}:{os.urandom(4).hex()}",
+                    window_seconds,
+                ],
+            )
+            return bool(allowed)
         except Exception as e:
             logger.warning(f"Redis error during rate limit check ({e}), degrading open")
             return True
@@ -129,6 +143,27 @@ _LIMITED_ROUTES: dict[tuple[str, str], tuple[int, int]] = {
 }
 
 
+def _token_subject(request: Request) -> str | None:
+    """JWT `sub` of a valid access token (Bearer header, else auth cookie).
+    Signature + expiry only, no DB lookup. Invalid/expired/missing -> None,
+    so the caller falls back to the client IP."""
+    token = None
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+    token = token or request.cookies.get(ACCESS_TOKEN_COOKIE)
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+    except JWTError:
+        return None
+    sub = payload.get("sub")
+    return sub if isinstance(sub, str) and sub else None
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware class for rate limiting. Backed by Redis so limits hold
     across multiple backend instances; see RedisRateLimiter above."""
@@ -142,10 +177,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Get identifier
             user_id = "unknown"
 
-            if hasattr(request.state, "user"):
-                user = request.state.user
-                if user and hasattr(user, "id"):
-                    user_id = f"user:{user.id}"
+            subject = _token_subject(request)
+            if subject:
+                user_id = f"user:{subject}"
             elif request.client:
                 user_id = f"ip:{request.client.host}"
 

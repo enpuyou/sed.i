@@ -497,12 +497,25 @@ always evaluates to `False` (Column objects are truthy). Replaced with
   per-request tokens scored by request timestamp; each check does
   `ZREMRANGEBYSCORE` (evict entries older than the window) + `ZCARD`, and on
   success `ZADD` + `EXPIRE` (TTL = window, so abandoned buckets self-expire).
+  The four steps run as one Lua script (`register_script`), so concurrent
+  requests cannot all pass the count check.
   Coordinates correctly across multiple backend instances, unlike a
   process-local dict.
 - Limits: `POST /content` 10/60s + 50/3600s; `POST /auth/login` 10/60s +
   30/3600s; `POST /auth/register` 5/60s + 15/3600s; `GET /search/semantic`
-  30/60s + 300/3600s per user (identified by JWT user ID; falls back to
-  client IP if auth not on request state).
+  30/60s + 300/3600s. Identity: the middleware decodes the access token
+  (`Authorization: Bearer`, else the `sedi_access_token` cookie) with the
+  app's JWT secret, no DB lookup, and keys on `user:{sub}` (the token's
+  `sub`, the user's email). Missing, invalid, or expired tokens fall back to
+  `ip:{request.client.host}`. `X-Forwarded-For` and `CF-Connecting-IP` are
+  deliberately not read (spoofable without a trusted proxy).
+- **Follow-up (not implemented), anonymous limits per visitor:** behind
+  Cloudflare and Railway, `request.client.host` may be a shared proxy address,
+  so anonymous routes (`/auth/login`, `/auth/register`) can share one bucket.
+  Fixing it needs one of: run uvicorn with `--proxy-headers` and
+  `--forwarded-allow-ips` set to the Railway proxy addresses, or read
+  `CF-Connecting-IP` only when the request carries a shared-secret header
+  added by the Cloudflare Worker.
 - Response on exceeded: HTTP 429 with `{detail: "Too many requests. Please try again later."}`,
   CORS headers from `ALLOWED_ORIGINS`, and a `Retry-After` header (seconds).
 - **Fail-open on Redis outage**: matches the LLM budget checker's pattern
