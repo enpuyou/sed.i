@@ -472,6 +472,8 @@ def extract_metadata(self, item_id: str):
             )
             if s3_key:
                 item.s3_key = s3_key
+            if item.processing_error == RESTART_MARKER:
+                item.processing_error = None
             item.processing_status = "completed"
             self.db.commit()
             logger.info(f"PDF extraction complete for {url}")
@@ -1730,6 +1732,71 @@ def extract_full_content_for_item(item_id: str, db) -> None:
 
     item.processing_status = "completed"
     db.commit()
+
+
+# Remembered in processing_error when a stuck 'processing' item is reset, so a
+# second stall marks it failed instead of looping a poison item forever.
+RESTART_MARKER = "Worker restarted during extraction"
+STUCK_FAILED_MESSAGE = (
+    "Extraction was interrupted twice by worker restarts and was stopped. "
+    "Open the original URL to continue reading."
+)
+# Celery's hard limit is 30 min; extract_metadata commits (refreshing
+# updated_at) when it starts, so 35 min of silence means the worker died.
+_STUCK_AFTER_MINUTES = 35
+_STUCK_BATCH_LIMIT = 100
+
+
+@celery_app.task(base=DatabaseTask, bind=True)
+def recover_stuck_processing_items(self):
+    """
+    Sweep (beat, every 10 min): items left at processing_status='processing'
+    because a worker was killed mid-extraction (deploy, out-of-memory).
+
+    First stall: reset to 'pending' and set processing_error to RESTART_MARKER;
+    recover_stale_pending_items then redispatches it. Second stall (marker
+    already present): mark 'failed' so an item that kills the worker every
+    time stops being retried. Work is synchronous, so the lock is released on
+    completion; its TTL (540 s) is below the 600 s schedule interval.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.core.task_locks import acquire_run_lock, release_run_lock
+
+    lock_name = "recover_stuck_processing_items"
+    if not acquire_run_lock(lock_name, ttl_seconds=540):
+        logger.info(f"{lock_name}: previous run still in progress, skipping")
+        return {"recovered": 0, "failed": 0, "status": "skipped", "reason": "lock_held"}
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=_STUCK_AFTER_MINUTES)
+        stuck = (
+            self.db.query(ContentItem)
+            .filter(
+                ContentItem.processing_status == "processing",
+                ContentItem.updated_at < cutoff,
+            )
+            .order_by(ContentItem.updated_at)
+            .limit(_STUCK_BATCH_LIMIT)
+            .all()
+        )
+        recovered = failed = 0
+        for item in stuck:
+            if item.processing_error == RESTART_MARKER:
+                item.processing_status = "failed"
+                item.processing_error = STUCK_FAILED_MESSAGE
+                failed += 1
+            else:
+                item.processing_status = "pending"
+                item.processing_error = RESTART_MARKER
+                recovered += 1
+            logger.warning(
+                f"{lock_name}: item {item.id} stuck in processing since "
+                f"{item.updated_at} -> {item.processing_status}"
+            )
+        self.db.commit()
+        return {"recovered": recovered, "failed": failed}
+    finally:
+        release_run_lock(lock_name)
 
 
 @celery_app.task(base=DatabaseTask, bind=True)
