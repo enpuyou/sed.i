@@ -1,4 +1,5 @@
 import os
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Allow overriding the .env file path via ENV_FILE env var.
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     MCP_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     OPENAI_API_KEY: str = ""
     DISCOGS_TOKEN: str = ""
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # Feature Flags / Tuning
     SIMILARITY_THRESHOLD_CONNECTIONS: float = 0.3
@@ -165,6 +166,14 @@ class Settings(BaseSettings):
     SEDI_ENV: str = "production"
 
     model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
+
+    @model_validator(mode="after")
+    def _require_strong_secret_outside_debug(self):
+        if not self.DEBUG and len(self.SECRET_KEY) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters when DEBUG is off"
+            )
+        return self
 
 
 settings = Settings()

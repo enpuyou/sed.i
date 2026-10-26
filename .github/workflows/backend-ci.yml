@@ -113,7 +113,7 @@ jobs:
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
         REDIS_URL: redis://localhost:6379/0
-        SECRET_KEY: test-secret-key-for-ci
+        SECRET_KEY: test-secret-key-for-ci-0123456789abcdef
 
     - name: Golden-path tests (must pass before full suite)
       working-directory: ./content-queue-backend
@@ -122,7 +122,7 @@ jobs:
         TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
         REDIS_URL: redis://localhost:6379/0
-        SECRET_KEY: test-secret-key-for-ci
+        SECRET_KEY: test-secret-key-for-ci-0123456789abcdef
 
     - name: Full test suite
       working-directory: ./content-queue-backend
@@ -131,5 +131,5 @@ jobs:
         TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
         REDIS_URL: redis://localhost:6379/0
-        SECRET_KEY: test-secret-key-for-ci
+        SECRET_KEY: test-secret-key-for-ci-0123456789abcdef
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

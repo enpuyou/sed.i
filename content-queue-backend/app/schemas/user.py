@@ -43,6 +43,15 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PublicProfileResponse(BaseModel):
+    """Unauthenticated public profile: only what the profile page renders."""
+
+    username: str | None
+    full_name: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class Token(BaseModel):
     """JWT token response"""
 

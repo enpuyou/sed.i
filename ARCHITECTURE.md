@@ -997,7 +997,7 @@ Environment variable driven — all default to `true` unless explicitly disabled
 ### Current protections
 
 - Password hashing: bcrypt via passlib.
-- JWT: signed with `SECRET_KEY`, expiry enforced.
+- JWT: signed with `SECRET_KEY`, expiry enforced. `Settings` rejects a `SECRET_KEY` shorter than 32 characters unless `DEBUG` is on; `DEBUG` defaults to False (dev `.env` sets it True).
 - CORS: origin list driven by environment variable.
 - Rate limiting: Redis-backed, covers `POST /content`, `POST /auth/login`,
   `POST /auth/register`, `GET /search/semantic` (see §8).
@@ -1073,6 +1073,10 @@ Environment variable driven — all default to `true` unless explicitly disabled
 ---
 
 ## 16. Error handling and reliability
+
+### Health endpoints
+
+`GET /health` is liveness only (always `{"status":"healthy"}`). `GET /ready` runs `SELECT 1` and a Redis `PING`, each bounded to 1 second, and returns 503 `{"status":"unavailable","failed":"database"|"redis"}` when one fails (`app/main.py`).
 
 ### Backend error shape
 
@@ -1201,11 +1205,11 @@ Covered in §10.
 - `List.is_public` (Boolean) — Visibility toggle.
 
 ### API Routes — `/public`
-These routes do not require authentication (`@router.get` without the `Depends(get_current_active_user)` guard). Implemented in `content-queue-backend/app/api/endpoints/public.py`.
+These routes do not require authentication (`@router.get` without the `Depends(get_current_active_user)` guard). Implemented in `content-queue-backend/app/api/endpoints/public.py`. Content and vinyl responses omit `user_id` and `processing_error`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/public/u/{username}` | Profile details. 404 if not found, 403 if `is_public=False`. |
+| GET | `/public/u/{username}` | Profile details (`PublicProfileResponse`: `username`, `full_name` only). Same 404 `Profile not found` for missing and private profiles (no username enumeration). |
 | GET | `/public/u/{username}/content` | Paginated public queue items (only `is_public=True`, non-archived). Only succeeds if `user.is_queue_public=True`. |
 | GET | `/public/u/{username}/content/{item_id}` | Single public content item for the public reader. |
 | GET | `/public/u/{username}/vinyl` | Public vinyl records. Only succeeds if `user.is_crates_public=True`. |
