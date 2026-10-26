@@ -1,0 +1,17 @@
+---
+layout: layouts/base.njk
+---
+{% set nb = collections.chapters | neighbours(page.url) %}
+<article data-pagefind-body>
+  <header class="chapter-head">
+    <p class="eyebrow">{{ part }} · {{ part | partTitle }}{% if order %} &nbsp;/&nbsp; {{ part }}.{{ order }}{% endif %}</p>
+    <h1>{{ title }}</h1>
+    {% if summary %}<p class="dek">{{ summary }}</p>{% endif %}
+    <p class="meta">{{ content | readMinutes }} min read{% if verified %} · checked against the code on {{ verified | ymd }}{% endif %}</p>
+  </header>
+  {{ content | safe }}
+</article>
+<nav class="pager" aria-label="Previous and next chapter">
+  {% if nb.prev %}<a class="prev" href="{{ nb.prev.url }}"><span>Previous</span>{{ nb.prev.data.title }}</a>{% else %}<span></span>{% endif %}
+  {% if nb.next %}<a class="next" href="{{ nb.next.url }}"><span>Next</span>{{ nb.next.data.title }}</a>{% endif %}
+</nav>

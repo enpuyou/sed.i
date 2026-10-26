@@ -1,0 +1,18 @@
+{
+  "name": "sedi-guide",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "eleventy && pagefind --site _site --quiet",
+    "build:pages": "eleventy --pathprefix=/sed.i/ && pagefind --site _site --quiet",
+    "start": "eleventy --serve",
+    "check": "node scripts/check.mjs"
+  },
+  "devDependencies": {
+    "@11ty/eleventy": "^3.1.2",
+    "markdown-it-anchor": "^9.2.0",
+    "pagefind": "^1.3.0",
+    "prismjs": "^1.29.0"
+  }
+}

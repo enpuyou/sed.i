@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if title %}{{ title }} · {% endif %}{{ site.title }} guide</title>
+  <meta name="description" content="{{ summary or site.subtitle }}">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 fill=%27%238b5e3c%27/%3E%3Ctext x=%2716%27 y=%2723%27 font-size=%2722%27 text-anchor=%27middle%27 font-family=%27Georgia,serif%27 fill=%27%23fbf9f4%27%3Ei%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/guide.css">
+  <link rel="stylesheet" href="/pagefind/pagefind-ui.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">{{ site.title }}<span> guide</span></a>
+    <div id="search" class="search"></div>
+  </header>
+  <div class="shell">
+    <nav class="side" aria-label="Chapters">
+      <details class="menu" open>
+        <summary>Chapters</summary>
+        {% for group in collections.chapters | groupByPart %}
+        <section>
+          <h2>{{ group.part }} · {{ group.part | partTitle }}</h2>
+          <ol>
+            {% for c in group.items %}
+            <li{% if c.url == page.url %} class="current" aria-current="page"{% endif %}><a href="{{ c.url }}"><span class="num">{{ c.data.part }}.{{ c.data.order }}</span> {{ c.data.title }}</a></li>
+            {% endfor %}
+          </ol>
+        </section>
+        {% endfor %}
+      </details>
+    </nav>
+    <main class="page">
+      {{ content | safe }}
+    </main>
+  </div>
+  <footer class="foot">
+    <a href="{{ site.repo }}">Source on GitHub</a>
+  </footer>
+  <script src="/pagefind/pagefind-ui.js"></script>
+  <script>
+    if (window.PagefindUI) {
+      new PagefindUI({ element: "#search", showImages: false, showSubResults: false, resetStyles: false, translations: { placeholder: "Search the guide" } });
+    }
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      var m = document.querySelector(".menu"); if (m) m.removeAttribute("open");
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+node_modules/
+_site/
+.cache/
+# Local notes on where docs disagreed with code; may describe unpatched issues
+discrepancies/

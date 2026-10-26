@@ -1,0 +1,208 @@
+/* sed.i guide: one reading column, warm paper, one accent. No web fonts. */
+
+:root {
+  --paper: #fbf9f4;
+  --paper-2: #f3f0e7;
+  --ink: #221f1a;
+  --ink-2: #4a453c;
+  --muted: #7a7366;
+  --rule: #e4dfd2;
+  --accent: #8b5e3c;
+  --measure: 68ch;
+  --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171512;
+    --paper-2: #201d19;
+    --ink: #e9e4d8;
+    --ink-2: #c3bdae;
+    --muted: #958e80;
+    --rule: #2e2a24;
+    --accent: #d1a77c;
+  }
+}
+
+* { box-sizing: border-box; }
+html { font-size: 100%; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.125rem;
+  line-height: 1.65;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+}
+
+/* ---------- top bar ---------- */
+.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.9rem clamp(1rem, 3vw, 2rem);
+  border-bottom: 1px solid var(--rule);
+}
+.brand { color: var(--ink); text-decoration: none; font-weight: 600; letter-spacing: 0.01em; }
+.brand span { color: var(--muted); font-weight: 400; }
+.search { width: min(20rem, 55vw); font-size: 0.95rem; }
+
+/* ---------- layout ---------- */
+.shell {
+  display: grid;
+  grid-template-columns: 16rem minmax(0, 1fr);
+  gap: clamp(1rem, 4vw, 3.5rem);
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: 0 clamp(1rem, 3vw, 2rem);
+}
+.side {
+  position: sticky; top: 0; align-self: start;
+  max-height: 100vh; overflow-y: auto;
+  padding: 1.75rem 0 2rem;
+  font-size: 0.9rem; line-height: 1.4;
+}
+.page { padding: 2.25rem 0 4rem; min-width: 0; }
+article, .pager, .page > section { max-width: var(--measure); }
+.foot { border-top: 1px solid var(--rule); padding: 1.25rem clamp(1rem, 3vw, 2rem); font-size: 0.85rem; color: var(--muted); text-align: center; }
+.foot a { color: var(--muted); }
+
+/* ---------- navigation ---------- */
+.menu summary { cursor: pointer; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.75rem; list-style: none; }
+.menu summary::-webkit-details-marker { display: none; }
+.side h2 { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em; color: var(--ink-2); margin: 1.25rem 0 0.35rem; }
+.side ol { list-style: none; margin: 0; padding: 0; }
+.side li { margin: 0.15rem 0; }
+.side a { display: block; color: var(--ink-2); text-decoration: none; padding: 0.1rem 0 0.1rem 0.6rem; border-left: 2px solid transparent; }
+.side a:hover { color: var(--accent); }
+.side li.current a { color: var(--ink); border-left-color: var(--accent); font-weight: 600; }
+.side .num { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 0.35em; font-weight: 400; }
+
+/* ---------- chapter head ---------- */
+.eyebrow { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 0.75rem; }
+h1 { font-size: 2.35rem; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 0.9rem; }
+.dek { font-size: 1.25rem; line-height: 1.5; color: var(--ink-2); margin: 0 0 0.75rem; }
+.meta { font-size: 0.85rem; color: var(--muted); margin: 0 0 2.25rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--rule); }
+
+/* ---------- text ---------- */
+h2 { font-size: 1.55rem; line-height: 1.25; font-weight: 600; margin: 3rem 0 0.75rem; }
+h3 { font-size: 1.2rem; line-height: 1.3; font-weight: 600; font-style: italic; margin: 2rem 0 0.5rem; }
+h2 .anchor, h3 .anchor { color: inherit; text-decoration: none; }
+h2 .anchor:hover, h3 .anchor:hover { color: var(--accent); }
+p, ul, ol, dl, table, figure, details, pre, blockquote { margin: 0 0 1.1rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin: 0.25rem 0; }
+li > p { margin: 0.25rem 0; }
+a { color: var(--ink); text-decoration-color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
+a:hover { color: var(--accent); }
+strong { font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+blockquote { padding-left: 1rem; border-left: 2px solid var(--rule); color: var(--ink-2); }
+
+/* ---------- code ---------- */
+code, pre { font-family: var(--mono); font-size: 0.84em; }
+:not(pre) > code { background: var(--paper-2); padding: 0.08em 0.3em; border-radius: 2px; }
+pre {
+  background: var(--paper-2);
+  padding: 0.9rem 1rem; overflow-x: auto;
+  line-height: 1.5; tab-size: 4;
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+}
+pre code { font-size: 1em; background: none; padding: 0; }
+figure { margin-left: 0; margin-right: 0; }
+figure pre { margin-bottom: 0.35rem; }
+figcaption { font-size: 0.85rem; font-style: italic; color: var(--muted); }
+
+/* Prism tokens, kept quiet */
+.token.comment, .token.prolog, .token.doctype { color: var(--muted); font-style: italic; }
+.token.string, .token.attr-value, .token.char { color: var(--accent); }
+.token.keyword, .token.builtin, .token.boolean, .token.operator.keyword { color: var(--ink); font-weight: 600; }
+.token.function, .token.class-name { color: var(--ink); text-decoration: underline; text-decoration-color: var(--rule); }
+.token.number, .token.constant { color: var(--ink-2); }
+.token.punctuation, .token.operator { color: var(--ink-2); }
+.token.decorator, .token.annotation { color: var(--muted); }
+
+/* ---------- tables ---------- */
+table { width: 100%; border-collapse: collapse; font-size: 0.93rem; line-height: 1.45; display: block; overflow-x: auto; }
+th, td { text-align: left; padding: 0.45rem 0.9rem 0.45rem 0; vertical-align: top; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; border-bottom-color: var(--ink-2); white-space: nowrap; }
+td code { white-space: nowrap; }
+
+/* ---------- margin notes ---------- */
+.note { font-size: 0.85rem; line-height: 1.5; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: 0.8rem; margin: 0 0 1.1rem; }
+.note p { margin: 0 0 0.5rem; }
+@media (min-width: 1280px) {
+  .note { float: right; clear: right; width: 15rem; margin: 0.15rem -17.5rem 1rem 0; }
+}
+
+/* ---------- say it in 60 seconds ---------- */
+.say { margin: 2.5rem 0; padding: 1rem 1.25rem 0.4rem; background: var(--paper-2); border-left: 2px solid var(--accent); }
+.say .label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); margin: 0 0 0.5rem; }
+
+/* ---------- check yourself ---------- */
+.qa { border-top: 1px solid var(--rule); padding: 0.7rem 0; margin: 0; }
+.qa:last-of-type { border-bottom: 1px solid var(--rule); }
+.qa summary { cursor: pointer; list-style: none; position: relative; padding-left: 1.4rem; }
+.qa summary::-webkit-details-marker { display: none; }
+.qa summary::before { content: "+"; position: absolute; left: 0; color: var(--accent); font-family: var(--mono); }
+.qa[open] summary::before { content: "\2212"; }
+.qa > :not(summary) { margin-left: 1.4rem; color: var(--ink-2); }
+
+/* ---------- pager ---------- */
+.pager { display: flex; justify-content: space-between; gap: 1rem; margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); font-size: 0.95rem; }
+.pager a { text-decoration: none; max-width: 48%; }
+.pager a span { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---------- home ---------- */
+.home h1 { font-size: 2.8rem; }
+.parts { list-style: none; padding: 0; margin: 2rem 0; }
+.parts li { margin: 0; padding: 1rem 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 2.5rem 1fr; }
+.parts li:last-child { border-bottom: 1px solid var(--rule); }
+.parts .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+.parts h2 { margin: 0 0 0.25rem; font-size: 1.2rem; }
+.parts p { margin: 0 0 0.4rem; color: var(--ink-2); font-size: 1rem; }
+.parts .links { font-size: 0.93rem; line-height: 1.6; }
+.parts .links a { margin-right: 0.9rem; white-space: nowrap; }
+
+/* ---------- search (Pagefind default UI, restyled) ---------- */
+.search { --pagefind-ui-scale: 0.85; --pagefind-ui-primary: var(--accent); --pagefind-ui-text: var(--ink); --pagefind-ui-background: var(--paper); --pagefind-ui-border: var(--rule); --pagefind-ui-tag: var(--paper-2); --pagefind-ui-border-width: 1px; --pagefind-ui-border-radius: 2px; --pagefind-ui-font: var(--serif); }
+.search .pagefind-ui__drawer { position: absolute; right: 0; z-index: 10; width: min(34rem, 92vw); background: var(--paper); border: 1px solid var(--rule); padding: 1rem; max-height: 70vh; overflow-y: auto; }
+.top { position: relative; }
+
+/* ---------- small screens ---------- */
+@media (max-width: 900px) {
+  body { font-size: 1.0625rem; }
+  .shell { display: block; }
+  .side { position: static; max-height: none; padding: 1rem 0 0; border-bottom: 1px solid var(--rule); }
+  h1 { font-size: 1.95rem; }
+  .home h1 { font-size: 2.2rem; }
+  .page { padding-top: 1.5rem; }
+}
+
+@media print {
+  .side, .top, .pager, .foot { display: none; }
+  .shell { display: block; }
+  body { background: #fff; color: #000; }
+}
+
+/* ---------- home: part list ---------- */
+.home .parts li { padding: 1.1rem 0; }
+.home .parts h2 { font-size: 1.15rem; }
+.home .parts .links a { display: inline-block; }
+
+/* Pagefind default UI: bring it in line with the rest of the page */
+.search .pagefind-ui { --pagefind-ui-font: Charter, "Iowan Old Style", Georgia, serif; --pagefind-ui-scale: 0.85; }
+.search .pagefind-ui__search-input { font-weight: 400; font-size: 1rem; background: transparent; border-radius: 0; height: 2.3rem; color: var(--ink); }
+.search .pagefind-ui__search-input::placeholder { color: var(--muted); opacity: 1; font-weight: 400; }
+.search .pagefind-ui__result-title, .search .pagefind-ui__result-link { font-weight: 600; color: var(--ink); text-decoration-color: var(--accent); }
+.search .pagefind-ui__result-excerpt { color: var(--ink-2); }
+.search mark { background: var(--paper-2); color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); }
+.home .dek { margin-bottom: 1.75rem; }
+
+/* Wide tables (5+ columns) may extend into the right margin on large screens. */
+@media (min-width: 1280px) {
+  table:has(thead th:nth-child(5)) { width: calc(100% + 20rem); max-width: 58rem; }
+}
