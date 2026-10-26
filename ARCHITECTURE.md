@@ -1451,6 +1451,8 @@ The planner reads memory via `_fetch_research_memory` (`tasks/research.py`). Its
 
 The nightly memory consolidation task (`consolidate_memory`) reads recurring `none`-coverage sub-questions from `research_memory` and writes a `persistent_gaps` text field to `user_profiles`. This feeds back into the MCP synthesis context.
 
+Quick `synthesize_topic` (`mcp/tools/synthesis.py`) adds each source's most recent highlight to the prompt; `_build_context` filters highlights by the calling user's id (hybrid_search rows carry no `user_id`, so the earlier `r.get("user_id")` filter matched nothing and no highlight was ever included).
+
 ### Agentic features reference
 
 See `docs/design/systems/agentic-features.md` for a full inventory of all agentic capabilities, design tradeoffs, and known gaps.
