@@ -1,4 +1,4 @@
-/* sed.i guide. Three switchable looks during review (?look=a|b|c); fonts are self-hosted. */
+/* sed.i guide. Fonts are self-hosted. */
 
 @font-face { font-family: "Inter Variable"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("../fonts/inter-latin-wght-normal.woff2") format("woff2-variations"); }
 @font-face { font-family: "JetBrains Mono Variable"; font-style: normal; font-weight: 100 800; font-display: swap; src: url("../fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations"); }
@@ -7,7 +7,6 @@
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
 
-/* generated looks */
 :root {
   --paper: #ffffff;
   --paper2: #f6f6f6;
@@ -27,39 +26,8 @@
   --eyebrow-case: none;
 }
 
-:root[data-look="a"] {
-  --paper: #ffffff;
-  --paper2: #f6f6f6;
-  --ink: #0a0a0a;
-  --ink2: #454545;
-  --muted: #737373;
-  --rule: #e6e6e6;
-  --accent: #2563eb;
-  --font-body: "Inter Variable", Inter, ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-head: "Inter Variable", Inter, ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs: 1.0313rem;
-  --lh: 1.72;
-  --hw: 600;
-  --ht: -0.018em;
-  --radius: 6px;
-  --eyebrow-case: none;
-}
-
 @media (prefers-color-scheme: dark) {
-:root:not([data-look]):not([data-theme="light"]) {
-    --paper: #0a0a0a;
-    --paper2: #141414;
-    --ink: #ededed;
-    --ink2: #bdbdbd;
-    --muted: #8c8c8c;
-    --rule: #262626;
-    --accent: #7aa2ff;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-:root[data-look="a"]:not([data-theme="light"]) {
+  :root:not([data-theme="light"]) {
     --paper: #0a0a0a;
     --paper2: #141414;
     --ink: #ededed;
@@ -78,98 +46,6 @@
   --muted: #8c8c8c;
   --rule: #262626;
   --accent: #7aa2ff;
-}
-
-:root[data-look="a"][data-theme="dark"] {
-  --paper: #0a0a0a;
-  --paper2: #141414;
-  --ink: #ededed;
-  --ink2: #bdbdbd;
-  --muted: #8c8c8c;
-  --rule: #262626;
-  --accent: #7aa2ff;
-}
-
-:root[data-look="b"] {
-  --paper: #fbfcfd;
-  --paper2: #f1f5f9;
-  --ink: #0f172a;
-  --ink2: #334155;
-  --muted: #64748b;
-  --rule: #e2e8f0;
-  --accent: #0f766e;
-  --font-body: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-head: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --fs: 1rem;
-  --lh: 1.72;
-  --hw: 650;
-  --ht: -0.012em;
-  --radius: 8px;
-  --eyebrow-case: none;
-}
-
-@media (prefers-color-scheme: dark) {
-:root[data-look="b"]:not([data-theme="light"]) {
-    --paper: #0b1120;
-    --paper2: #111a2e;
-    --ink: #e2e8f0;
-    --ink2: #b6c2d4;
-    --muted: #8394ab;
-    --rule: #1e2a44;
-    --accent: #5eead4;
-  }
-}
-
-:root[data-look="b"][data-theme="dark"] {
-  --paper: #0b1120;
-  --paper2: #111a2e;
-  --ink: #e2e8f0;
-  --ink2: #b6c2d4;
-  --muted: #8394ab;
-  --rule: #1e2a44;
-  --accent: #5eead4;
-}
-
-:root[data-look="c"] {
-  --paper: #ffffff;
-  --paper2: #f4f4f4;
-  --ink: #000000;
-  --ink2: #3a3a3a;
-  --muted: #6b6b6b;
-  --rule: #dcdcdc;
-  --accent: #d9480f;
-  --font-body: "Inter Variable", Inter, ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-head: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs: 1.0313rem;
-  --lh: 1.72;
-  --hw: 600;
-  --ht: -0.02em;
-  --radius: 0px;
-  --eyebrow-case: uppercase;
-}
-
-@media (prefers-color-scheme: dark) {
-:root[data-look="c"]:not([data-theme="light"]) {
-    --paper: #0b0b0b;
-    --paper2: #161616;
-    --ink: #f2f2f2;
-    --ink2: #bdbdbd;
-    --muted: #8c8c8c;
-    --rule: #2a2a2a;
-    --accent: #ff8a4c;
-  }
-}
-
-:root[data-look="c"][data-theme="dark"] {
-  --paper: #0b0b0b;
-  --paper2: #161616;
-  --ink: #f2f2f2;
-  --ink2: #bdbdbd;
-  --muted: #8c8c8c;
-  --rule: #2a2a2a;
-  --accent: #ff8a4c;
 }
 
 * { box-sizing: border-box; }
