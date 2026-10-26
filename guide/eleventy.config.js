@@ -40,6 +40,10 @@ export default function (eleventyConfig) {
   // Authors write root-relative links (/retrieval/...); the plugin adds the Pages path prefix.
   eleventyConfig.addPlugin(EleventyHtmlBasePlugin);
   eleventyConfig.addPassthroughCopy({ "src/css": "css" });
+  eleventyConfig.addPassthroughCopy({
+    "node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2": "fonts/inter-latin-wght-normal.woff2",
+    "node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2": "fonts/jetbrains-mono-latin-wght-normal.woff2",
+  });
 
   const md = markdownIt({
     html: true,
@@ -53,21 +57,36 @@ export default function (eleventyConfig) {
   });
   eleventyConfig.setLibrary("md", md);
 
-  // Margin note: sits in the right margin on wide screens, inline otherwise.
+  // Shortcode output is stored and swapped in after the Markdown pass. Returning HTML
+  // straight into Markdown lets the outer parse re-read it: a blank line inside a code
+  // block would end the HTML block, flatten the indentation and curl the quotes.
+  const blocks = new Map();
+  let blockId = 0;
+  const hold = (html) => {
+    const id = ++blockId;
+    blocks.set(id, html);
+    return `\n\n<!--GUIDE_BLOCK_${id}-->\n\n`;
+  };
+  eleventyConfig.addTransform("release-blocks", (content, outputPath) => {
+    if (!outputPath || !outputPath.endsWith(".html")) return content;
+    return content.replace(/<!--GUIDE_BLOCK_(\d+)-->/g, (_, id) => blocks.get(Number(id)) ?? "");
+  });
+
+  // Side note, shown as an indented callout.
   eleventyConfig.addPairedShortcode("aside", (content) =>
-    `<aside class="note">${md.render(content.trim())}</aside>`);
+    hold(`<aside class="note">${md.render(content.trim())}</aside>`));
 
   // Spoken-style explanation used at the end of every chapter.
   eleventyConfig.addPairedShortcode("say", (content) =>
-    `<div class="say"><p class="label">Say it in 60 seconds</p>${md.render(content.trim())}</div>`);
+    hold(`<div class="say"><p class="label">Say it in 60 seconds</p>${md.render(content.trim())}</div>`));
 
   // Self-test question with the answer hidden.
   eleventyConfig.addPairedShortcode("qa", (content, question) =>
-    `<details class="qa"><summary>${md.renderInline(question)}</summary>${md.render(content.trim())}</details>`);
+    hold(`<details class="qa"><summary>${md.renderInline(question)}</summary>${md.render(content.trim())}</details>`));
 
   // Figure with a caption; the body is markdown (usually a fenced block).
   eleventyConfig.addPairedShortcode("fig", (content, caption) =>
-    `<figure>${md.render(content.trim())}<figcaption>${md.renderInline(caption)}</figcaption></figure>`);
+    hold(`<figure>${md.render(content.trim())}<figcaption>${md.renderInline(caption)}</figcaption></figure>`));
 
   eleventyConfig.addCollection("chapters", (api) =>
     api
@@ -75,6 +94,25 @@ export default function (eleventyConfig) {
       .filter((p) => p.data.part !== undefined)
       .sort((a, b) => a.data.part - b.data.part || a.data.order - b.data.order));
 
+  // "On this page": nested list of the h2/h3 headings in rendered chapter HTML.
+  eleventyConfig.addFilter("toc", (html) => {
+    const items = [...String(html).matchAll(/<h([23]) id="([^"]+)"[^>]*><a class="anchor" href="#[^"]*">([\s\S]*?)<\/a><\/h\1>/g)]
+      .map((m) => ({ level: Number(m[1]), id: m[2], text: m[3].replace(/<[^>]+>/g, "") }));
+    let out = "<ul>";
+    let open = false;
+    for (const it of items) {
+      if (it.level === 2) {
+        if (open) out += "</ul></li>"; else if (out !== "<ul>") out += "</li>";
+        out += `<li><a href="#${it.id}">${it.text}</a>`;
+        open = false;
+      } else {
+        if (!open) { out += "<ul>"; open = true; }
+        out += `<li><a href="#${it.id}">${it.text}</a></li>`;
+      }
+    }
+    if (open) out += "</ul>";
+    return out + (items.length ? "</li>" : "") + "</ul>";
+  });
   eleventyConfig.addFilter("ymd", (d) => {
     if (d instanceof Date) return d.toISOString().slice(0, 10);
     return String(d);

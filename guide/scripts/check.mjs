@@ -112,6 +112,26 @@ for (const file of mdFiles) {
   }
 }
 
+// ---------- rendered code must equal the source excerpt ----------
+const unescapeHtml = (h) => h.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+  .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+if (!sourceOnly && fs.existsSync(siteDir)) {
+  for (const file of mdFiles) {
+    const text = fs.readFileSync(file, "utf8");
+    const { data, body } = frontMatter(text);
+    if (!data.permalink) continue;
+    const out = path.join(siteDir, data.permalink, "index.html");
+    if (!fs.existsSync(out)) continue;
+    const pres = [...fs.readFileSync(out, "utf8").matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/g)].map((m) => unescapeHtml(m[1]));
+    const srcRe2 = /<!--src ([^\s#>]+)(?:#(\d+)-(\d+))?-->\s*\n```[\w-]*\n([\s\S]*?)\n```/g;
+    for (let m; (m = srcRe2.exec(body)); ) {
+      const block = m[4];
+      if (/^\s*(#|\/\/|--)?\s*\.\.\.\s*$/m.test(block)) continue; // elided excerpts: skip exact comparison
+      if (!pres.some((p) => p.trim() === block.trim())) fail(file, `rendered code differs from its source block (starts: "${block.trim().slice(0, 50)}")`);
+    }
+  }
+}
+
 // ---------- built output checks ----------
 if (!sourceOnly && fs.existsSync(siteDir)) {
   const htmlFiles = walk(siteDir).filter((f) => f.endsWith(".html") && !f.includes("pagefind"));

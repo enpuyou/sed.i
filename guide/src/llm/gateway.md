@@ -16,7 +16,7 @@ The point of the single class is that these concerns exist once, not twenty-seve
 
 ## The problem
 
-The question this chapter answers: **why does sed.i put every model call behind one class instead of calling the OpenAI library where it is needed?**
+**Why does sed.i put every model call behind one class instead of calling the OpenAI library where it is needed?**
 
 The obvious design is to import `openai` in each task and call it. That works for a first feature. By the fifth feature it has these problems:
 

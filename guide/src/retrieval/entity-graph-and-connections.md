@@ -16,7 +16,7 @@ The second feature is highlight connections. When you open a highlight in the re
 
 ## The problem
 
-The question this chapter answers: **how can two articles be connected when they share no words, and how do you know whether the connection is worth showing?**
+**How can two articles be connected when they share no words, and how do you know whether the connection is worth showing?**
 
 Passage search ([Chunking and embedding](/retrieval/chunking-and-embedding/), [Hybrid search](/retrieval/hybrid-search/)) finds text that resembles the query. It fails when the link between two articles is a shared subject that each article describes in its own vocabulary. An article on management and one on internet "slop" may both be about the same chatbot, while sharing almost no phrases. A query for that chatbot finds one of them by wording and misses the other.
 

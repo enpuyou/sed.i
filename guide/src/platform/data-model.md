@@ -16,7 +16,7 @@ Deleting an article only sets a timestamp (`deleted_at`). That is a soft delete:
 
 ## The problem
 
-The question this chapter answers: **what does the database hold, and what rules does the schema itself enforce, as opposed to the rules the application code is trusted to follow?**
+**What does the database hold, and what rules does the schema itself enforce, as opposed to the rules the application code is trusted to follow?**
 
 The obvious simpler design is to keep a user's library as JSON files or one document per user. It works for one user and falls apart when the app needs to ask questions across rows: "unread articles tagged coffee", "the 10 passages closest to this question", "who mentioned this entity in how many articles". A relational database answers those with indexes instead of reading everything. It also gives guarantees that application code alone cannot: two requests that save the same URL at the same moment cannot both succeed if the database refuses the second, and deleting a user cannot leave orphaned passages behind if the database cascades the delete.
 

@@ -16,7 +16,7 @@ A separate worker process takes the message later, downloads the page, extracts 
 
 ## The problem
 
-The question this chapter answers: **why does `POST /content` return before the article exists, and what keeps that arrangement correct?**
+**Why does `POST /content` return before the article exists, and what keeps that arrangement correct?**
 
 The obvious design is synchronous: receive the URL, download the page, extract the text, store it, and reply when done. It is simple, and the reply contains the finished article. It fails in four ways.
 

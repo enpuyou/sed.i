@@ -16,7 +16,7 @@ This is also the chapter where one retry setting turns out to have been inert tw
 
 ## The problem
 
-The question this chapter answers: **how does a pile of saved articles get labels that are specific enough to group related reading, and how do you make a language model's free-form answer safe to write to a database?**
+**How does a pile of saved articles get labels that are specific enough to group related reading, and how do you make a language model's free-form answer safe to write to a database?**
 
 The obvious designs fall short.
 

@@ -16,7 +16,7 @@ The worker stores that HTML, counts the words, estimates reading time at 200 wor
 
 ## The problem
 
-The question this chapter answers: **how does sed.i get from an arbitrary web page to clean, readable article HTML, and how does it know when it failed to?**
+**How does sed.i get from an arbitrary web page to clean, readable article HTML, and how does it know when it failed to?**
 
 A web page is mostly not the article. It contains navigation, ads, cookie banners, related-story lists and footers, and its markup differs on every site. The obvious simple design is to store the page's HTML as it is. That fails because the reader would show the navigation and ads, the stored text would be dominated by boilerplate (which also pollutes search and embeddings), and styles and scripts from other sites would run inside the app.
 

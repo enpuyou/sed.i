@@ -16,7 +16,7 @@ The work followed one method: state a hypothesis, measure it on the real stack, 
 
 ## The problem
 
-The question this chapter answers: **what makes the sed.i backend use memory, which of those costs grow with the user's data, and how do you prove a fix worked?**
+**What makes the sed.i backend use memory, which of those costs grow with the user's data, and how do you prove a fix worked?**
 
 The obvious design is to give each service a bigger memory limit and stop thinking about it. That fails in two ways. Cost: Railway bills for memory used, so a service that peaks at 1.5 GB for a few seconds a day costs more than the peak deserves if the instance has to stay large. Safety: a limit only hides a cost that grows with data. A query that loads every row of a library is fine at 100 items and runs the process out of memory at 10,000.
 

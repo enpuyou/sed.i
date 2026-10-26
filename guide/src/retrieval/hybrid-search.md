@@ -14,7 +14,7 @@ The search box sends every query to one function, `hybrid_search`. A small set o
 
 ## The problem
 
-The question this chapter answers: **how do you combine search methods that score on different scales, without a model to decide which to trust?**
+**How do you combine search methods that score on different scales, without a model to decide which to trust?**
 
 Keyword search and meaning search fail in opposite ways, as [RAG from first principles](/retrieval/rag-from-first-principles/) showed. Keyword search misses paraphrases; semantic search blurs names and codes. Running both is easy. Combining the results is not, because the scores are incomparable. A keyword rank score runs from 0.001 to about 0.06 (measured below); a cosine similarity runs from 0.3 to 1.0. Adding them, or averaging, lets whichever lane has bigger numbers win regardless of quality.
 

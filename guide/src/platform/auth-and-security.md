@@ -16,7 +16,7 @@ Each time the access token is renewed, the refresh token is replaced and the old
 
 ## The problem
 
-The question this chapter answers: **how does the system know who is calling, stop one user from reading another's library, and limit the damage when a token leaks?**
+**How does the system know who is calling, stop one user from reading another's library, and limit the damage when a token leaks?**
 
 The obvious simple design is one long-lived token stored in the browser's `localStorage` and sent with every request. It is easy, but any script running on the page can read it (a single cross-site-scripting bug hands over the account permanently), and it cannot be revoked without changing the signing key for everyone. Cookies marked httpOnly fix the first problem, but browsers attach cookies automatically to requests from other sites, which creates a second one: cross-site request forgery (CSRF), where a hostile page makes the browser send a state-changing request using your cookie. So the design needs short-lived access tokens, revocable refresh tokens, a defence against CSRF, and a clear rule for the clients that do not use cookies.
 

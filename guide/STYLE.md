@@ -15,7 +15,7 @@ in 60 seconds, name its main design choices and alternatives, say what is weak, 
 Every chapter uses these `##` headings, in this order. The checker enforces the titles.
 
 1. `## In one minute`: 5-7 sentences a newcomer can repeat. No jargon that is not defined in the same paragraph.
-2. `## The problem`: the "why" question the chapter answers, stated in one sentence, then what breaks without the component. Name the obvious simpler design and why it falls short.
+2. `## The problem`: open with the "why" question the chapter answers as one bold sentence (no label such as "The question this chapter answers"), then what breaks without the component. Name the obvious simpler design and why it falls short.
 3. `## Mental model`: an analogy first, then the precise terms, then a small text diagram. Define each term at first use; a small table of terms is fine.
 4. `## Walkthrough: <the example>` (the title may continue after "Walkthrough"): ONE concrete input followed step by step with real code and real output. Use `###` steps. This is the heart of the chapter: it should be possible to follow without opening the repo.
 5. `## How it is built here`: file map (table), then the key code as verbatim excerpts with one line on what each does.

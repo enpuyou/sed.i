@@ -16,7 +16,7 @@ The evals changed what shipped twice: the entity-search lane was switched off af
 
 ## The problem
 
-The question this chapter answers: **how do you know a change to search made it better?**
+**How do you know a change to search made it better?**
 
 The obvious approach is to try a few queries and look. It fails in three ways. You remember the queries you tried, not the ones that quietly got worse. A change that helps one kind of query often hurts another, and eyeballing three queries shows one side. And a number you can write down lets someone else (or you, in three months) check the claim.
 

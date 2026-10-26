@@ -16,7 +16,7 @@ The reader turns a text selection into a highlight by counting characters: it wa
 
 ## The problem
 
-The question this chapter answers: **how does a browser app that is mostly rendered on the client stay consistent with a server that owns the data, and how does it re-find a highlight inside an article a week later?**
+**How does a browser app that is mostly rendered on the client stay consistent with a server that owns the data, and how does it re-find a highlight inside an article a week later?**
 
 The simple design is a server-rendered site: every click is a page load, the server draws the HTML, and there is nothing to keep consistent. That fails for a reader. Selecting text, picking a colour and seeing it appear must take milliseconds, a note editor must not lose the half-typed note when something refreshes, and a queue with hundreds of items needs filtering without a round trip. So the browser holds a working copy of the data and edits it immediately, and the cost is the problems this chapter covers: expired sessions in the middle of an action, a request that fails after the screen already changed, two responses arriving out of order, and a stored highlight that must still point at the right words when the article is drawn again.
 

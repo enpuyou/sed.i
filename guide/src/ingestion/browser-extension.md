@@ -16,7 +16,7 @@ A second button, Read, uses the same extraction but draws the article in an over
 
 ## The problem
 
-The question this chapter answers: **how does sed.i save a page that the server cannot download?**
+**How does sed.i save a page that the server cannot download?**
 
 The obvious design is the one [Saving a URL](/ingestion/saving-a-url/) describes: the user gives a URL, a worker downloads it and runs an extractor ([Extracting an article](/ingestion/extracting-an-article/)). That fails in three common cases.
 

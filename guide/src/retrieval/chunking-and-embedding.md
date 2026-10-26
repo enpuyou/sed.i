@@ -16,7 +16,7 @@ Chunking exists for two reasons. One vector for a 5,000-word article is an avera
 
 ## The problem
 
-The question this chapter answers: **why is an article split into pieces before it is embedded, and how are the pieces chosen?**
+**Why is an article split into pieces before it is embedded, and how are the pieces chosen?**
 
 Take the obvious design first: one embedding per article. It is cheap (one API call per article) and simple to query. It has three problems.
 

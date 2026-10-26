@@ -16,7 +16,7 @@ The rule that shapes everything: the API answers quickly and never does slow wor
 
 ## The problem
 
-The question this chapter answers: **what are the moving parts, and where does a given piece of work actually run?**
+**What are the moving parts, and where does a given piece of work actually run?**
 
 Without a map, every later chapter has the same gap. A reader sees "a Celery task embeds the article" and cannot say which machine runs it, where its input comes from, or where its output goes. The obvious simpler design is one web process that does everything inside the request: fetch the page, call OpenAI, write the rows, then answer. It is the right design for a prototype and fails on three counts. A slow or hostile website holds a request open. A restart loses work in flight. And a burst of saves cannot be spread out. The split into API, queue and worker is the answer to those three, and everything else in this chapter follows from it.
 

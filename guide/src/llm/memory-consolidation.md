@@ -16,7 +16,7 @@ The wording of the prompt was chosen by comparing three versions on ten made-up 
 
 ## The problem
 
-The question this chapter answers: **how can an assistant "remember" a user across sessions without storing and re-reading their whole history?**
+**How can an assistant "remember" a user across sessions without storing and re-reading their whole history?**
 
 The obvious design is to put the history in the prompt each time: every title, highlight and list. That fails in three ways. It does not fit (a library of hundreds of articles and thousands of highlights is far larger than a sensible prompt), it costs tokens on every call, and it shows the model facts, not conclusions. "Saves distributed-systems papers, reads them to the end, highlights the proofs" is more useful to a model than forty titles.
 

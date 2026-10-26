@@ -16,7 +16,7 @@ Before a change merges, GitHub Actions runs a backend workflow (lint, a check th
 
 ## The problem
 
-The question this chapter answers: **how does a change get from a commit to production without breaking the running system, and how would anyone notice if it did?**
+**How does a change get from a commit to production without breaking the running system, and how would anyone notice if it did?**
 
 The simple design is to build on a laptop and copy the files to a server. It fails in specific ways that this project has met. A migration that runs inside every instance's start command runs once per instance and delays every boot. A build configuration that works on a laptop can be silently overridden on the host (the Procfile incident below). A deploy that starts the new container before stopping the old one briefly doubles the memory in use. And without alerting, a worker that has stopped doing work looks exactly like a quiet day.
 

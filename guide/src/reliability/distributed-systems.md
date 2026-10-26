@@ -16,7 +16,7 @@ The design rests on four ideas: the database row is the source of truth and the 
 
 ## The problem
 
-The question this chapter answers: **what can go wrong when work is split across processes and services, and which of those failures does sed.i handle?**
+**What can go wrong when work is split across processes and services, and which of those failures does sed.i handle?**
 
 The obvious simpler design is one process that does everything inside the request: fetch the page, parse it, call the embedding API, write the rows, return. It is easy to reason about. It fails because fetching and embedding are slow (seconds to minutes) and fail often (remote sites time out, providers rate-limit), so a user would wait on every save, and one failed call would fail the whole save.
 

@@ -16,7 +16,7 @@ The Model Context Protocol (MCP) is an open protocol that lets an AI client, suc
 
 ## The problem
 
-The question this chapter answers: **how can an outside AI client read and change one user's library without being able to touch anyone else's, and how can a model be allowed to write SQL at all?**
+**How can an outside AI client read and change one user's library without being able to touch anyone else's, and how can a model be allowed to write SQL at all?**
 
 Two simpler designs exist, and each falls short.
 

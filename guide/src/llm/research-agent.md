@@ -16,7 +16,7 @@ The whole run is a row in the `research_runs` table. Every step reads the row, w
 
 ## The problem
 
-The question this chapter answers: **how do you get a model to answer a question from a personal library, with sources the user can check, in a job that takes a minute?**
+**How do you get a model to answer a question from a personal library, with sources the user can check, in a job that takes a minute?**
 
 The obvious design is one call: search the library for the question, paste the top results into a prompt, ask for an answer. It works for narrow questions. It fails for broad ones in three ways.
 

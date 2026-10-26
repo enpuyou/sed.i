@@ -14,7 +14,7 @@ A language model has never seen your library, and it can read only a limited amo
 
 ## The problem
 
-The question this chapter answers: **how does a program find the right few passages out of thousands, by meaning rather than by exact words, and what does it then do with them?**
+**How does a program find the right few passages out of thousands, by meaning rather than by exact words, and what does it then do with them?**
 
 Start with what a model cannot do. A language model knows what was in its training data. Your saved articles, highlights and notes were not in it. Asking "what did I read about grind size?" gets either a refusal or an invented answer.
 

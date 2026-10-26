@@ -16,7 +16,7 @@ Every fact comes from another chapter of this guide, and every number carries on
 
 ## The problem
 
-The question this chapter answers: **how do you explain a whole system in ten minutes so that a listener can judge it, and how do you survive the follow-up questions?**
+**How do you explain a whole system in ten minutes so that a listener can judge it, and how do you survive the follow-up questions?**
 
 The obvious approach is to tour the technology list: Next.js, FastAPI, Celery, Postgres, Redis, OpenAI. It fails because a list of parts says nothing about reasons, numbers or failures, and the listener cannot tell whether you understand the system or only know its names. The second obvious approach is to memorize the chapters of this guide. It fails at the first question that is off script.
 

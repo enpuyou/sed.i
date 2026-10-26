@@ -16,7 +16,7 @@ The detection model needs `torch` and `ultralytics`, which would add roughly a g
 
 ## The problem
 
-The question this chapter answers: **how do you get readable, correctly ordered text and figures out of a format that stores only positions?**
+**How do you get readable, correctly ordered text and figures out of a format that stores only positions?**
 
 The obvious design is to call a text extractor and store what it returns. PyMuPDF's `page.get_text()` does exactly that, and on the two sample papers it returns 3,172 and 3,475 words without any model at all. That is a correct bag of words. It is a poor article, for four reasons.
 

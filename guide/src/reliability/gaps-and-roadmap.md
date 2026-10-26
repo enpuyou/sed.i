@@ -16,7 +16,7 @@ The short version: the system has good bones (a status column plus sweeps that r
 
 ## The problem
 
-The question this chapter answers: **what should be fixed first, and how do you know each item is real?**
+**What should be fixed first, and how do you know each item is real?**
 
 The obvious approach is to keep one long list of worries. That fails because a flat list has no order, and because lists go stale: several items in older write-ups were fixed since they were written, and others were never as bad as they sounded. A risk that is not re-verified against the code either wastes a week or hides a hole.
 

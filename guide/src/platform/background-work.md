@@ -16,7 +16,7 @@ The worker also runs Celery beat, a clock that enqueues scheduled tasks. Several
 
 ## The problem
 
-The question this chapter answers: **how does slow, failure-prone work happen reliably after the HTTP response has already been sent, and what happens when a step of it dies?**
+**How does slow, failure-prone work happen reliably after the HTTP response has already been sent, and what happens when a step of it dies?**
 
 The obvious simpler design is to do the work inside the request, or to start a thread in the API process. Inside the request, a page that takes 20 seconds to fetch holds a connection open and the user stares at a spinner; a deploy that restarts the API kills the work. A thread in the API process shares its memory limit and its lifetime. A queue and a separate worker give the work its own process, its own restarts and its own retry rules.
 
