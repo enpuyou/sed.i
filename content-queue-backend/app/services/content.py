@@ -15,6 +15,7 @@ from __future__ import annotations
 from urllib.parse import urlparse, parse_qs, urlencode
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, defer
 
 from app.models.content import ContentItem
@@ -143,6 +144,25 @@ def find_existing_active_item(
     )
 
 
+def commit_new_item(*, db: Session, item: ContentItem) -> None:
+    """Add and commit a new ContentItem. A concurrent save of the same URL
+    loses to uq_content_items_user_url_active; surface that as
+    DuplicateContentError instead of an unhandled IntegrityError."""
+    db.add(item)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = find_existing_active_item(
+            db=db, user_id=item.user_id, normalized_url=item.original_url
+        )
+        if existing is None:
+            raise
+        raise DuplicateContentError(
+            existing_id=str(existing.id), is_archived=existing.is_archived
+        )
+
+
 def ingest_url(
     *,
     url: str,
@@ -188,8 +208,7 @@ def ingest_url(
         submitted_via=submitted_via,
         processing_status="pending",
     )
-    db.add(item)
-    db.commit()
+    commit_new_item(db=db, item=item)
     db.refresh(item)
 
     if dispatch_extraction:

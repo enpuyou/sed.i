@@ -374,7 +374,7 @@ stay inline. Not a retrofit mandate; applies going forward.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 10 req/60s + 50 req/3600s per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists. Accepts optional `initial_highlights` array — highlight rows are created atomically with the content item in one transaction (used by ephemeral reader save). |
+| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 10 req/60s + 50 req/3600s per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists, including when a concurrent double-submit loses the race on `uq_content_items_user_url_active` (`commit_new_item` converts the `IntegrityError` into `DuplicateContentError`; MCP `add_content` returns `status: "exists"`). Accepts optional `initial_highlights` array — highlight rows are created atomically with the content item in one transaction (used by ephemeral reader save). |
 | GET | `/content` | List items. Filters: `is_read`, `is_archived`, `tag`. Pagination: `skip`, `limit`. |
 | GET | `/content/tags` | All unique tags for current user with occurrence counts. |
 | GET | `/content/recommended` | Scored unread items. Params: `mood` (`quick_read`, `deep_dive`, `light`). |
