@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.services.content import (
     normalize_url,
     find_existing_active_item,
+    commit_new_item,
+    DuplicateContentError,
 )
 from app.models.user import User
 from app.models.list import List, content_list_membership
@@ -120,8 +122,10 @@ def add_content(
         submitted_via="mcp",
         processing_status="pending",
     )
-    db.add(item)
-    db.commit()
+    try:
+        commit_new_item(db=db, item=item)
+    except DuplicateContentError as exc:
+        return {"item_id": exc.existing_id, "status": "exists"}
     db.refresh(item)
 
     process_url_task.delay(str(item.id))
