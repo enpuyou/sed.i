@@ -10,6 +10,11 @@ uses PostgreSQL-specific features (ARRAY, Vector types).
 
 import pytest
 import os
+
+# DEBUG defaults to off, which makes auth cookies Secure and the plain-http
+# TestClient would never send them back. Must be set before app.main imports.
+os.environ.setdefault("DEBUG", "true")
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
