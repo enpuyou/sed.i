@@ -91,3 +91,13 @@ class TestExtractResearchMemoryTaskRetry:
 
         mock_retry.assert_called_once()
         assert isinstance(mock_retry.call_args.kwargs["exc"], _RunNotReadyError)
+
+
+def test_budget_truncated_partial_run_with_result_is_not_retried(db_session, test_user):
+    """verify_synthesis now ends truncated runs as 'partial'; they still have a
+    result, so memory extraction must treat them as ready, not retry."""
+    run = _make_run(db_session, test_user, status="partial")
+    run.result = {"summary": "x"}
+    db_session.commit()
+
+    extract_research_memory(str(run.id), db=db_session)  # no _RunNotReadyError

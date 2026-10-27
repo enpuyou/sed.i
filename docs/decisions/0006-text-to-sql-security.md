@@ -52,3 +52,9 @@ Regex fallback: if sqlglot is unavailable (degraded environment), a keyword-base
 - The schema exposed to the LLM is a static dict in `query.py` — it does not do runtime introspection. Schema changes require a manual update to `_TABLE_SCHEMA`. This is intentional: the allow-list would become stale if it auto-synced to the live schema.
 - Column-level filtering (e.g. never expose the `embedding` vector column) is enforced by only listing safe columns in `_TABLE_SCHEMA`. The LLM cannot SELECT unlisted columns because it doesn't know they exist.
 - sqlglot is added as a production dependency (`>=25.0.0,<26.0.0`). It has no native dependencies and adds ~3MB to the install.
+
+---
+
+## Status note (2026-10-26)
+
+The isolation check originally accepted any `:user_id` equality found anywhere in the parsed tree. `WHERE user_id = :user_id OR true`, `OR 1=1`, an equality only in the SELECT list, HAVING, ORDER BY, CASE or under NOT all passed, so the "worst case is the user's own data" claim in decision 4 did not hold. The check is now structural: per SELECT block, each user-scoped table needs an equality that is a top-level AND conjunct of that block's WHERE (or an INNER JOIN ON); the root must be a plain SELECT. `content_items` also requires a top-level `deleted_at IS NULL` (soft-deleted rows were previously returned). CTE names are no longer rejected as disallowed tables, except inside their own body. Regression cases: `tests/mcp/sql_guard_cases.py`.

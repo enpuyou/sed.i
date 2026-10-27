@@ -472,3 +472,39 @@ class TestSynthesizeTopicDeep:
             result = synthesize_topic(topic="new run", depth="deep", user=user, db=db)
 
         assert "run_id" in result
+
+
+class TestSynthesizeTopicHighlights:
+    def test_prompt_includes_user_highlight(self, db, user, article):
+        """hybrid_search rows carry no user_id; the highlight lookup must use
+        the calling user, not a missing result key."""
+        from app.models.highlight import Highlight
+
+        db.add(
+            Highlight(
+                user_id=user.id,
+                content_item_id=article.id,
+                text="a very distinctive highlighted sentence",
+                start_offset=0,
+                end_offset=10,
+            )
+        )
+        db.commit()
+        mock_response = SynthesisResponse(
+            summary="s", perspectives=[], key_concepts=[], sources=[], confidence="low"
+        )
+        with patch("app.mcp.tools.synthesis.llm_client") as mock_llm, patch(
+            "app.mcp.tools.synthesis.hybrid_search",
+            return_value=[
+                {
+                    "id": str(article.id),
+                    "title": article.title,
+                    "description": article.description,
+                }
+            ],
+        ):
+            mock_llm.structured_chat.return_value = mock_response
+            synthesize_topic(topic="t", depth="quick", user=user, db=db)
+
+        prompt = mock_llm.structured_chat.call_args.kwargs["messages"][0]["content"]
+        assert "a very distinctive highlighted sentence" in prompt

@@ -54,6 +54,8 @@ def child_env(backend_dir, db_name, extra=None):
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
             "PREFECT_ENABLED": "false",
+            # pages are served from 127.0.0.1; the SSRF guard would refuse them
+            "FETCH_ALLOW_PRIVATE_ADDRESSES": "true",
             "S3_STORAGE_ENABLED": "false",
             "HF_HUB_OFFLINE": "1",
             "TIKTOKEN_CACHE_DIR": tcache,

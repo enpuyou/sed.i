@@ -9,7 +9,7 @@
  * aren't testable from JS by design (that's the point of httpOnly).
  */
 
-import api, { listsAPI } from "../../lib/api";
+import api, { contentAPI, listsAPI } from "../../lib/api";
 
 const originalFetch = global.fetch;
 
@@ -180,5 +180,33 @@ describe("listsAPI.getContent paging", () => {
     await listsAPI.getContent("list-1", { skip: 0, limit: 50 });
 
     expect(calledUrl()).toMatch(/\/lists\/list-1\/content\?limit=50$/);
+  });
+});
+
+describe("contentAPI.getAll paging", () => {
+  let fetchMock: jest.Mock;
+  beforeEach(() => {
+    fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ items: [], total: 0 }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("adds no query string without options", async () => {
+    await contentAPI.getAll();
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/content$/);
+  });
+
+  it("sends skip and limit", async () => {
+    await contentAPI.getAll({ skip: 100, limit: 100 });
+    expect(fetchMock.mock.calls[0][0]).toMatch(
+      /\/content\?skip=100&limit=100$/,
+    );
   });
 });

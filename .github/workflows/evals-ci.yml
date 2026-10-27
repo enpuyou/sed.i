@@ -73,7 +73,7 @@ jobs:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
           REDIS_URL: redis://localhost:6379/0
-          SECRET_KEY: test-secret-key-for-ci
+          SECRET_KEY: test-secret-key-for-ci-0123456789abcdef
 
       - name: Run search quality evals (requires OPENAI_API_KEY)
         working-directory: ./content-queue-backend
@@ -84,7 +84,7 @@ jobs:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
           REDIS_URL: redis://localhost:6379/0
-          SECRET_KEY: test-secret-key-for-ci
+          SECRET_KEY: test-secret-key-for-ci-0123456789abcdef
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Run tagging quality evals (requires OPENAI_API_KEY)
@@ -96,12 +96,30 @@ jobs:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
           REDIS_URL: redis://localhost:6379/0
-          SECRET_KEY: test-secret-key-for-ci
+          SECRET_KEY: test-secret-key-for-ci-0123456789abcdef
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
+      - name: Test the regression gate itself
+        working-directory: ./content-queue-backend
+        run: poetry run pytest tests/test_check_regressions.py -q
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_queue_test
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+
+      # The retrieval eval cannot run in CI (private library, paid embeddings). This step
+      # compares the COMMITTED evals/retrieval/accepted.json with the COMMITTED
+      # baselines.json, and fails if the PR lowers baselines.json vs the base branch.
+      # It protects the committed numbers (reviewable in the PR), not the live system.
       - name: Check eval regressions against baselines
         run: |
-          python evals/check_regressions.py --comment-file /tmp/regression_comment.md
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          EXTRA=""
+          if git show "origin/${{ github.base_ref }}:evals/retrieval/baselines.json" > /tmp/base_baselines.json 2>/dev/null; then
+            EXTRA="--base-baselines /tmp/base_baselines.json"
+          fi
+          python evals/check_regressions.py $EXTRA --comment-file /tmp/regression_comment.md
         # Hard-fail exits 1 (blocks merge). Soft-fail exits 0 (comment only).
 
       - name: Post eval summary as PR comment

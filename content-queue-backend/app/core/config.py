@@ -1,4 +1,5 @@
 import os
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Allow overriding the .env file path via ENV_FILE env var.
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     MCP_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     OPENAI_API_KEY: str = ""
     DISCOGS_TOKEN: str = ""
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # Feature Flags / Tuning
     SIMILARITY_THRESHOLD_CONNECTIONS: float = 0.3
@@ -139,6 +140,10 @@ class Settings(BaseSettings):
     FETCH_HTML_MAX_BYTES: int = 10 * 1024 * 1024
     FETCH_PDF_MAX_BYTES: int = 100 * 1024 * 1024
     FETCH_MAX_SECONDS: int = 60
+    # SSRF guard (app/core/fetch.py). Leave False in any deployed environment.
+    # True only for local development/benchmarks that serve pages from
+    # 127.0.0.1; it disables the address checks, not the scheme checks.
+    FETCH_ALLOW_PRIVATE_ADDRESSES: bool = False
 
     # Prefect pipeline observability (Layer 8)
     # When true, Phase 2+ of ingestion runs as a Prefect flow instead of
@@ -165,6 +170,14 @@ class Settings(BaseSettings):
     SEDI_ENV: str = "production"
 
     model_config = SettingsConfigDict(env_file=_env_file, extra="ignore")
+
+    @model_validator(mode="after")
+    def _require_strong_secret_outside_debug(self):
+        if not self.DEBUG and len(self.SECRET_KEY) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters when DEBUG is off"
+            )
+        return self
 
 
 settings = Settings()

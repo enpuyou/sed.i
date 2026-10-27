@@ -9,13 +9,15 @@ Covers:
 - Auth guard
 """
 
+import uuid
+
 from app.models.content import ContentItem
 
 
 def _make_item(user_id, *, is_read=False, is_archived=False, reading_time=None):
     return ContentItem(
         user_id=user_id,
-        original_url="https://example.com/article",
+        original_url=f"https://example.com/article-{uuid.uuid4().hex}",
         processing_status="completed",
         is_read=is_read,
         is_archived=is_archived,

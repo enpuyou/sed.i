@@ -7,32 +7,35 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.content import ContentItem
 from app.models.vinyl import VinylRecord
-from app.schemas.user import UserResponse
+from app.schemas.user import PublicProfileResponse
 from app.schemas.content import ContentItemList, ContentItemResponse
 from app.schemas.vinyl import VinylRecordResponse
 
 router = APIRouter(prefix="/public", tags=["public"])
 
+# Owner-internal fields never exposed to unauthenticated visitors.
+_HIDDEN = {"user_id", "processing_error"}
 
-@router.get("/u/{username}", response_model=UserResponse)
+
+@router.get("/u/{username}", response_model=PublicProfileResponse)
 def get_public_profile(username: str, db: Session = Depends(get_db)):
     """Fetch user profile details. Only succeeds if user.is_public == True."""
     user = db.query(User).filter(User.username == username).first()
 
-    if not user:
+    # Same 404 for private and missing so usernames can't be enumerated.
+    if not user or not user.is_public:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found"
-        )
-
-    if not user.is_public:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="This profile is private"
         )
 
     return user
 
 
-@router.get("/u/{username}/content", response_model=ContentItemList)
+@router.get(
+    "/u/{username}/content",
+    response_model=ContentItemList,
+    response_model_exclude={"items": {"__all__": _HIDDEN}},
+)
 def get_public_content(
     username: str,
     skip: int = Query(0, ge=0),
@@ -62,7 +65,11 @@ def get_public_content(
     return {"items": items, "total": total, "skip": skip, "limit": limit}
 
 
-@router.get("/u/{username}/content/{item_id}", response_model=ContentItemResponse)
+@router.get(
+    "/u/{username}/content/{item_id}",
+    response_model=ContentItemResponse,
+    response_model_exclude=_HIDDEN,
+)
 def get_public_content_item(
     username: str, item_id: UUID, db: Session = Depends(get_db)
 ):
@@ -89,7 +96,11 @@ def get_public_content_item(
     return item
 
 
-@router.get("/u/{username}/vinyl", response_model=list[VinylRecordResponse])
+@router.get(
+    "/u/{username}/vinyl",
+    response_model=list[VinylRecordResponse],
+    response_model_exclude={"__all__": _HIDDEN},
+)
 def get_public_vinyl(
     username: str, skip: int = 0, limit: int = 50, db: Session = Depends(get_db)
 ):

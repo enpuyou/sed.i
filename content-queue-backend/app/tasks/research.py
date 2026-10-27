@@ -392,7 +392,7 @@ def _fetch_research_memory(
                        1 - (topic_embedding <=> CAST(:q AS vector)) AS similarity
                 FROM research_memory
                 WHERE user_id = :uid
-                  AND created_at > now() - interval :age_interval
+                  AND created_at > now() - make_interval(days => CAST(:max_age_days AS integer))
                   AND topic_embedding IS NOT NULL
                   AND 1 - (topic_embedding <=> CAST(:q AS vector)) >= 0.75
                 ORDER BY topic_embedding <=> CAST(:q AS vector)
@@ -403,7 +403,7 @@ def _fetch_research_memory(
                 "uid": user_id,
                 "q": embedding_str,
                 "k": k,
-                "age_interval": f"{max_age_days} days",
+                "max_age_days": max_age_days,
             },
         ).fetchall()
         return list(rows)
@@ -583,7 +583,8 @@ def run_research_lead(run_id: str, db: Session | None = None, resume: bool = Fal
             run.error = {"code": "budget_exceeded", "message": str(e)}
             db.commit()
             return
-        sub_questions = planning_response.sub_questions[:6]
+        max_subagents = budget.get("max_subagents", _DEFAULT_BUDGET["max_subagents"])
+        sub_questions = planning_response.sub_questions[:max_subagents]
         run.plan = "\n".join(f"{i+1}. {q}" for i, q in enumerate(sub_questions))
         run.sub_questions = sub_questions
         db.commit()
@@ -1057,9 +1058,25 @@ def collect_subagent_results(
         hit_max = run.iteration_count >= max_iterations
         found_new = len(new_ids) > 0
 
-        if all_covered or hit_target or hit_max or not found_new:
-            if hit_max and not hit_target:
-                run.status = "partial"
+        elapsed_s = (datetime.now(timezone.utc) - run.created_at).total_seconds()
+        timed_out = elapsed_s > budget.get("timeout_s", _DEFAULT_BUDGET["timeout_s"])
+
+        if all_covered or hit_target or hit_max or not found_new or timed_out:
+            # Record truncation as a marker, not as status: synthesize_run and
+            # verify_synthesis own status, and "partial" is terminal to pollers
+            # (and to recover_orphaned_runs) before the result exists.
+            # verify_synthesis converts the marker into the final "partial".
+            if not hit_target and hit_max:
+                run.error = {
+                    "code": "iteration_limit",
+                    "message": f"Stopped at max_iterations={max_iterations}",
+                }
+                db.commit()
+            elif not hit_target and timed_out and not all_covered and found_new:
+                run.error = {
+                    "code": "timeout",
+                    "message": f"Stopped after exceeding timeout_s ({elapsed_s:.0f}s)",
+                }
                 db.commit()
             synthesize_run(run_id, db=db)
         else:
@@ -1281,7 +1298,8 @@ def verify_synthesis(run_id: str, db: Session | None = None) -> None:
                     pass
 
         run.result = result
-        run.status = "done"
+        truncated = (run.error or {}).get("code") in ("iteration_limit", "timeout")
+        run.status = "partial" if truncated else "done"
         db.commit()
 
         # Fire-and-forget: extract memory entries for future planning context.

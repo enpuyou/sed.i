@@ -10,6 +10,11 @@ uses PostgreSQL-specific features (ARRAY, Vector types).
 
 import pytest
 import os
+
+# DEBUG defaults to off, which makes auth cookies Secure and the plain-http
+# TestClient would never send them back. Must be set before app.main imports.
+os.environ.setdefault("DEBUG", "true")
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -111,6 +116,13 @@ def setup_database():
     with engine.connect() as conn:
         conn.execute(sa_text(_SEARCH_VECTOR_TRIGGER_SQL))
         conn.execute(sa_text(_HIGHLIGHTS_SEARCH_VECTOR_TRIGGER_SQL))
+        # Partial unique index lives in migration 5534fbac2811, not on the model.
+        conn.execute(
+            sa_text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_content_items_user_url_active "
+                "ON content_items (user_id, original_url) WHERE deleted_at IS NULL"
+            )
+        )
         conn.commit()
     yield
     # Drop tables with CASCADE to handle migration-only tables (e.g. reading_clusters)

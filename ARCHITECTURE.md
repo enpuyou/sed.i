@@ -374,7 +374,7 @@ stay inline. Not a retrofit mandate; applies going forward.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 10 req/60s + 50 req/3600s per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists. Accepts optional `initial_highlights` array — highlight rows are created atomically with the content item in one transaction (used by ephemeral reader save). |
+| POST | `/content` | Save URL. Immediately returns 201. Queues extraction. Rate-limited to 10 req/60s + 50 req/3600s per user. Returns 409 with `detail: JSON.stringify({message, existing_id, is_archived})` if an active (non-deleted) item with the same URL already exists, including when a concurrent double-submit loses the race on `uq_content_items_user_url_active` (`commit_new_item` converts the `IntegrityError` into `DuplicateContentError`; MCP `add_content` returns `status: "exists"`). Accepts optional `initial_highlights` array — highlight rows are created atomically with the content item in one transaction (used by ephemeral reader save). |
 | GET | `/content` | List items. Filters: `is_read`, `is_archived`, `tag`. Pagination: `skip`, `limit`. |
 | GET | `/content/tags` | All unique tags for current user with occurrence counts. |
 | GET | `/content/recommended` | Scored unread items. Params: `mood` (`quick_read`, `deep_dive`, `light`). |
@@ -497,12 +497,25 @@ always evaluates to `False` (Column objects are truthy). Replaced with
   per-request tokens scored by request timestamp; each check does
   `ZREMRANGEBYSCORE` (evict entries older than the window) + `ZCARD`, and on
   success `ZADD` + `EXPIRE` (TTL = window, so abandoned buckets self-expire).
+  The four steps run as one Lua script (`register_script`), so concurrent
+  requests cannot all pass the count check.
   Coordinates correctly across multiple backend instances, unlike a
   process-local dict.
 - Limits: `POST /content` 10/60s + 50/3600s; `POST /auth/login` 10/60s +
   30/3600s; `POST /auth/register` 5/60s + 15/3600s; `GET /search/semantic`
-  30/60s + 300/3600s per user (identified by JWT user ID; falls back to
-  client IP if auth not on request state).
+  30/60s + 300/3600s. Identity: the middleware decodes the access token
+  (`Authorization: Bearer`, else the `sedi_access_token` cookie) with the
+  app's JWT secret, no DB lookup, and keys on `user:{sub}` (the token's
+  `sub`, the user's email). Missing, invalid, or expired tokens fall back to
+  `ip:{request.client.host}`. `X-Forwarded-For` and `CF-Connecting-IP` are
+  deliberately not read (spoofable without a trusted proxy).
+- **Follow-up (not implemented), anonymous limits per visitor:** behind
+  Cloudflare and Railway, `request.client.host` may be a shared proxy address,
+  so anonymous routes (`/auth/login`, `/auth/register`) can share one bucket.
+  Fixing it needs one of: run uvicorn with `--proxy-headers` and
+  `--forwarded-allow-ips` set to the Railway proxy addresses, or read
+  `CF-Connecting-IP` only when the request carries a shared-secret header
+  added by the Cloudflare Worker.
 - Response on exceeded: HTTP 429 with `{detail: "Too many requests. Please try again later."}`,
   CORS headers from `ALLOWED_ORIGINS`, and a `Retry-After` header (seconds).
 - **Fail-open on Redis outage**: matches the LLM budget checker's pattern
@@ -554,9 +567,10 @@ POST /content (201, processing_status='completed' immediately)
 |------|------|-------------|
 | `extract_metadata` | `tasks/extraction.py` | Full pipeline: fetch → parse → trafilatura. For article URLs, limited extraction is flagged via source-restriction/truncation heuristics (paywall/access markers, schema/content-tier signals, teaser-description overlap, media/caption-only extraction, and low extraction coverage), not a raw short-text threshold. Thumbnail extraction uses a fallback chain: OG/Twitter meta → JSON-LD image → `link[rel=image_src]` → first usable in-content image. |
 | `recover_stale_pending_items` | `tasks/extraction.py` | Beat task, every 5 min. Re-dispatches `extract_metadata` for items still `processing_status='pending'` after 10 minutes — recovers from an unguarded `.delay()` broker failure at ingest time (e.g. `ingest_url()`'s dispatch raising if Redis is briefly unreachable), the same detect-and-redispatch pattern as `recover_orphaned_runs_task` below. Guarded by a Redis lock (TTL 10 min, released on completion) added 2026-09-25 — without it, two overlapping firings could double-dispatch the same still-pending item. |
+| `recover_stuck_processing_items` | `tasks/extraction.py` | Beat task, every 10 min. Items at `processing_status='processing'` with `updated_at` older than 35 min (Celery hard limit is 30 min; `extract_metadata` commits on start, so `updated_at` is fresh while it runs) mean the worker was killed mid-extraction (deploy, OOM). First stall: reset to `pending` with `processing_error='Worker restarted during extraction'` so `recover_stale_pending_items` redispatches; second stall (marker present): `failed` with an "interrupted twice" message (shown as the generic "Extraction failed" in `ingestErrors.ts`). 100 rows per run. Redis lock TTL 540 s, released on completion. |
 | `generate_embedding` | `tasks/embedding.py` | OpenAI embedding, stored in pgvector. Also embeds highlights. |
-| `process_all_missing_embeddings` | `tasks/embedding.py` | Beat task, every 5 min — scans for highlights missing embeddings, dispatches `generate_highlight_embeddings_batch` per user. Guarded by a Redis lock (TTL 10 min, held for the TTL like `cluster_all_users_task` — dispatch is async) added 2026-09-25 — previously unguarded, an overrunning sweep could duplicate-dispatch and duplicate paid embedding API spend. |
-| `process_all_missing_chunks` | `tasks/chunk_embeddings.py` | Beat task, every 5 min — scans for embedded items missing `content_chunks` rows, dispatches `generate_chunk_embeddings_task` per item. Was fully implemented but never wired into the beat schedule until 2026-09-25 (dead safety net); now scheduled and guarded by the same Redis-lock pattern as `process_all_missing_embeddings`. |
+| `process_all_missing_embeddings` | `tasks/embedding.py` | Beat task, every 5 min — dispatches `generate_embedding` for up to 100 `completed` items with non-blank `full_text`, no embedding, not deleted and idle for 10+ min (the item embedding was otherwise only dispatched from the extraction chain, so a dropped dispatch was never retried), and scans for highlights missing embeddings, dispatching `generate_highlight_embeddings_batch` per user. Guarded by a Redis lock (TTL 240 s, held for the TTL like `cluster_all_users_task` — dispatch is async; the TTL must stay below the 300 s schedule interval or every second firing is skipped) added 2026-09-25 — previously unguarded, an overrunning sweep could duplicate-dispatch and duplicate paid embedding API spend. |
+| `process_all_missing_chunks` | `tasks/chunk_embeddings.py` | Beat task, every 5 min — scans for embedded items missing `content_chunks` rows, dispatches `generate_chunk_embeddings_task` per item. Was fully implemented but never wired into the beat schedule until 2026-09-25 (dead safety net); now scheduled and guarded by the same Redis-lock pattern (TTL 240 s) as `process_all_missing_embeddings`. |
 | `analyze_article_task` | `tasks/article_analysis.py` | Combined tag + entity extraction, one LLM call. Retries (`max_retries=3`, exponential backoff) on transient LLM errors (`TRANSIENT_CHAT_ERRORS` — rate limit/timeout/connection) raised by `analyze_article()`; non-transient failures still return a terminal `{"status": "failed"}`. No longer dispatches `embed_new_entities_task` per article — new entities are picked up by the hourly `embed-new-entities-sweep` beat task instead (a prior per-article dispatch was the dominant contributor to a 6.5M-message Celery backlog found in chaos testing; see `docs/changelog/2026-07-28-failure-injection-fixes.md`). |
 | `generate_tags` | `tasks/tagging.py` | LLM-only semantic extraction. Two-level prompt (DOMAIN + CONCEPTS), diverse domain examples. Writes to `tags`. Calls `upsert_tag_embeddings` after. `generate_tags_task` retries on transient LLM errors the same way `analyze_article_task` does — a transient outage now surfaces as a retried/failed attempt rather than a silent, permanent "no tags found." |
 | `upsert_tag_embeddings` | `tasks/tagging.py` | Embeds any new tag labels via `text-embedding-3-small` and writes to `tag_embeddings`. Idempotent — already-present labels are skipped. |
@@ -580,7 +594,7 @@ Measured in `docs/audits/2026-10-24-memory-profiling-live.md`; before/after in `
 
 - **Deferred heavy columns.** `app/services/content.py::defer_heavy_columns()` skips `full_text`, `embedding` and `search_vector` (~280 KB per row) in queries that load a whole library: `GET /content/recommended` and `GET /lists/{id}/content`, and the duplicate lookup. Deferred columns still lazy-load if touched.
 - **One-query duplicate check.** `find_existing_active_item` is a single indexed exact match on the normalized URL; the previous fallback that normalized every stored URL in Python (an O(library) scan) is gone. That is only correct because stored URLs are normalized: `ingest_url`, the MCP save and the onboarding seed write normalized URLs, no endpoint updates `original_url`, and migration `a7d3e9c15b42` rewrote older rows (a collision keeps the row with highlights, then the already-normalized one, then the newest; the winner inherits the losers' list memberships and the others are soft-deleted, with any highlighted loser logged by id). `scripts/check_url_normalization.py` is a read-only report of how many rows the migration will rewrite or collapse; run it against production before deploying.
-- **Bounded fetch.** `app/core/fetch.py::fetch_bounded()` is the only place extraction downloads a user URL. It streams the body: HTML is truncated at `FETCH_HTML_MAX_BYTES` (10 MB, the item still ingests; `processing_error` says the page was truncated, shown as a partial extraction), PDFs are rejected above `FETCH_PDF_MAX_BYTES` (100 MB), clearly binary content types (video, audio, image, font, archives) are not downloaded (the caller gets an empty body plus headers, so the item ends exactly as before: completed with "Could not extract article text"), and `FETCH_MAX_SECONDS` (60) bounds total download time (checked every 16 KB, so it applies while data keeps arriving; a server that stalls completely is bounded only by the per-read timeout). `FetchRejectedError` (oversized PDF only) subclasses `requests.RequestException` so existing handlers catch it.
+- **Bounded fetch.** `app/core/fetch.py::fetch_bounded()` is the only place extraction downloads a user URL. It streams the body: HTML is truncated at `FETCH_HTML_MAX_BYTES` (10 MB, the item still ingests; `processing_error` says the page was truncated, shown as a partial extraction), PDFs are rejected above `FETCH_PDF_MAX_BYTES` (100 MB), clearly binary content types (video, audio, image, font, archives) are not downloaded (the caller gets an empty body plus headers, so the item ends exactly as before: completed with "Could not extract article text"), and `FETCH_MAX_SECONDS` (60) bounds total download time (checked every 16 KB, so it applies while data keeps arriving; a server that stalls completely is bounded only by the per-read timeout). `FetchRejectedError` (oversized PDF, disallowed URL/address, too many redirects) subclasses `requests.RequestException` so existing handlers catch it; the item is marked failed with a short `processing_error` ("Address not allowed", "URL scheme not allowed", "Too many redirects"). **SSRF guard:** only http/https URLs without userinfo are fetched; the host is resolved and every address must be globally routable (rejects private, loopback, link-local incl. 169.254.169.254, CGNAT 100.64.0.0/10 used by Railway's private network, multicast, reserved, unspecified, and IPv4-mapped/6to4/NAT64 forms of those); numeric shorthand hosts (decimal, hex, octal, `127.1`) are decoded and checked. Redirects are followed manually (max 5) and re-validated at every hop. DNS rebinding is closed by re-checking the connected peer address in a urllib3 connection subclass before TLS or any request bytes are sent. Residual: a bare TCP SYN can reach a rebinding target before the peer check closes it (no payload), and with `HTTP(S)_PROXY` set the peer is the proxy. `FETCH_ALLOW_PRIVATE_ADDRESSES` (default False) disables the address checks for local benchmarks (memprof sets it). `discogs.py` calls a fixed `api.discogs.com` URL with an integer id, so it is not user-controlled.
 - **Batched chunk embedding.** `generate_chunk_embeddings` embeds and stages `_EMBED_BATCH_SIZE` (100) chunks at a time with `bulk_insert_mappings`; the delete-and-replace is still one transaction (a failure or budget stop mid-article rolls back and keeps the old chunks).
 - **Optional list pagination.** `GET /lists/{id}/content` accepts `skip` and `limit` (1–500); with no parameters it returns every item as before, so existing clients are unchanged.
 
@@ -929,7 +943,7 @@ Optional `mood` filter:
 | Component | Location | Role |
 |-----------|----------|------|
 | `AddContentForm` | dashboard | Collects URL, submits to API. |
-| `ContentList` | dashboard | Fetches items, client-side filter, list/index view toggle. Sort field/dir persisted in localStorage. RetroLoader on all loading states. Active sort header highlighted in accent color (no glyph). |
+| `ContentList` | dashboard | Loads the whole library via `lib/loadAllContent.ts` (`GET /content` pages of `limit=100`, sequential, max 100 pages; first page renders immediately, later pages append, silent refetches replace once at the end; a failed later page keeps loaded items and shows InlineError with retry). `AddContentToListModal` uses the same helper. Client-side filter, list/index view toggle. Sort field/dir persisted in localStorage. RetroLoader on all loading states. Active sort header highlighted in accent color (no glyph). |
 | `ContentItem` | dashboard / public profile | Card view. Accepts `readOnly?: boolean` — hides all action buttons (read, archive, delete, tag, list) when true. Accepts `navigateTo?: string` to override default `/content/:id` link. Uses `getIngestIssue(...)` mapping to show clearer ingest failure badges (blocked/auth/network/partial) instead of a single generic extraction failure label. Failed-ingest items only use the compact single-line row (status badge + source domain + date + right-aligned delete) when extraction fails before meaningful metadata is available; failed items with usable metadata keep the standard full card layout. |
 | `ContentIndexItem` | dashboard / public profile | Index row. Responsive layout layout: Desktop shows Date \| Title \| Author/Source \| hover menu. Mobile collapses to just Date \| Title to preserve space. Hovering reveals absolute-positioned multi-action tools (Read, Archive, Delete). Delete uses click→"Delete?"→click confirm. Accepts `readOnly` and `navigateTo` props. |
 | `Reader` | content/[id], read/ | Shell: fixed navbar, reading progress bar, optional NowPlaying, HighlightsPanel + optional ConnectionsPanel sidebars, TOC sidebar, KeyboardShortcuts. Renders `<ReaderArticle>`. Manages `activeHighlightId` state (null = Mode 2 / all-highlights, string = Mode 1 / single-highlight). `c` key state machine: closed→Mode2, Mode1→Mode2, Mode2→close. `onShowConnections(highlightId)` callback opens Mode 1 directly from a highlight click. |
@@ -997,7 +1011,7 @@ Environment variable driven — all default to `true` unless explicitly disabled
 ### Current protections
 
 - Password hashing: bcrypt via passlib.
-- JWT: signed with `SECRET_KEY`, expiry enforced.
+- JWT: signed with `SECRET_KEY`, expiry enforced. `Settings` rejects a `SECRET_KEY` shorter than 32 characters unless `DEBUG` is on; `DEBUG` defaults to False (dev `.env` sets it True).
 - CORS: origin list driven by environment variable.
 - Rate limiting: Redis-backed, covers `POST /content`, `POST /auth/login`,
   `POST /auth/register`, `GET /search/semantic` (see §8).
@@ -1016,7 +1030,7 @@ Environment variable driven — all default to `true` unless explicitly disabled
 - XSS on extracted article HTML: DOMPurify sanitization pass applied to all
   three ingestion/render paths — `frontend/lib/bionicReading.ts::sanitizeArticleHtml()`
   (main app reader, called from `HighlightRenderer.tsx` right before
-  `html-react-parser` renders it), and the browser extension's reader overlay
+  `html-react-parser` renders it; highlight/bionic segment text is HTML-escaped before `innerHTML` so literal `<`, `>`, `&` in a text node keep highlight offsets aligned with the DOM text), and the browser extension's reader overlay
   (`extension/content/reader-overlay.js` + Safari mirror), which vendors
   DOMPurify as a static file (`content/vendor/purify.min.js`, no build step
   in the extension) loaded before the overlay script runs. Fails closed in
@@ -1068,11 +1082,15 @@ Environment variable driven — all default to `true` unless explicitly disabled
 
 | Risk | Current state | Fix |
 |------|--------------|-----|
-| SSRF | Backend fetches user-provided URLs. | Validate URLs; block internal IPs (169.254.x.x, 10.x.x.x, etc.). |
+| SSRF | Mitigated 2026-10-26: `fetch_bounded` validates scheme, resolved addresses, every redirect hop and the connected peer (see Bounded fetch). | Residual: a bare TCP SYN can reach a DNS-rebinding target before the peer check closes it; an egress proxy, if configured, must enforce its own policy. |
 
 ---
 
 ## 16. Error handling and reliability
+
+### Health endpoints
+
+`GET /health` is liveness only (always `{"status":"healthy"}`). `GET /ready` runs `SELECT 1` and a Redis `PING`, each bounded to 1 second, and returns 503 `{"status":"unavailable","failed":"database"|"redis"}` when one fails (`app/main.py`). The Railway API service uses `/ready` as its deploy healthcheck (path `/ready`, timeout 60 s), set in the service settings rather than `railway.json`, because the worker service builds from the same repository and has no HTTP server.
 
 ### Backend error shape
 
@@ -1201,11 +1219,11 @@ Covered in §10.
 - `List.is_public` (Boolean) — Visibility toggle.
 
 ### API Routes — `/public`
-These routes do not require authentication (`@router.get` without the `Depends(get_current_active_user)` guard). Implemented in `content-queue-backend/app/api/endpoints/public.py`.
+These routes do not require authentication (`@router.get` without the `Depends(get_current_active_user)` guard). Implemented in `content-queue-backend/app/api/endpoints/public.py`. Content and vinyl responses omit `user_id` and `processing_error`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/public/u/{username}` | Profile details. 404 if not found, 403 if `is_public=False`. |
+| GET | `/public/u/{username}` | Profile details (`PublicProfileResponse`: `username`, `full_name` only). Same 404 `Profile not found` for missing and private profiles (no username enumeration). |
 | GET | `/public/u/{username}/content` | Paginated public queue items (only `is_public=True`, non-archived). Only succeeds if `user.is_queue_public=True`. |
 | GET | `/public/u/{username}/content/{item_id}` | Single public content item for the public reader. |
 | GET | `/public/u/{username}/vinyl` | Public vinyl records. Only succeeds if `user.is_crates_public=True`. |
@@ -1260,7 +1278,7 @@ Location: `evals/` (project root) + `content-queue-backend/tests/evals/`
 | Tagging quality | `tests/evals/test_tagging_evals.py` | Specificity, coverage, forbidden-tag rate |
 | MCP contracts | `tests/evals/test_mcp_evals.py` | Response shape contracts |
 
-Evals requiring a live DB (`tests/evals/`) are excluded from `make test` (CI uses the test DB seeded with synthetic articles for the harness). `evals/retrieval/` requires the production library and runs manually. Baselines stored in `evals/retrieval/baselines.json`; run artifacts in `evals/*/results/` (gitignored). CI regression gate: `evals/check_regressions.py`, wired into `.github/workflows/evals-ci.yml` on every PR touching `hybrid_search.py`, `search_router.py`, `tagging.py`, `research.py`, or MCP tools — hard-fails on drops in deterministic metrics (`classification_accuracy`, `search_hit_rate_at_10`, `search_mrr`), soft-warns (comment only) on LLM-judge metrics.
+Evals requiring a live DB (`tests/evals/`) are excluded from `make test` (CI uses the test DB seeded with synthetic articles for the harness). `evals/retrieval/` requires the production library and runs manually. Baselines stored in `evals/retrieval/baselines.json`; run artifacts in `evals/*/results/` (gitignored). CI regression gate: `evals/check_regressions.py`, wired into `.github/workflows/evals-ci.yml` on every PR touching `hybrid_search.py`, `search_router.py`, `tagging.py`, `research.py`, MCP tools, `tests/evals/`, or `evals/`. CI cannot re-run the retrieval eval (private library, paid embeddings), so the retrieval gate compares two committed files for the production variant (`variant_B_chunks`): `evals/retrieval/accepted.json` (snapshot of the last accepted run, written by `check_regressions.py --accept`) against `baselines.json`. `recall_at_10` and `mrr` hard-fail on a drop greater than 0.02; `ndcg_at_10` warns. The workflow also passes the base branch's `baselines.json` (`--base-baselines`) and hard-fails if a PR lowers it. Missing files, malformed shape, or missing metrics hard-fail. This protects the committed numbers (reviewable in a PR), not the live system. The research-brief judge metrics (`rubric_score_avg`, `pass_rate`) still compare against gitignored results and only warn. The gate has its own tests (`tests/test_check_regressions.py`). Accept procedure: `evals/retrieval/runner.py` docstring.
 
 ### Frontend — Jest
 
@@ -1313,7 +1331,7 @@ MV3 extension — version `0.1.2`. Four components:
 |------|------|
 | `content/content.js` | Injected on demand via `chrome.scripting.executeScript({ files })`. Runs Readability, extracts HTML/metadata, calls `detectAccessRestriction()`. Exposes `window.__sediExtractAndInlineContent` as a global so `popup.js` can call it via `executeScript({ func })` and properly await the result (required for Safari). |
 | `content/reader-overlay.js` | Ephemeral reader. Appends a `position:fixed` shadow-DOM overlay div to the existing body instead of swapping it. Shadow DOM isolates all reader CSS from page stylesheets — external rules cannot match shadow elements. All layout values use `px` (not `rem`) so the page's `html { font-size }` cannot affect reader typography. Close is instant: `host.remove()` with a 0.12s fade-out animation. Features: progress bar, auto-hide navbar, TOC with scroll-spy, focus mode, theme toggle, reading settings panel (font/size/line-height/letter-spacing/width), "Save to sed.i" button. Scroll tracking on the overlay div (not `window`). Metadata byline mirrors `ReaderArticle.tsx` exactly. Strips `iframe/frame/object/embed/script` from injected HTML before render. |
-| `popup/popup.js` | Two-button popup: **Read** (launches reader-overlay) and **Save to sed.i** (extracts + sends to service worker). Extraction uses `executeScript({ files })` to inject Readability + content.js, then a separate `executeScript({ func })` call to invoke `window.__sediExtractAndInlineContent()` and await the result. On open, shows page title + favicon/domain immediately, then reads og/meta tags via inline `executeScript` — no content script needed, under 10ms. Save button shows animated dot loading then `sent ✓`. Parses structured 409 errors into human-readable messages. Theme (`light`/`dark`) persisted via `chrome.storage.local`. |
+| `popup/popup.js` | Two-button popup: **Read** (launches reader-overlay) and **Save to sed.i** (extracts + sends to service worker). Extraction uses `executeScript({ files })` to inject Readability + content.js, then a separate `executeScript({ func })` call to invoke `window.__sediExtractAndInlineContent()` and await the result. On open, shows page title + favicon/domain immediately, then reads og/meta tags via inline `executeScript` — no content script needed, under 10ms. Save button shows animated dot loading then `sent ✓`. Duplicate saves arrive from the service worker as `{error: 'ALREADY_SAVED', code, isArchived}` and are shown as "Already in your library" (plus "(archived)" variant); other structured errors are parsed into human-readable messages. Node test: `node --test extension/test/popup-errors.test.js` (covers the Chrome and Safari copies). Theme (`light`/`dark`) persisted via `chrome.storage.local`. |
 | `background/service_worker.js` | Calls `POST /content` with `pre_extracted_html` payload. Maps `accessRestricted` → `pre_extracted_access_restricted`. Reads API base URL from `chrome.storage.local` (default: `https://api.read-sedi.com`). |
 
 **Dev mode:** Long-press (≥2s) on the extension logo reveals an API URL field for pointing the extension at localhost. The URL is saved to `chrome.storage.local` and persists across sessions.
@@ -1354,7 +1372,7 @@ Single entry point for all LLM calls. Provider-agnostic — call sites use task 
 | --- | --- |
 | `llm_client.embed(texts)` | Always uses `EMBED_PROVIDER` (default `"openai"`). No fallback — fails loudly to prevent vector-space mixing. |
 | `llm_client.chat(messages, task=TASK_*)` | Routes to `LLM_PROVIDER`. Per-task model resolved from `LLM_MODEL_{TASK}_{PROVIDER}` env var, falling back to hardcoded defaults. Primary provider failure retries on the other. |
-| `llm_client.structured_chat(messages, response_model=..., task=...)` | Returns a validated Pydantic model. OpenAI uses `instructor`; Bedrock uses a manual retry loop with validation feedback. |
+| `llm_client.structured_chat(messages, response_model=..., task=...)` | Returns a validated Pydantic model. OpenAI uses `instructor`; Bedrock uses a manual retry loop with validation feedback. On the OpenAI path, instructor's `InstructorRetryException` is unwrapped (`_transient_cause`) so a transient 429/timeout/connection error re-raises as the original openai error and reaches the Celery retry handlers; validation failures stay wrapped. |
 
 Task constants (import from `llm_client`): `TASK_TAGGING`, `TASK_SUMMARY`, `TASK_MCP_SUMMARY`, `TASK_SQL_GEN`, `TASK_INSIGHT`.
 
@@ -1389,7 +1407,7 @@ Disabled by default (`settings.S3_STORAGE_ENABLED = False`, added 2026-09-25) �
 
 ### Text-to-SQL MCP tool (`app/mcp/tools/query.py`)
 
-`query_library` MCP tool lets Claude query the user's library via natural language → SQL. Security: AST validation via `sqlglot` (SELECT-only, allow-list of 7 tables), `_enforce_user_isolation()` rejects any SQL where `:user_id` is absent or not in an equality predicate (two-tier: text scan + AST EQ walk), `user_id` bound parameter, 500ms `statement_timeout`. Fixed 2026-09-25: an unqualified `WHERE user_id = :user_id` predicate in a multi-table join was previously credited as isolating *every* user-scoped table sharing that column name, not just the one it actually binds to — the checker now only accepts an unqualified predicate when exactly one joined table's user-scoping column matches, rejecting the genuinely ambiguous case rather than trusting it. See `docs/decisions/0006-text-to-sql-security.md`.
+`query_library` MCP tool lets Claude query the user's library via natural language → SQL. Security: AST validation via `sqlglot` (SELECT-only, allow-list of 7 tables), `_enforce_user_isolation()` is structural, per SELECT block (root, CTE, subquery): every user-scoped table needs its own `alias.user_id = :user_id` (`owner_id` for lists) as a top-level AND conjunct of that block's WHERE (or an INNER JOIN ON); equalities under OR/NOT/CASE/functions/SELECT list/HAVING/ORDER BY, or in another block, do not count; the root must be a plain SELECT (no UNION). `content_items` also needs a top-level `deleted_at IS NULL` so trashed rows are hidden (highlights/chunks of trashed articles require a join to `content_items`). `user_id` bound parameter, `SET TRANSACTION READ ONLY`, 500ms `statement_timeout`. Fixed 2026-09-25: an unqualified `WHERE user_id = :user_id` predicate in a multi-table join was previously credited as isolating *every* user-scoped table sharing that column name, not just the one it actually binds to — the checker now only accepts an unqualified predicate when exactly one joined table's user-scoping column matches, rejecting the genuinely ambiguous case rather than trusting it. Fixed 2026-10-26: the previous check accepted an equality anywhere in the tree, so `WHERE user_id = :user_id OR true` leaked other users' rows. See `docs/decisions/0006-text-to-sql-security.md`.
 
 ### Pipeline observability (Prefect — Layer 8)
 
@@ -1404,6 +1422,8 @@ Opt-in (`PREFECT_ENABLED=false` default). When enabled, ingestion phases 2–5 r
 A user submits a natural-language research question via `POST /research`. The API creates a `ResearchRun` row and dispatches `run_research_lead_task` to Celery.
 
 **Status machine**: `queued → planning → searching → synthesizing → verifying → done | partial | failed`
+
+**Budget enforcement**: `max_subagents` caps the planner's sub-questions (fan-out); `max_iterations` and `timeout_s` (wall-clock since `created_at`, checked in `collect_subagent_results` before another iteration) stop iteration. When either truncates a run short of `target_count`, the collector records `run.error = {code: "iteration_limit" | "timeout"}` and synthesis proceeds; `verify_synthesis` then writes the final status `partial` (otherwise `done`). Status previously went `partial` → `synthesizing` → `done`, so truncation was lost. `max_tokens` is not enforced: no per-run token accounting exists (spend is tracked in USD per user per day by `llm_client`).
 
 ### Agent roles
 
@@ -1445,7 +1465,11 @@ At planning time, the lead agent embeds the new question, performs pgvector cosi
 
 ### Gap propagation to user profile
 
+The planner reads memory via `_fetch_research_memory` (`tasks/research.py`). Its age filter uses `make_interval(days => ...)`: the earlier `interval :param` form is a syntax error under psycopg 3 (server-side binding), so the query failed on every call, was caught, and the planner never received past memory. `tests/test_research_memory_fetch.py` runs it on a psycopg 3 session against seeded rows.
+
 The nightly memory consolidation task (`consolidate_memory`) reads recurring `none`-coverage sub-questions from `research_memory` and writes a `persistent_gaps` text field to `user_profiles`. This feeds back into the MCP synthesis context.
+
+Quick `synthesize_topic` (`mcp/tools/synthesis.py`) adds each source's most recent highlight to the prompt; `_build_context` filters highlights by the calling user's id (hybrid_search rows carry no `user_id`, so the earlier `r.get("user_id")` filter matched nothing and no highlight was ever included).
 
 ### Agentic features reference
 

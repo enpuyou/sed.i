@@ -110,6 +110,7 @@ def _count_tokens_approx(text: str) -> int:
 def _build_context(
     results: list[dict],
     db: Session,
+    user_id,
     max_tokens: int = _MAX_CONTEXT_TOKENS,
 ) -> tuple[str, list[str]]:
     """
@@ -137,7 +138,7 @@ def _build_context(
                     db.query(Highlight)
                     .filter(
                         Highlight.content_item_id == uuid.UUID(item_id),
-                        Highlight.user_id == r.get("user_id"),
+                        Highlight.user_id == user_id,
                     )
                     .order_by(Highlight.created_at.desc())
                     .first()
@@ -248,7 +249,7 @@ def synthesize_topic(
         memory_context = "\n".join(parts)
 
     results = hybrid_search(query=topic, user=user, db=db, limit=10, mode="full")
-    context, included_ids = _build_context(results, db)
+    context, included_ids = _build_context(results, db, user.id)
 
     if not context:
         return SynthesisResponse(

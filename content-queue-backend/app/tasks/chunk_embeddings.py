@@ -262,7 +262,12 @@ def process_all_missing_chunks(self):
     from app.core.task_locks import acquire_run_lock
 
     lock_name = "process_all_missing_chunks"
-    if not acquire_run_lock(lock_name, ttl_seconds=60 * 10):
+    # TTL must be shorter than the 300 s beat interval: the lock is never
+    # released (dispatch is async), so a TTL >= the interval makes every
+    # second firing skip. 240 s still blocks a second firing within the
+    # same interval (the duplicate-paid-dispatch case) and expires before
+    # the next scheduled one.
+    if not acquire_run_lock(lock_name, ttl_seconds=240):
         logger.info(f"{lock_name}: previous run still in progress, skipping")
         return {"dispatched": 0, "status": "skipped", "reason": "lock_held"}
 

@@ -342,8 +342,12 @@ export const authAPI = {
 // Content API - matches your /content endpoints
 export const contentAPI = {
   // Get all content items (GET /content)
-  getAll: async () => {
-    return fetchWithAuth(`${API_BASE_URL}/content`);
+  getAll: async (opts?: { skip?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (opts?.skip) query.set("skip", String(opts.skip));
+    if (opts?.limit) query.set("limit", String(opts.limit));
+    const qs = query.toString();
+    return fetchWithAuth(`${API_BASE_URL}/content${qs ? `?${qs}` : ""}`);
   },
 
   // Get a single content item by ID (GET /content/{item_id})

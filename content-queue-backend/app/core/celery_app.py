@@ -85,6 +85,12 @@ celery_app.conf.update(
             "task": "app.tasks.extraction.recover_stale_pending_items",
             "schedule": 60 * 5,
         },
+        # Reset items stuck at 'processing' (worker killed mid-extraction)
+        # so the pending sweep above redispatches them; fail on second stall.
+        "recover-stuck-processing-items": {
+            "task": "app.tasks.extraction.recover_stuck_processing_items",
+            "schedule": 60 * 10,
+        },
     },
 )
 

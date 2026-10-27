@@ -114,7 +114,8 @@ def extract_research_memory(run_id: str, db: Session | None = None) -> None:
             # won't help, so this stays a silent no-op, not _RunNotReadyError.
             logger.warning("extract_research_memory: run %s not found", run_id)
             return
-        if run.status != "done":
+        # A budget-truncated run ends "partial" but still has a result worth remembering.
+        if run.status != "done" and not (run.status == "partial" and run.result):
             logger.info(
                 "extract_research_memory: run %s not ready (status=%s), "
                 "requesting retry",
