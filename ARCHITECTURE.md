@@ -1090,7 +1090,7 @@ Environment variable driven — all default to `true` unless explicitly disabled
 
 ### Health endpoints
 
-`GET /health` is liveness only (always `{"status":"healthy"}`). `GET /ready` runs `SELECT 1` and a Redis `PING`, each bounded to 1 second, and returns 503 `{"status":"unavailable","failed":"database"|"redis"}` when one fails (`app/main.py`).
+`GET /health` is liveness only (always `{"status":"healthy"}`). `GET /ready` runs `SELECT 1` and a Redis `PING`, each bounded to 1 second, and returns 503 `{"status":"unavailable","failed":"database"|"redis"}` when one fails (`app/main.py`). The Railway API service uses `/ready` as its deploy healthcheck (path `/ready`, timeout 60 s), set in the service settings rather than `railway.json`, because the worker service builds from the same repository and has no HTTP server.
 
 ### Backend error shape
 
